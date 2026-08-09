@@ -1,0 +1,10 @@
+Todo:
+  ☐ no se estan inhabilitando el input de porcentaje al deshabilitar el switch
+  ☐ el lote minimo no se esta tomando de la divisa
+  ☐ los lotes deben venir de la config del broker
+  ☐ cambiar los iconos por defecto por otros de la librería de CTK que si no esta operativa, si esta operativa o si hay algun error
+
+prompt
+hola tengo un error en la seccion de console_tabview, y es que no se esta actualizando el los tabs de console_tabview cuando se agrega o se elimina algun simbolo, seguramente tiene que hacer un ajuste o algo tonto que no estoy viendo, entonces te voy a facilitar los archivos que involucran esta funcionalidad, porfa puedes analizarlos y ayudarme a conseguir la falla, adicionamente no asumas, si necesitas mas archivos me lo comentas y con gusto te los facilito igual hazme todas las preguntas necesarias, ademas para evitar disparidad en el codigo, solo dime que secciones de codigo tengo que ajustar y lo cambio, ya que sin querer se pueden cambiar nombre de variables o funciones y se pueden dañar mas cosas
+
+

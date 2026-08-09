@@ -31,6 +31,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
         self.switch_vars: Dict[str, ctk.BooleanVar] = {}
         self.entry_lots: Dict[str, ctk.CTkEntry] = {}
+        self.lbl_risk_usd: Dict[str, ctk.CTkLabel] = {}
         self.lbl_sl_pips: Dict[str, ctk.CTkLabel] = {}
         self.suggestion_buttons: List[ctk.CTkButton] = []
 
@@ -39,7 +40,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
     def set_max_risk_usd(self, risk_usd: float) -> None:
         """Actualiza el riesgo máximo en USD proveniente del Balance * % de la Sidebar."""
         self.max_risk_usd = risk_usd
-        # Recalcular las etiquetas de pips para todos los símbolos
+        # Recalcular las etiquetas de USD y Pips para todos los símbolos
         for symbol in self.symbols:
             self._update_sl_pips_label(symbol)
 
@@ -85,6 +86,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
         self.switch_vars.clear()
         self.entry_lots.clear()
+        self.lbl_risk_usd.clear()
         self.lbl_sl_pips.clear()
 
         for symbol in self.symbols:
@@ -99,7 +101,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 text=symbol,
                 variable=var,
                 font=ctk.CTkFont(weight="bold"),
-                command=lambda s=symbol: self._on_switch_toggled(s)
+                command=lambda s=symbol: self._on_toggle(s)
             )
             switch.pack(side="left", padx=10, pady=8)
 
@@ -108,117 +110,96 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 row,
                 text="❌",
                 width=30,
-                height=25,
                 fg_color="#991B1B",
                 hover_color="#7F1D1D",
                 command=lambda s=symbol: self._remove_symbol(s)
             )
-            btn_del.pack(side="right", padx=(5, 10))
+            btn_del.pack(side="right", padx=10)
 
-            # Contenedor para Lote Manual (Directo al broker)
-            lot_frame = ctk.CTkFrame(row, fg_color="transparent")
-            lot_frame.pack(side="right", padx=10)
+            # Entrada de Lotaje
+            lbl_lot = ctk.CTkLabel(row, text="Lote:")
+            lbl_lot.pack(side="left", padx=(15, 2))
 
-            lbl_lot_tag = ctk.CTkLabel(lot_frame, text="Lote:", font=ctk.CTkFont(size=12))
-            lbl_lot_tag.pack(side="left", padx=(0, 2))
-
-            entry_lot = ctk.CTkEntry(lot_frame, width=65)
             default_lot = self.symbol_lots.get(symbol, 0.01)
-            entry_lot.insert(0, str(default_lot))
-            entry_lot.pack(side="left", padx=(0, 5))
-            entry_lot.bind("<KeyRelease>", lambda e, s=symbol: self._on_lot_entry_changed(s))
-            self.entry_lots[symbol] = entry_lot
+            entry = ctk.CTkEntry(row, width=60)
+            entry.insert(0, str(default_lot))
+            entry.pack(side="left", padx=2)
+            entry.bind("<KeyRelease>", lambda e, s=symbol: self._on_lot_changed(s))
+            self.entry_lots[symbol] = entry
 
-            # Label dinámico para mostrar cuántos pips equivale el SL
-            lbl_pips = ctk.CTkLabel(
-                lot_frame,
-                text="SL: 0 Pips",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color="#3B82F6"
+            # 1. Label de Pérdida en USD
+            lbl_risk = ctk.CTkLabel(
+                row,
+                text=f"Riesgo: ${self.max_risk_usd:.2f}",
+                text_color="#F59E0B",
+                font=ctk.CTkFont(weight="bold")
             )
-            lbl_pips.pack(side="left", padx=(5, 0))
+            lbl_risk.pack(side="left", padx=(15, 5))
+            self.lbl_risk_usd[symbol] = lbl_risk
+
+            # 2. Label de SL Dinámico en Pips
+            lbl_pips = ctk.CTkLabel(
+                row,
+                text="SL Max: 0 pips",
+                text_color="#10B981",
+                font=ctk.CTkFont(weight="bold")
+            )
+            lbl_pips.pack(side="left", padx=5)
             self.lbl_sl_pips[symbol] = lbl_pips
 
-            # Calcular los pips iniciales
+            # Calcular el SL inicial
             self._update_sl_pips_label(symbol)
 
     def _update_sl_pips_label(self, symbol: str) -> None:
-        """Calcula los pips de Stop Loss basados en el LOTE FIJO y el RIESGO en USD."""
-        if symbol not in self.entry_lots or symbol not in self.lbl_sl_pips:
-            return
+        """Actualiza las etiquetas de Riesgo $ y SL (pips) según el lotaje y max_risk_usd."""
+        if symbol in self.lbl_risk_usd:
+            self.lbl_risk_usd[symbol].configure(text=f"Riesgo: ${self.max_risk_usd:.2f}")
 
         try:
-            lot = float(self.entry_lots[symbol].get().replace(",", "."))
+            lot_str = self.entry_lots[symbol].get().replace(",", ".")
+            lot = float(lot_str)
             if lot <= 0:
-                self.lbl_sl_pips[symbol].configure(text="SL: --")
-                return
-        except ValueError:
-            self.lbl_sl_pips[symbol].configure(text="SL: Error")
-            return
+                sl_pips = 0.0
+            else:
+                specs = self.symbol_specs.get(symbol, {})
+                trade_tick_value = specs.get("trade_tick_value", 1.0)
+                # Valor de 1 Pip para 1 lote estándar
+                pip_value_std = trade_tick_value * 10.0 if trade_tick_value > 0 else 10.0
 
-        # -----------------------------------------------------------------
-        # Obtener información del símbolo directamente de MT5
-        # -----------------------------------------------------------------
-        info = mt5.symbol_info(symbol)
-        if info is None:
-            # Si no hay datos de MT5 aún, estimación genérica Forex (1 pip = $10 / lote)
-            sl_pips = self.max_risk_usd / (lot * 10.0) if lot > 0 else 0
-            self.lbl_sl_pips[symbol].configure(text=f"SL: ~{sl_pips:.1f} pips")
-            return
+                # Pips = Riesgo USD / (Lotaje * Valor Pip Standard)
+                sl_pips = self.max_risk_usd / (lot * pip_value_std)
 
-        # 1. Determinar tamaño de pip (Forex vs Sintéticos/Criptos)
-        # En Forex (5 dígitos): point = 0.00001, pip_size = 0.0001 (point * 10)
-        # En Sintéticos / Índices: pip_size = point
-        pip_size = info.point * 10.0 if info.digits in (3, 5) else info.point
+            if symbol in self.lbl_sl_pips:
+                self.lbl_sl_pips[symbol].configure(text=f"SL Max: {sl_pips:.1f} pips")
+        except (ValueError, KeyError):
+            if symbol in self.lbl_sl_pips:
+                self.lbl_sl_pips[symbol].configure(text="SL Max: N/A")
 
-        # 2. Obtener el valor en USD de un Tick/Punto por cada 1 Lote
-        tick_value = info.trade_tick_value
-        tick_size = info.trade_tick_size
-
-        if tick_value == 0 or tick_size == 0:
-            # Fallback a contract_size si la terminal aún no liquida el tick
-            pip_value_per_lot = info.trade_contract_size * pip_size
-        else:
-            # Valor real de 1 Pip por 1 Lote completo
-            pip_value_per_lot = (tick_value / tick_size) * pip_size
-
-        # 3. Calcular la distancia de SL en pips para NO superar max_risk_usd
-        if pip_value_per_lot > 0 and lot > 0:
-            sl_pips = self.max_risk_usd / (lot * pip_value_per_lot)
-            self.lbl_sl_pips[symbol].configure(text=f"SL: {sl_pips:.1f} pips")
-        else:
-            self.lbl_sl_pips[symbol].configure(text="SL: --")
-
-    def _on_lot_entry_changed(self, symbol: str) -> None:
+    def _on_lot_changed(self, symbol: str) -> None:
         self._update_sl_pips_label(symbol)
         if self.on_lot_changed_callback:
             try:
-                val = float(self.entry_lots[symbol].get().replace(",", "."))
-                self.on_lot_changed_callback(symbol, val)
+                lot = float(self.entry_lots[symbol].get().replace(",", "."))
+                self.symbol_lots[symbol] = lot
+                self.on_lot_changed_callback(symbol, lot)
             except ValueError:
                 pass
 
-    def _on_switch_toggled(self, symbol: str) -> None:
-        is_active = self.switch_vars[symbol].get()
-        if self.on_toggle_callback:
-            self.on_toggle_callback(symbol, is_active)
-
     def _add_symbol(self) -> None:
-        symbol = self.entry_symbol.get().strip().upper()
-        if symbol and symbol not in self.symbols:
-            self.symbols.append(symbol)
+        sym = self.entry_symbol.get().strip()
+        if sym and sym not in self.symbols:
+            self.symbols.append(sym)
+            self.symbol_lots[sym] = 0.01
             self.entry_symbol.delete(0, "end")
-            self._hide_suggestions()
             self._render_symbol_list()
-
             if self.on_symbols_changed_callback:
                 self.on_symbols_changed_callback(self.symbols)
 
     def _remove_symbol(self, symbol: str) -> None:
         if symbol in self.symbols:
             self.symbols.remove(symbol)
+            self.symbol_lots.pop(symbol, None)
             self._render_symbol_list()
-
             if self.on_symbols_changed_callback:
                 self.on_symbols_changed_callback(self.symbols)
 
@@ -228,11 +209,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self._hide_suggestions()
             return
 
-        matches = [
-            s for s in self.available_symbols
-            if query in s.upper() and s not in self.symbols
-        ][:5]
-
+        matches = [s for s in self.available_symbols if query in s.upper()][:5]
         if matches:
             self._show_suggestions(matches)
         else:
@@ -270,14 +247,77 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self.suggestion_buttons.clear()
         self.suggestions_frame.pack_forget()
 
+    def update_available_symbols(self, available: List[str]) -> None:
+        self.available_symbols = available
+
     def get_selected_symbols(self) -> List[str]:
         return [s for s, var in self.switch_vars.items() if var.get()]
 
     def get_symbol_lots(self) -> Dict[str, float]:
-        lots = {}
-        for s, entry in self.entry_lots.items():
-            try:
-                lots[s] = float(entry.get().replace(",", "."))
-            except ValueError:
-                lots[s] = 0.01
-        return lots
+        return self.symbol_lots
+
+    def set_inputs_enabled(self, force_all_disabled: bool = False) -> None:
+        """
+        Garantiza que:
+        - Si force_all_disabled es True (hay operaciones reales en MT5), bloquea todo.
+        - Si force_all_disabled es False, deshabilita solo los lotes de los símbolos con switch ACTIVO.
+        """
+        for symbol, entry in self.entry_lots.items():
+            is_switch_on = self.switch_vars.get(symbol, ctk.BooleanVar()).get()
+            should_disable = force_all_disabled or is_switch_on
+
+            if should_disable:
+                entry.configure(
+                    state="disabled",
+                    fg_color="#1F1F1F",
+                    text_color="#666666"
+                )
+            else:
+                entry.configure(
+                    state="normal",
+                    fg_color="#333333",
+                    text_color="#FFFFFF"
+                )
+
+    def _on_toggle(self, symbol: str) -> None:
+        """Se ejecuta inmediatamente al presionar el switch de un símbolo."""
+        is_active = self.switch_vars[symbol].get()
+
+        # 1. Actualizar el estado visual e interactivo de este símbolo individual
+        self._update_single_symbol_input_state(symbol)
+
+        # 2. Ejecutar el callback en app.py (crear/destruir worker y refrescar sidebar)
+        if self.on_toggle_callback:
+            self.on_toggle_callback(symbol, is_active)
+
+    def _update_single_symbol_input_state(self, symbol: str, force_disable: bool = False) -> None:
+        """Actualiza el estado de un único input de lotaje según su switch individual."""
+        if symbol not in self.entry_lots:
+            return
+
+        entry = self.entry_lots[symbol]
+        is_switch_on = self.switch_vars.get(symbol, ctk.BooleanVar()).get()
+        should_disable = force_disable or is_switch_on
+
+        if should_disable:
+            entry.configure(
+                state="disabled",
+                fg_color="#1A1A1A",   # Gris muy oscuro (desvanecido)
+                text_color="#555555"  # Texto apagado
+            )
+        else:
+            entry.configure(
+                state="normal",
+                fg_color="#333333",   # Color normal
+                text_color="#FFFFFF"  # Texto blanco
+            )
+        entry.update_idletasks()
+
+    def update_all_inputs_state(self, force_all_disabled: bool = False) -> None:
+        """
+        Recorre todos los símbolos y actualiza sus inputs individualmente.
+        Si force_all_disabled es True (operaciones reales en MT5), bloquea todos.
+        Si es False, evalúa el switch de cada símbolo por separado.
+        """
+        for symbol in self.symbols:
+            self._update_single_symbol_input_state(symbol, force_disable=force_all_disabled)

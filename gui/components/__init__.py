@@ -9,5 +9,5 @@ __all__ = [
     "ConsoleTabviewComponent",
     "ConfigWindow",
     "reload_config_and_symbols",
-    "open_config_window"
+    "open_config_window",
 ]

@@ -36,7 +36,7 @@ class QuantBotApp(ctk.CTk):
         # Cargar configuración persistente
         self.config_data: Dict[str, Any] = load_config()
         self.symbols: List[str] = self.config_data.get(
-            "active_symbols", ["EURUSD_r", "GBPUSD_r", "USDJPY_r", "AUDUSD_r"]
+            "active_symbols", []
         )
 
         self.stop_events: Dict[str, threading.Event] = {}
@@ -59,39 +59,10 @@ class QuantBotApp(ctk.CTk):
         # -----------------------------------------------------------------
         self._update_account_loop()
 
-    def _update_account_loop(self) -> None:
-        """Obtiene el balance actual de MT5 con reintento de conexión."""
-        try:
-            acc_info = mt5.account_info()
-
-            # Si se perdió la comunicación IPC, reintentamos reconectar
-            if acc_info is None:
-                print("[DEBUG ACCOUNT] ⚠️ Conexión perdida o no inicializada. Reintentando initialize_mt5()...")
-                if initialize_mt5():
-                    acc_info = mt5.account_info()
-
-            if acc_info is not None:
-                balance = acc_info.balance
-                equity = acc_info.equity
-
-                # Actualizar la interfaz
-                self.sidebar.update_account_info(balance, equity)
-
-                # Calcular riesgo dinámico
-                sidebar_params = self.sidebar.get_parameters()
-                risk_pct = sidebar_params.get("risk_pct", 0.01)
-                max_risk_usd = balance * risk_pct
-                self.symbol_selector.set_max_risk_usd(max_risk_usd)
-            else:
-                last_error = mt5.last_error()
-                print(f"[DEBUG ACCOUNT] ⚠️ mt5.account_info() devolvió None. Código de error MT5: {last_error}")
-                self.sidebar.update_account_info(0.0, 0.0)
-
-        except Exception as e:
-            print(f"[DEBUG ACCOUNT] ❌ Excepción al consultar cuenta: {e}")
-
-        # Re-ejecutar cada 30 segundos
-        self.after(30000, self._update_account_loop)
+        self.console_tabview = ConsoleTabviewComponent(
+            master=self.main_frame,
+            symbols=self.symbols
+        )
 
     def _build_ui(self) -> None:
         # 1. Sidebar (Columna 0)
@@ -121,7 +92,7 @@ class QuantBotApp(ctk.CTk):
         # 4. Consola de Logs (dentro de self.main_frame)
         self.console = ConsoleTabviewComponent(
             master=self.main_frame,
-            symbols=self.symbols
+            symbols=self.symbol_selector.symbols
         )
         self.console.pack(fill="both", expand=True)
 
@@ -151,6 +122,10 @@ class QuantBotApp(ctk.CTk):
     def _handle_symbols_list_changed(self, new_symbols: List[str]) -> None:
         self.symbols = new_symbols
         self.save_settings()
+
+        # ⚡ Sincronizar las pestañas de la consola inmediatamente
+        if hasattr(self, "console"):
+            self.console.sync_tabs(self.symbols)
 
     def _on_config_reloaded(self) -> None:
         """Callback cuando se guardan credenciales desde el modal de configuración."""
@@ -187,6 +162,128 @@ class QuantBotApp(ctk.CTk):
         shutdown_mt5()
         super().destroy()
 
+    def _on_toggle(self, symbol: str) -> None:
+        """Se ejecuta al instante al pulsar el switch."""
+        is_active = self.switch_vars[symbol].get()
+
+        # 1. Notificar a la App para que reevalúe bloqueos de UI INMEDIATAMENTE
+        if hasattr(self.master, "update_controls_state"):
+            self.master.update_controls_state()
+
+        # 2. Ejecutar callback del worker si existe
+        if self.on_toggle_callback:
+            self.on_toggle_callback(symbol, is_active)
+
+    def set_inputs_enabled(self, force_all_disabled: bool = False) -> None:
+        """Aplica el bloqueo/desbloqueo instantáneo con estilos desvanecidos."""
+        for symbol, entry in self.entry_lots.items():
+            is_switch_on = self.switch_vars.get(symbol, ctk.BooleanVar()).get()
+            should_disable = force_all_disabled or is_switch_on
+
+            if should_disable:
+                entry.configure(
+                    state="disabled",
+                    fg_color="#1A1A1A",
+                    text_color="#555555"
+                )
+            else:
+                entry.configure(
+                    state="normal",
+                    fg_color="#333333",
+                    text_color="#FFFFFF"
+                )
+            entry.update_idletasks()
+
+    def _on_symbol_toggle(self, symbol: str, is_active: bool) -> None:
+        """Maneja el encendido/apagado de un bot por símbolo y actualiza la UI al instante."""
+        if is_active:
+            self.console.log(symbol, f"🚀 Activando monitoreo para {symbol}...", "INFO")
+            stop_event = threading.Event()
+            self.stop_events[symbol] = stop_event
+
+            worker = SymbolWorker(
+                symbol=symbol,
+                timeframe_str=self.sidebar.get_parameters().get("timeframe", "M15"),
+                risk_pct=self.sidebar.get_parameters().get("risk_pct", 0.01),
+                stop_event=stop_event,
+                log_callback=self._log_from_worker,
+                lot_size=self.symbol_selector.get_symbol_lots().get(symbol, 0.01)
+            )
+            self.workers[symbol] = worker
+            worker.start()
+        else:
+            self.console.log(symbol, f"🛑 Deteniendo monitoreo para {symbol}...", "INFO")
+            if symbol in self.stop_events:
+                self.stop_events[symbol].set()
+                del self.stop_events[symbol]
+            if symbol in self.workers:
+                del self.workers[symbol]
+
+        # ⚡ IMPORTANTE: Refrescar el estado de los controles AL INSTANTE
+        self.update_controls_state()
+
+    def update_controls_state(self) -> None:
+        """Sincroniza el estado de los controles con las posiciones abiertas de MT5."""
+        has_real_trades = self._has_open_positions()
+
+        # Si hay posiciones abiertas, se deshabilita el sidebar
+        self.sidebar.set_inputs_state(enabled=not has_real_trades)
+
+        # Actualizar selector de símbolos
+        self.symbol_selector.update_all_inputs_state(force_all_disabled=has_real_trades)
+
+    def _has_open_positions(self) -> bool:
+        """Verifica si existen posiciones abiertas en MT5."""
+        try:
+            positions = mt5.positions_get()
+            return positions is not None and len(positions) > 0
+        except Exception:
+            return False
+
+        def on_sidebar_risk_changed(self) -> None:
+            """Recalcula los Pips en tiempo real cuando el usuario escribe en la Sidebar."""
+            try:
+                acc_info = mt5.account_info()
+                balance = acc_info.balance if acc_info else 0.0
+                risk_pct = self.sidebar.get_parameters().get("risk_pct", 0.01)
+
+                max_risk_usd = balance * risk_pct
+                self.symbol_selector.set_max_risk_usd(max_risk_usd)
+            except Exception:
+                pass
+
+    def _update_account_loop(self) -> None:
+        """Bucle secundario en segundo plano."""
+        try:
+            acc_info = mt5.account_info()
+            if acc_info is not None:
+                balance = acc_info.balance
+                self.sidebar.update_account_info(balance, acc_info.equity)
+
+                risk_pct = self.sidebar.get_parameters().get("risk_pct", 0.01)
+                self.symbol_selector.set_max_risk_usd(balance * risk_pct)
+
+                # Mantener estado de controles sincronizado con MT5
+                self.update_controls_state()
+            else:
+                self.sidebar.update_account_info(0.0, 0.0)
+
+        except Exception as e:
+            print(f"[DEBUG ACCOUNT] Excepción en loop: {e}")
+
+        self.after(5000, self._update_account_loop)
+
+    def on_symbols_changed(self, new_symbols: List[str]) -> None:
+        """Callback cuando cambia la selección de símbolos activos."""
+        self.symbols = list(new_symbols)
+        self.config_data["active_symbols"] = self.symbols
+        save_config(self.config_data)
+
+        # Asegurar que la consola tenga pestaña para todos los activos
+        if hasattr(self, "console_tabview"):
+            self.console_tabview.sync_tabs(self.symbols)
+
+        self.update_controls_state()
 
 if __name__ == "__main__":
     app = QuantBotApp()

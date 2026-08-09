@@ -71,6 +71,9 @@ class SidebarComponent(ctk.CTkFrame):
         self.entry_risk.insert(0, str(self.default_risk_pct))
         self.entry_risk.pack(fill="x", padx=20, pady=(0, 15))
 
+        # Bindeo para recalcular pips en milisegundos mientras se escribe
+        self.entry_risk.bind("<KeyRelease>", self._on_risk_changed)
+
         # Modo Test Switch
         self.switch_test_mode = ctk.CTkSwitch(
             self,
@@ -123,6 +126,27 @@ class SidebarComponent(ctk.CTkFrame):
         )
         self.btn_test_order.pack(fill="x", padx=20, pady=(5, 20))
 
+    def _on_risk_changed(self, event: Any = None) -> None:
+        """Notifica cambios de riesgo al instante."""
+        if hasattr(self.master, "on_sidebar_risk_changed"):
+            self.master.on_sidebar_risk_changed()
+
+    def set_risk_input_enabled(self, enabled: bool) -> None:
+        """Bloquea/Habilita el porcentaje con estilo visual desvanecido."""
+        if enabled:
+            self.entry_risk.configure(
+                state="normal",
+                fg_color="#333333",
+                text_color="#FFFFFF"
+            )
+        else:
+            self.entry_risk.configure(
+                state="disabled",
+                fg_color="#1A1A1A",
+                text_color="#555555"
+            )
+        self.entry_risk.update_idletasks()
+
     def update_account_info(self, balance: float, equity: float) -> None:
         """Actualiza dinámicamente las etiquetas de Balance y Equidad."""
         self.lbl_balance.configure(text=f"💰 Balance: ${balance:,.2f}")
@@ -147,3 +171,27 @@ class SidebarComponent(ctk.CTkFrame):
             "timeframe_str": tf_str,
             "timeframe_val": tf_val,
         }
+
+    def set_inputs_state(self, enabled: bool) -> None:
+        """Habilita o deshabilita los controles del Sidebar."""
+        state = "normal" if enabled else "disabled"
+
+        # Restauración o bloqueo de Entry
+        self.entry_risk.configure(state=state)
+        if enabled:
+            self.entry_risk.configure(
+                fg_color=ctk.ThemeManager.theme["CTkEntry"]["fg_color"],
+                text_color=ctk.ThemeManager.theme["CTkEntry"]["text_color"]
+            )
+        else:
+            self.entry_risk.configure(
+                fg_color="#1e1e1e",
+                text_color="#555555"
+            )
+
+        # Resto de controles
+        self.opt_tf.configure(state=state)
+        self.switch_test_mode.configure(state=state)
+        self.btn_config.configure(state=state)
+
+        self.update_idletasks()
