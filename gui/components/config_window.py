@@ -144,27 +144,48 @@ class ConfigWindow(ctk.CTkToplevel):
         try:
             data = self._get_form_data()
 
-            # Intentar conectarse a MT5 para descargar los símbolos
+            # Cargar la configuración actual para preservar 'active_symbols' o 'max_risk_usd' si no están en la ventana modal
+            current_config = load_config()
+
+            # Mantener los active_symbols con sus lotes actuales si existen
+            data["active_symbols"] = current_config.get("active_symbols", {})
+            data["max_risk_usd"] = current_config.get("max_risk_usd", 10.0)
+
+            # Intentar conectarse a MT5 para descargar todos los símbolos del broker
             init_kwargs = {}
             if data.get("path"):
                 init_kwargs["path"] = data["path"]
 
             if mt5.initialize(**init_kwargs):
-                if data["login"] and data["password"] and data["server"]:
-                    mt5.login(login=data["login"], password=data["password"], server=data["server"])
+              if data.get("login") and data.get("password") and data.get("server"):
+                  mt5.login(
+                      login=int(data["login"]),
+                      password=str(data["password"]),
+                      server=str(data["server"])
+                  )
 
-                broker_symbols = get_all_available_symbols()
-                if broker_symbols:
-                    data["available_symbols"] = broker_symbols
+              broker_symbols = get_all_available_symbols()
+              if broker_symbols:
+                  data["available_symbols"] = broker_symbols
 
-                mt5.shutdown()
+              mt5.shutdown()
 
+            # Guardar en config.json
             if save_config(data):
-                self.status_label.configure(text="✅ Configuración guardada y símbolos actualizados", text_color="#10B981")
-                if self.on_save_callback:
-                    self.on_save_callback()
-                self.after(1200, self.destroy)
+              self.status_label.configure(
+                  text="✅ Configuración guardada y símbolos actualizados",
+                  text_color="#10B981"
+              )
+              if self.on_save_callback:
+                  self.on_save_callback()
+              self.after(1200, self.destroy)
             else:
-                self.status_label.configure(text="❌ Error al guardar config.json", text_color="#EF4444")
+                self.status_label.configure(
+                    text="❌ Error al guardar config.json",
+                    text_color="#EF4444"
+                )
         except Exception as e:
-            self.status_label.configure(text=f"❌ Error: {str(e)}", text_color="#EF4444")
+            self.status_label.configure(
+                text=f"❌ Error: {str(e)}",
+                text_color="#EF4444"
+            )

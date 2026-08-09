@@ -21,12 +21,14 @@ class SidebarComponent(ctk.CTkFrame):
         master: Any,
         on_test_order_callback: Optional[Callable[[], None]] = None,
         on_config_saved_callback: Optional[Callable[[], None]] = None,
+        default_risk_pct: float = 1.0,
         **kwargs: Any
     ) -> None:
         super().__init__(master, width=280, corner_radius=0, **kwargs)
 
-        self.on_test_order_callback: Optional[Callable[[], None]] = on_test_order_callback
-        self.on_config_saved_callback: Optional[Callable[[], None]] = on_config_saved_callback
+        self.on_test_order_callback = on_test_order_callback
+        self.on_config_saved_callback = on_config_saved_callback
+        self.default_risk_pct = default_risk_pct
 
         self._build_ui()
 
@@ -43,41 +45,31 @@ class SidebarComponent(ctk.CTkFrame):
 
     def _build_ui(self) -> None:
         # Título
-        self.logo_label = ctk.CTkLabel(
+        lbl_title = ctk.CTkLabel(
             self,
             text="⚙️ Parámetros Bot",
-            font=ctk.CTkFont(size=20, weight="bold")
+            font=ctk.CTkFont(size=18, weight="bold")
         )
-        self.logo_label.pack(padx=20, pady=(20, 15))
+        lbl_title.pack(padx=20, pady=(20, 15), anchor="w")
 
-        # Inputs
-        self.lbl_risk = ctk.CTkLabel(self, text="Riesgo por Trade (%):")
-        self.lbl_risk.pack(anchor="w", padx=20, pady=(5, 0))
-        self.entry_risk = ctk.CTkEntry(self, placeholder_text="1.0")
-        self.entry_risk.insert(0, "1.0")
-        self.entry_risk.pack(fill="x", padx=20, pady=(2, 10))
+        # Timeframe OptionMenu
+        lbl_tf = ctk.CTkLabel(self, text="Timeframe (Temporalidad):", font=ctk.CTkFont(weight="bold"))
+        lbl_tf.pack(padx=20, pady=(5, 2), anchor="w")
 
-        self.lbl_sl = ctk.CTkLabel(self, text="Default SL (Pips):")
-        self.lbl_sl.pack(anchor="w", padx=20, pady=(5, 0))
-        self.entry_sl = ctk.CTkEntry(self, placeholder_text="15.0")
-        self.entry_sl.insert(0, "15.0")
-        self.entry_sl.pack(fill="x", padx=20, pady=(2, 10))
-
-        self.lbl_tp = ctk.CTkLabel(self, text="Default TP (Pips):")
-        self.lbl_tp.pack(anchor="w", padx=20, pady=(5, 0))
-        self.entry_tp = ctk.CTkEntry(self, placeholder_text="30.0")
-        self.entry_tp.insert(0, "30.0")
-        self.entry_tp.pack(fill="x", padx=20, pady=(2, 10))
-
-        # Selector Temporalidad Vela
-        self.lbl_tf = ctk.CTkLabel(self, text="⏱️ Temporalidad Vela:")
-        self.lbl_tf.pack(anchor="w", padx=20, pady=(5, 0))
         self.opt_tf = ctk.CTkOptionMenu(
             self,
             values=list(TIMEFRAME_OPTIONS.keys())
         )
         self.opt_tf.set("M1")
-        self.opt_tf.pack(fill="x", padx=20, pady=(2, 10))
+        self.opt_tf.pack(fill="x", padx=20, pady=(0, 15))
+
+        # Riesgo % por Operación
+        lbl_risk = ctk.CTkLabel(self, text="Riesgo Global por Operación (%):", font=ctk.CTkFont(weight="bold"))
+        lbl_risk.pack(padx=20, pady=(5, 2), anchor="w")
+
+        self.entry_risk = ctk.CTkEntry(self, placeholder_text="Ej: 1.0")
+        self.entry_risk.insert(0, str(self.default_risk_pct))
+        self.entry_risk.pack(fill="x", padx=20, pady=(0, 15))
 
         # Modo Test Switch
         self.switch_test_mode = ctk.CTkSwitch(
@@ -105,11 +97,15 @@ class SidebarComponent(ctk.CTkFrame):
         )
         self.lbl_equity.pack(anchor="w", padx=15, pady=(0, 10))
 
-        # Botón Configuración
+        # Separador / Espaciador
+        spacer = ctk.CTkFrame(self, fg_color="transparent")
+        spacer.pack(fill="both", expand=True)
+
+        # Botón Configuración MT5 (Modal)
         self.btn_config = ctk.CTkButton(
             self,
-            text="⚙️ CONFIGURACIÓN",
-            fg_color="#3B82F6",
+            text="🔌 CONEXIÓN MT5",
+            fg_color="#1D4ED8",
             hover_color="#2563EB",
             font=ctk.CTkFont(weight="bold"),
             command=self._open_config_modal
@@ -125,30 +121,29 @@ class SidebarComponent(ctk.CTkFrame):
             font=ctk.CTkFont(weight="bold"),
             command=self._on_test_click
         )
-        self.btn_test_order.pack(fill="x", padx=20, pady=(5, 10))
+        self.btn_test_order.pack(fill="x", padx=20, pady=(5, 20))
+
+    def update_account_info(self, balance: float, equity: float) -> None:
+        """Actualiza dinámicamente las etiquetas de Balance y Equidad."""
+        self.lbl_balance.configure(text=f"💰 Balance: ${balance:,.2f}")
+        self.lbl_equity.configure(text=f"📊 Equidad: ${equity:,.2f}")
 
     def get_parameters(self) -> Dict[str, Any]:
-        """Retorna los valores ingresados en las entradas de texto."""
+        """Retorna los parámetros actualizados del Sidebar."""
         try:
-            risk = float(self.entry_risk.get())
-            sl = float(self.entry_sl.get())
-            tp = float(self.entry_tp.get())
+            raw_val = float(self.entry_risk.get().replace(",", "."))
+            # Si el usuario ingresa un valor como 1.0 (que significa 1%), lo convertimos a 0.01.
+            # Si ingresa 0.01 (que ya es decimal), lo mantenemos.
+            risk_pct = raw_val / 100.0 if raw_val >= 0.1 else raw_val
         except ValueError:
-            risk, sl, tp = 1.0, 15.0, 30.0
+            risk_pct = 0.01  # Fallback a 1% de riesgo en caso de input inválido
 
         tf_str: str = str(self.opt_tf.get())
         tf_val: int = TIMEFRAME_OPTIONS.get(tf_str, mt5.TIMEFRAME_M1)
 
         return {
-            "risk_pct": risk,
-            "sl_pips": sl,
-            "tp_pips": tp,
+            "risk_pct": risk_pct,             # Ej: 0.01 para 1%
+            "test_mode": self.switch_test_mode.get() == 1,
             "timeframe_str": tf_str,
-            "timeframe": tf_val,
-            "test_mode": bool(self.switch_test_mode.get()),
+            "timeframe_val": tf_val,
         }
-
-    def update_account_info(self, balance: float, equity: float) -> None:
-        """Actualiza la vista de balance y equidad."""
-        self.lbl_balance.configure(text=f"💰 Balance: ${balance:,.2f}")
-        self.lbl_equity.configure(text=f"📊 Equidad: ${equity:,.2f}")

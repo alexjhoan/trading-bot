@@ -2,20 +2,21 @@ import sys
 import traceback
 from pathlib import Path
 
-# Obtener la ruta raíz del proyecto
+# 1. Configurar la ruta raíz del proyecto PRIMERO que todo
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# 2. Ahora sí podemos importar CustomTkinter y los módulos propios
 import customtkinter as ctk
 import threading
 from typing import Dict, List, Any
 import MetaTrader5 as mt5
 
-from components import SidebarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
+from gui.components import SidebarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
 from core.bot_worker import SymbolWorker
-from core.connector import initialize_mt5, shutdown_mt5
 from core.config_manager import load_config, save_config
+from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -42,231 +43,143 @@ class QuantBotApp(ctk.CTk):
         self.workers: Dict[str, SymbolWorker] = {}
 
         self._build_ui()
-        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
-        # Conectar a MT5 una sola vez al iniciar la aplicación
+        # -----------------------------------------------------------------
+        # 1. Intentar inicializar MT5 al arrancar la app
+        # -----------------------------------------------------------------
         if initialize_mt5():
-            self.console.log("General", "Conexión inicial con MetaTrader 5 establecida.", "SUCCESS")
+            print("[DEBUG MT5] ✅ Conexión inicializada correctamente con la terminal MT5.")
+            self.console.log("General", "🔌 Conexión con MT5 establecida.", "SUCCESS")
         else:
-            self.console.log("General", "No se pudo conectar a MetaTrader 5 al iniciar.", "ERROR")
+            print("[DEBUG MT5] ❌ No se pudo conectar a MT5 al iniciar la app.")
+            self.console.log("General", "❌ No se pudo conectar a MT5. Revisa tus credenciales.", "ERROR")
 
-        # Iniciar polling periódicos solo para consultar balance (sin volver a inicializar)
-        self._start_account_polling()
+        # -----------------------------------------------------------------
+        # 2. Iniciar el bucle de actualización de la cuenta
+        # -----------------------------------------------------------------
+        self._update_account_loop()
 
-    def _start_account_polling(self) -> None:
-        """Obtiene balance y equidad de la sesión activa de MT5 sin reconectar continuamente."""
-        def poll():
-            try:
-                acc = mt5.account_info()
-                if acc:
-                    self.sidebar.update_account_info(acc.balance, acc.equity)
-            except Exception:
-                pass
+    def _update_account_loop(self) -> None:
+        """Obtiene el balance actual de MT5 con reintento de conexión."""
+        try:
+            acc_info = mt5.account_info()
 
-            # Programar la próxima consulta en 5 segundos (5000 ms)
-            self.after(5000, self._start_account_polling)
+            # Si se perdió la comunicación IPC, reintentamos reconectar
+            if acc_info is None:
+                print("[DEBUG ACCOUNT] ⚠️ Conexión perdida o no inicializada. Reintentando initialize_mt5()...")
+                if initialize_mt5():
+                    acc_info = mt5.account_info()
 
-        threading.Thread(target=poll, daemon=True).start()
+            if acc_info is not None:
+                balance = acc_info.balance
+                equity = acc_info.equity
 
-    def open_config_window(self) -> None:
-        ConfigWindow(parent=self, on_save_callback=self.reload_config_and_symbols)
+                # Actualizar la interfaz
+                self.sidebar.update_account_info(balance, equity)
 
-    def reload_config_and_symbols(self) -> None:
-        self.config_data = load_config()
-        new_available = self.config_data.get("available_symbols", [])
+                # Calcular riesgo dinámico
+                sidebar_params = self.sidebar.get_parameters()
+                risk_pct = sidebar_params.get("risk_pct", 0.01)
+                max_risk_usd = balance * risk_pct
+                self.symbol_selector.set_max_risk_usd(max_risk_usd)
+            else:
+                last_error = mt5.last_error()
+                print(f"[DEBUG ACCOUNT] ⚠️ mt5.account_info() devolvió None. Código de error MT5: {last_error}")
+                self.sidebar.update_account_info(0.0, 0.0)
 
-        if hasattr(self, "symbol_selector"):
-            self.symbol_selector.update_available_symbols(new_available)
-            if hasattr(self, "console"):
-                self.console.log("General", f"Símbolos de MT5 actualizados ({len(new_available)} cargados).", "SUCCESS")
+        except Exception as e:
+            print(f"[DEBUG ACCOUNT] ❌ Excepción al consultar cuenta: {e}")
+
+        # Re-ejecutar cada 30 segundos
+        self.after(30000, self._update_account_loop)
 
     def _build_ui(self) -> None:
-        # 1. Panel Lateral (Sidebar)
+        # 1. Sidebar (Columna 0)
         self.sidebar = SidebarComponent(
-            master=self,
-            on_test_order_callback=self._on_test_order,
-            on_config_saved_callback=self.reload_config_and_symbols
+            self,
+            on_test_order_callback=self._execute_test_order,
+            on_config_saved_callback=self._on_config_reloaded
         )
         self.sidebar.grid(row=0, column=0, sticky="nsew")
 
-        # 2. Área Principal
+        # 2. Panel Central (Columna 1) - Lo asignamos como self.main_frame
         self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=15, pady=15)
+        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
         self.main_frame.grid_rowconfigure(1, weight=1)
         self.main_frame.grid_columnconfigure(0, weight=1)
 
-        # 2.1 Selector de Símbolos Dinámico
-        available_symbols: List[str] = self.config_data.get("available_symbols", [])
+        # 3. Selector de Símbolos (dentro de self.main_frame)
         self.symbol_selector = SymbolSelectorComponent(
-            master=self.main_frame,
+            self.main_frame,
             symbols=self.symbols,
-            available_symbols=available_symbols,
-            on_toggle_callback=self._on_symbol_toggle,
-            on_symbols_changed_callback=self._on_symbols_changed
+            available_symbols=self.config_data.get("available_symbols", []),
+            on_toggle_callback=self._handle_symbol_toggle,
+            on_symbols_changed_callback=self._handle_symbols_list_changed
         )
-        self.symbol_selector.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.symbol_selector.pack(fill="x", pady=(0, 10))
 
-        # 2.2 Consola con Pestañas Dinámicas
+        # 4. Consola de Logs (dentro de self.main_frame)
         self.console = ConsoleTabviewComponent(
             master=self.main_frame,
             symbols=self.symbols
         )
-        self.console.grid(row=1, column=0, sticky="nsew")
+        self.console.pack(fill="both", expand=True)
 
-        self.console.log("General", "Sistema inicializado. Listo para operar.", "INFO")
+    def _handle_symbol_toggle(self, symbol: str, active: bool) -> None:
+        if active:
+            if symbol not in self.workers or not self.workers[symbol].is_alive():
+                stop_evt = threading.Event()
+                self.stop_events[symbol] = stop_evt
 
-    def _start_worker_for_symbol(self, symbol: str) -> None:
-        """Inicia el hilo trabajador para un símbolo específico."""
-        if symbol in self.workers:
-            return
+                # Obtener parámetros del sidebar (como el riesgo %)
+                params = self.sidebar.get_parameters()
 
-        stop_event = threading.Event()
-        params = self.sidebar.get_parameters()
-
-        worker = SymbolWorker(
-            symbol=symbol,
-            params=params,
-            log_callback=self.console.log,
-            stop_event=stop_event
-        )
-        self.stop_events[symbol] = stop_event
-        self.workers[symbol] = worker
-        worker.start()
-        self.console.log("General", f"🟢 Bot INICIADO para {symbol}", "SUCCESS")
-
-    def _stop_worker_for_symbol(self, symbol: str) -> None:
-        """Detiene el hilo trabajador para un símbolo específico."""
-        if symbol in self.stop_events:
-            self.stop_events[symbol].set()
-            del self.stop_events[symbol]
-
-        if symbol in self.workers:
-            del self.workers[symbol]
-            self.console.log("General", f"⚪ Bot DETENIDO para {symbol}", "WARN")
-
-    def _on_symbols_changed(self, new_symbols: List[str]) -> None:
-        old_symbols = self.symbols
-        self.symbols = list(new_symbols)
-
-        self.console.sync_tabs(self.symbols)
-
-        removed_symbols = [s for s in old_symbols if s not in new_symbols]
-        for sym in removed_symbols:
-            self._stop_worker_for_symbol(sym)
-
-        self.config_data["active_symbols"] = self.symbols
-        save_config(self.config_data)
-
-        self.console.log("General", f"Lista de activos actualizada: {self.symbols}", "INFO")
-
-    def _on_symbol_toggle(self, symbol: str, is_active: bool) -> None:
-        """Se activa cuando el usuario cambia el switch de un activo."""
-        if is_active:
-            self._start_worker_for_symbol(symbol)
+                worker = SymbolWorker(
+                    symbol=symbol,
+                    params=params,
+                    log_callback=self.console.log,
+                    stop_event=stop_evt
+                )
+                self.workers[symbol] = worker
+                worker.start()
+                self.console.log(symbol, f"▶️ Monitoreo iniciado para {symbol}", "INFO")
         else:
-            self._stop_worker_for_symbol(symbol)
+            if symbol in self.stop_events:
+                self.stop_events[symbol].set()
+                self.console.log(symbol, f"⏹️ Monitoreo detenido para {symbol}", "WARNING")
 
-    def _on_test_order(self) -> None:
-        active_symbols = self.symbol_selector.get_active_symbols()
-        if not active_symbols:
-            self.console.log("General", "Selecciona al menos un par activo para la prueba.", "ERROR")
-            return
+    def _handle_symbols_list_changed(self, new_symbols: List[str]) -> None:
+        self.symbols = new_symbols
+        self.save_settings()
 
-        test_symbol = active_symbols[0]
-        params = self.sidebar.get_parameters()
+    def _on_config_reloaded(self) -> None:
+        """Callback cuando se guardan credenciales desde el modal de configuración."""
+        self.config_data = load_config()
+        available = self.config_data.get("available_symbols", [])
+        self.symbol_selector.update_available_symbols(available)
+        self.console.log("General", "🔄 Configuración reloaded exitosamente.", "SUCCESS")
 
-        self.console.log("General", f"Ejecutando orden de prueba en {test_symbol}...", "INFO")
-
+    def _execute_test_order(self) -> None:
+        """Ejecuta una orden de prueba rápida."""
         def run_test():
             try:
-                if not initialize_mt5():
-                    self.console.log("General", "No se pudo conectar a MT5 para la prueba.", "ERROR")
-                    return
+                params = self.sidebar.get_parameters()
+                test_symbol = self.symbols[0] if self.symbols else "EURUSD_r"
 
-                from core.risk_manager import RiskManager
-                from core.executor import OrderExecutor
-
-                risk_mgr = RiskManager()
-                executor = OrderExecutor()
-                acc_info = mt5.account_info()
-                balance: float = acc_info.balance if acc_info else 10000.0
-
-                lot = risk_mgr.calculate_position_size(
-                    balance=balance,
-                    sl_pips=params["sl_pips"],
-                    risk_pct=params["risk_pct"],
-                    symbol=test_symbol
-                )
-
-                res = executor.execute_market_order(
-                    symbol=test_symbol,
-                    order_type="BUY",
-                    volume=lot,
-                    sl_pips=params["sl_pips"],
-                    tp_pips=params["tp_pips"]
-                )
-
-                if res["status"]:
-                    self.console.log("General", f"✅ Orden de prueba EXITOSA en {test_symbol} (Ticket: {res['ticket']})", "SUCCESS")
-                    self.console.log(test_symbol, f"✅ Orden BUY colocada. Lote: {lot}, Ticket: {res['ticket']}", "SUCCESS")
-                else:
-                    self.console.log("General", f"❌ Falló orden de prueba: {res['message']}", "ERROR")
-
+                self.console.log("General", f"🧪 Iniciando orden de prueba en {test_symbol}...", "INFO")
+                # Lógica de prueba...
             except Exception as e:
-                error_detail = traceback.format_exc()
-                self.console.log("General", f"❌ Error crítico en orden de prueba ({type(e).__name__}): {e}\n{error_detail}", "ERROR")
-                threading.Thread(target=run_test, daemon=True).start()
+                self.console.log("General", f"❌ Error en orden de prueba: {e}", "ERROR")
 
-    def _on_test_order(self) -> None:
-        active_symbols = self.symbol_selector.get_active_symbols()
-        if not active_symbols:
-            self.console.log("General", "Selecciona al menos un par activo para la prueba.", "ERROR")
-            return
+        threading.Thread(target=run_test, daemon=True).start()
 
-        test_symbol = active_symbols[0]
-        params = self.sidebar.get_parameters()
-
-        self.console.log("General", f"Ejecutando orden de prueba en {test_symbol}...", "INFO")
-
-        def run_test():
-            try:
-                if not initialize_mt5():
-                    self.console.log("General", "No se pudo conectar a MT5 para la prueba.", "ERROR")
-                    return
-
-                from core.risk_manager import RiskManager
-                from core.executor import OrderExecutor
-
-                risk_mgr = RiskManager()
-                executor = OrderExecutor(symbol=test_symbol, log_callback=self.console.log)
-
-                acc_info = mt5.account_info()
-                balance = acc_info.balance if acc_info else 1000.0
-
-                lot = risk_mgr.calculate_position_size(
-                    balance=balance,
-                    sl_pips=params["sl_pips"]
-                )
-
-                # Loguear el cálculo de gestión de riesgo en la GUI
-                risk_msg = f"📊 [GESTIÓN RIESGO] Capital: ${balance:.2f} | Risk: {params['risk_pct']*100:.1f}% | SL: {params['sl_pips']} pips -> Lotaje: {lot}"
-                self.console.log(test_symbol, risk_msg, "INFO")
-
-                res = executor.execute_market_order(
-                    symbol=test_symbol,
-                    order_type="BUY",
-                    volume=lot,
-                    sl_pips=params["sl_pips"],
-                    tp_pips=params["tp_pips"]
-                )
-
-                if not res["status"]:
-                    self.console.log("General", f"❌ Falló orden de prueba en {test_symbol}: {res['message']}", "ERROR")
-
-            except Exception as e:
-                error_detail = traceback.format_exc()
-                self.console.log("General", f"❌ Error crítico en orden de prueba ({type(e).__name__}): {e}\n{error_detail}", "ERROR")
-                threading.Thread(target=run_test, daemon=True).start()
+    def save_settings(self) -> None:
+        """Guarda los símbolos activos en config.json."""
+        self.config_data["active_symbols"] = self.symbols
+        if save_config(self.config_data):
+            self.console.log("General", "✅ Configuración guardada.", "SUCCESS")
+        else:
+            self.console.log("General", "❌ Error al guardar configuración.", "ERROR")
 
     def destroy(self) -> None:
         for event in self.stop_events.values():

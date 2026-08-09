@@ -2,6 +2,36 @@ from typing import Optional, Dict, Any, List
 import MetaTrader5 as mt5
 from core.config_manager import load_config
 
+def get_symbol_specs(symbol: str) -> Dict[str, Any]:
+    """
+    Obtiene las especificaciones de volumen y precio directamente de MT5.
+    """
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return {
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+            "point": 0.00001,
+            "trade_tick_value": 1.0
+        }
+
+    return {
+        "volume_min": info.volume_min,
+        "volume_max": info.volume_max,
+        "volume_step": info.volume_step,
+        "point": info.point,
+        "trade_tick_value": info.trade_tick_value if info.trade_tick_value > 0 else 1.0
+    }
+
+
+def get_all_symbol_specs(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Obtiene un diccionario con las especificaciones de una lista de símbolos."""
+    specs = {}
+    for sym in symbols:
+        specs[sym] = get_symbol_specs(sym)
+    return specs
+
 def get_all_available_symbols() -> List[str]:
     """
     Obtiene la lista de nombres de todos los símbolos disponibles en MT5.

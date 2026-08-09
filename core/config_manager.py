@@ -1,4 +1,3 @@
-# core/config_manager.py
 import json
 from pathlib import Path
 from typing import Dict, Any
@@ -13,8 +12,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "symbol_suffix": "",
     "magic_number": 999111,
     "max_slippage": 10,
-    "symbols": [],             # Lista de símbolos seleccionados activados
-    "available_symbols": []    # Lista completa descargada de MT5
+    "active_symbols": [],
+    "available_symbols": []
 }
 
 def load_config() -> Dict[str, Any]:
@@ -26,21 +25,21 @@ def load_config() -> Dict[str, Any]:
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Asegurar que existan todas las claves por defecto
+            # Asegurar que existan todas las claves requeridas
             for k, v in DEFAULT_CONFIG.items():
                 if k not in data:
                     data[k] = v
             return data
     except Exception as e:
-        print(f"[ERROR] No se pudo leer config.json: {e}")
+        print(f"❌ [ERROR] No se pudo leer config.json: {e}")
         return DEFAULT_CONFIG.copy()
 
 def save_config(config_data: Dict[str, Any]) -> bool:
     """Guarda los datos de configuración en config.json."""
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=4)
+            json.dump(config_data, f, indent=4, ensure_ascii=False)
         return True
     except Exception as e:
-        print(f"[ERROR] No se pudo guardar config.json: {e}")
+        print(f"❌ [ERROR] No se pudo guardar config.json: {e}")
         return False
