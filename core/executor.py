@@ -135,6 +135,17 @@ class OrderExecutor:
         print(f"   └─ Filling Mode: {request['type_filling']}")
         print("=" * 60)
 
+        # 🟢 REGISTRO DE DEPURACIÓN EN GUI
+        debug_msg = (
+            f"🔍 [DEBUG MT5 REQUEST] Enviando orden para {self.symbol}:\n"
+            f"   ├─ Tipo: {order_type}\n"
+            f"   ├─ Volumen/Lote: {volume}\n"
+            f"   ├─ Precio Entrada: {price}\n"
+            f"   ├─ SL Pips: {sl_pips:.1f} ➔ Precio SL: {request['sl']})\n"
+            f"   └─ TP Pips: {tp_pips:.1f} ➔ Precio TP: {request['tp']})"
+        )
+        self._log(debug_msg, "INFO")
+
         # 4. Enviar orden
         result = mt5.order_send(request)
 

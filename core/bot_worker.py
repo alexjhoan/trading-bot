@@ -228,9 +228,11 @@ class SymbolWorker(threading.Thread):
                                 ticket = resultado.get("ticket")
                                 price = resultado.get("price")
                                 print(f"✅ [SUCCESS] ¡ORDEN BUY EJECUTADA EN MT5! | Ticket #{ticket} | Precio: {price} | Lot: {lote_ui}")
+                                self._log(f"¡ORDEN {signal} EJECUTADA EN MT5! | Ticket #{ticket} | Precio: {price} | Lot: {lote_ui}", "SUCCESS")
                             else:
                                 error_msg = resultado.get("message") if isinstance(resultado, dict) else str(resultado)
                                 print(f"❌ [ERROR] Falló la ejecución de la orden: {error_msg}")
+                                self._log(f"Falló la ejecución de la orden: {error_msg}", "ERROR")
 
             except Exception as e:
                 # Capturar la pila de llamadas completa (Traceback)
