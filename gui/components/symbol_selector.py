@@ -120,7 +120,9 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             lbl_lot = ctk.CTkLabel(row, text="Lote:")
             lbl_lot.pack(side="left", padx=(15, 2))
 
-            default_lot = self.symbol_lots.get(symbol, 0.01)
+            specs = self.symbol_specs.get(symbol, {})
+            min_lot = specs.get("volume_min", 0.01)
+            default_lot = self.symbol_lots.get(symbol, min_lot)
             entry = ctk.CTkEntry(row, width=60)
             entry.insert(0, str(default_lot))
             entry.pack(side="left", padx=2)
@@ -163,15 +165,23 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             else:
                 specs = self.symbol_specs.get(symbol, {})
                 trade_tick_value = specs.get("trade_tick_value", 1.0)
-                # Valor de 1 Pip para 1 lote estándar
-                pip_value_std = trade_tick_value * 10.0 if trade_tick_value > 0 else 10.0
+                point = specs.get("point", 0.00001)
+                digits = specs.get("digits", 5)
+                tick_size = specs.get("trade_tick_size", point)
+
+                # Definición del tamaño del pip según decimales (Forex 3/5 dígitos = 10 points; otros = 1 point/tick)
+                pip_size = point * 10.0 if digits in (3, 5) else point
+                ticks_per_pip = (pip_size / tick_size) if tick_size > 0 else 1.0
+
+                # Valor en $ de 1 Pip para 1 lote estándar
+                pip_value_std = trade_tick_value * ticks_per_pip
 
                 # Pips = Riesgo USD / (Lotaje * Valor Pip Standard)
                 sl_pips = self.max_risk_usd / (lot * pip_value_std)
 
             if symbol in self.lbl_sl_pips:
                 self.lbl_sl_pips[symbol].configure(text=f"SL Max: {sl_pips:.1f} pips")
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, ZeroDivisionError):
             if symbol in self.lbl_sl_pips:
                 self.lbl_sl_pips[symbol].configure(text="SL Max: N/A")
 
@@ -187,9 +197,12 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
     def _add_symbol(self) -> None:
         sym = self.entry_symbol.get().strip()
+        specs = self.symbol_specs.get(sym, {})
+        min_lot = specs.get("volume_min", 0.01)
+
         if sym and sym not in self.symbols:
             self.symbols.append(sym)
-            self.symbol_lots[sym] = 0.01
+            self.symbol_lots[sym] = min_lot
             self.entry_symbol.delete(0, "end")
             self._render_symbol_list()
             if self.on_symbols_changed_callback:
@@ -321,3 +334,9 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         """
         for symbol in self.symbols:
             self._update_single_symbol_input_state(symbol, force_disable=force_all_disabled)
+
+    def update_symbol_specs(self, symbol_specs: Dict[str, Dict[str, Any]]) -> None:
+        """Actualiza el diccionario de especificaciones de símbolos y refresca la UI."""
+        self.symbol_specs = symbol_specs
+        for symbol in self.symbols:
+            self._update_sl_pips_label(symbol)

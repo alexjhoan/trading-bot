@@ -68,75 +68,94 @@ class OrderExecutor:
 
     def send_order(
         self,
-        signal: str,
+        order_type: str,
         volume: float,
-        sl_pips: Optional[float] = None,
-        tp_pips: Optional[float] = None,
+        sl_pips: float = 0.0,
+        tp_pips: float = 0.0,
+        comment: str = ""
     ) -> Optional[int]:
         symbol_info = mt5.symbol_info(self.symbol)
-        if symbol_info is None or not symbol_info.visible:
-            print(f"❌ Error: El símbolo {self.symbol} no está disponible.")
-            return None
+        if symbol_info is None:
+            print(f"❌ [MT5] No se pudo obtener symbol_info para {self.symbol}")
+            return {"status": False, "message": f"Símbolo {self.symbol} no encontrado"}
 
-        order_type = mt5.ORDER_TYPE_BUY if signal == "BUY" else mt5.ORDER_TYPE_SELL
-        price = symbol_info.ask if signal == "BUY" else symbol_info.bid
-        pip_size = self._get_pip_size(symbol_info)
+        tick = mt5.symbol_info_tick(self.symbol)
+        if tick is None:
+            print(f"❌ [MT5] No se pudo obtener tick para {self.symbol}")
+            return {"status": False, "message": f"Tick no disponible para {self.symbol}"}
 
-        sl_pips = sl_pips or self.risk_config.default_sl_pips
-        tp_pips = tp_pips or (sl_pips * 1.5)
+        point = symbol_info.point
+        digits = symbol_info.digits
+        order_type_mt5 = mt5.ORDER_TYPE_BUY if order_type.upper() == "BUY" else mt5.ORDER_TYPE_SELL
 
-        if signal == "BUY":
-            sl_price = price - (sl_pips * pip_size)
-            tp_price = price + (tp_pips * pip_size)
-        else:
-            sl_price = price + (sl_pips * pip_size)
-            tp_price = price - (tp_pips * pip_size)
+        # 1. Determinar precio de entrada según tipo de orden
+        price = tick.ask if order_type.upper() == "BUY" else tick.bid
 
-        filling_mode = get_filling_mode(self.symbol)
+        # 2. Calcular SL y TP absolutos
+        sl_price = 0.0
+        tp_price = 0.0
 
+        if sl_pips > 0:
+            if order_type.upper() == "BUY":
+                sl_price = round(price - (sl_pips * point), digits)
+            else:
+                sl_price = round(price + (sl_pips * point), digits)
+
+        if tp_pips > 0:
+            if order_type.upper() == "BUY":
+                tp_price = round(price + (tp_pips * point), digits)
+            else:
+                tp_price = round(price - (tp_pips * point), digits)
+
+        # 3. Armar Request
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": self.symbol,
-            "volume": volume,
-            "type": order_type,
+            "volume": float(volume),
+            "type": order_type_mt5,
             "price": price,
-            "sl": round(sl_price, symbol_info.digits),
-            "tp": round(tp_price, symbol_info.digits),
-            "deviation": 20,
-            "magic": 123456,
-            "comment": f"Bot_{self.strategy_name[:10]}",
+            "sl": sl_price,
+            "tp": tp_price,
+            "deviation": 10,
+            "magic": 999111,
+            "comment": comment or "Bot Order",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": filling_mode,
+            "type_filling": get_filling_mode(self.symbol),
         }
 
+        # 🟢 PRINT DE DEPURACIÓN EN CONSOLA (Muestra exactamente lo que se envía)
+        print("=" * 60)
+        print(f"🔍 [DEBUG MT5 REQUEST] Enviando orden para {self.symbol}:")
+        print(f"   ├─ Tipo: {order_type} ({'BUY' if order_type_mt5 == 0 else 'SELL'})")
+        print(f"   ├─ Volumen/Lote: {request['volume']}")
+        print(f"   ├─ Precio Entrada: {request['price']}")
+        print(f"   ├─ SL Pips: {sl_pips} ➔ Precio SL: {request['sl']}")
+        print(f"   ├─ TP Pips: {tp_pips} ➔ Precio TP: {request['tp']}")
+        print(f"   ├─ Point: {point} | Digits: {digits}")
+        print(f"   └─ Filling Mode: {request['type_filling']}")
+        print("=" * 60)
+
+        # 4. Enviar orden
         result = mt5.order_send(request)
 
         if result is None:
-            err_msg = f"❌ Error crítico al enviar orden a MT5: {mt5.last_error()}"
-            self._log(err_msg, "ERROR")
-            return {"status": False, "message": err_msg}
+            msg = f"❌ Error crítico en order_send para {self.symbol}"
+            print(msg)
+            return {"status": False, "message": msg}
 
         if result.retcode != mt5.TRADE_RETCODE_DONE:
-            err_msg = f"❌ Error al ejecutar orden {order_type}: {result.comment} (código {result.retcode})"
-            self._log(err_msg, "ERROR")
-            return {"status": False, "message": err_msg}
+            msg = f"❌ Error al ejecutar orden {result.order}: {result.comment} (código {result.retcode})"
+            print(msg)
+            return {"status": False, "message": msg, "retcode": result.retcode}
 
-        # Si fue exitoso:
-        success_msg = f"✅ Orden {order_type} colocada. Lote: {volume}, Ticket: {result.order}"
-        self._log(success_msg, "SUCCESS")
-        return {"status": True, "ticket": result.order, "message": success_msg}
-
-
-        print(
-            f"✅ ¡ORDEN EJECUTADA EN MT5! | Ticket: {result.order} | {signal} {volume} lotes "
-            f"| Precio: {price:.5f} | SL: {sl_price:.5f} | TP: {tp_price:.5f}"
-        )
+        print(f"✅ ¡Orden ejecutada con éxito! Ticket #{result.order} | Precio: {result.price}")
+        return {"status": True, "ticket": result.order, "price": result.price, "volume": result.volume}
 
         # 📌 Guardar registro de la APERTURA en el diario inmediatamente
         self.journal.log_entry(
             ticket=result.order,
             symbol=self.symbol,
-            order_type=signal,
+            order_type=order_type_mt5,
             volume=volume,
             price=price,
             sl=sl_price,
@@ -171,8 +190,6 @@ class OrderExecutor:
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": get_filling_mode(position.symbol),
         }
-
-
 
         result = mt5.order_send(request)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:

@@ -4,7 +4,7 @@ import MetaTrader5 as mt5
 from tkinter import filedialog
 from typing import Callable, Optional, Dict, Any
 from core.config_manager import load_config, save_config
-from core.connector import get_all_available_symbols
+from core.connector import get_all_available_symbols, get_all_symbol_specs
 
 
 class ConfigWindow(ctk.CTkToplevel):
@@ -167,6 +167,8 @@ class ConfigWindow(ctk.CTkToplevel):
               broker_symbols = get_all_available_symbols()
               if broker_symbols:
                   data["available_symbols"] = broker_symbols
+                  # 🟢 NUEVA LÍNEA: Guardar las especificaciones de los símbolos en config.json
+                  data["symbol_specs"] = get_all_symbol_specs(broker_symbols)
 
               mt5.shutdown()
 

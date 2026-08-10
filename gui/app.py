@@ -84,6 +84,7 @@ class QuantBotApp(ctk.CTk):
             self.main_frame,
             symbols=self.symbols,
             available_symbols=self.config_data.get("available_symbols", []),
+            symbol_specs=self.config_data.get("symbol_specs", {}),  # 🟢 AGREGAR ESTA LÍNEA
             on_toggle_callback=self._handle_symbol_toggle,
             on_symbols_changed_callback=self._handle_symbols_list_changed
         )
@@ -131,7 +132,9 @@ class QuantBotApp(ctk.CTk):
         """Callback cuando se guardan credenciales desde el modal de configuración."""
         self.config_data = load_config()
         available = self.config_data.get("available_symbols", [])
+        specs = self.config_data.get("symbol_specs", {})
         self.symbol_selector.update_available_symbols(available)
+        self.symbol_selector.update_symbol_specs(specs)
         self.console.log("General", "🔄 Configuración reloaded exitosamente.", "SUCCESS")
 
     def _execute_test_order(self) -> None:

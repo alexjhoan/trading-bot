@@ -13,6 +13,8 @@ def get_symbol_specs(symbol: str) -> Dict[str, Any]:
             "volume_max": 100.0,
             "volume_step": 0.01,
             "point": 0.00001,
+            "digits": 5,
+            "trade_tick_size": 0.00001,
             "trade_tick_value": 1.0
         }
 
@@ -21,6 +23,8 @@ def get_symbol_specs(symbol: str) -> Dict[str, Any]:
         "volume_max": info.volume_max,
         "volume_step": info.volume_step,
         "point": info.point,
+        "digits": info.digits,
+        "trade_tick_size": info.trade_tick_size if info.trade_tick_size > 0 else info.point,
         "trade_tick_value": info.trade_tick_value if info.trade_tick_value > 0 else 1.0
     }
 

@@ -11,6 +11,7 @@ from core.strategy import SimpleTrendStrategy
 from core.executor import OrderExecutor
 from core.risk_manager import RiskManager
 from core.data_loader import get_historical_data
+from core.config_manager import load_config
 
 TIMEFRAME_SECONDS_MAP: Dict[int, int] = {
     mt5.TIMEFRAME_M1: 60,
@@ -72,8 +73,40 @@ class SymbolWorker(threading.Thread):
         timeframe_str: str = str(self.params.get("timeframe_str", "M1"))
         tf_seconds: int = TIMEFRAME_SECONDS_MAP.get(timeframe_val, 60)
         test_mode: bool = bool(self.params.get("test_mode", False))
-        sl_pips: float = float(self.params.get("sl_pips", 15.0))
-        tp_pips: float = float(self.params.get("tp_pips", 30.0))
+
+         # ------------------------------------------------------------------
+        # 1. Obtener datos de riesgo y lote de la configuración
+        # ------------------------------------------------------------------
+        current_config = load_config()
+
+        # Obtener lotaje asignado al símbolo desde la UI/config (fallback a lote mínimo del broker)
+        symbol_lots = current_config.get("symbol_lots", {})
+        specs = current_config.get("symbol_specs", {}).get(self.symbol, {})
+
+        volume_min = specs.get("volume_min", 0.01)
+        lote_ui = float(symbol_lots.get(self.symbol, volume_min))
+
+        # ------------------------------------------------------------------
+        # 2. Calcular SL dinámico en pips basado en el riesgo en USD
+        # ------------------------------------------------------------------
+        max_risk_usd = current_config.get("max_risk_usd", 10.0)
+        point = specs.get("point", 0.00001)
+        trade_tick_value = specs.get("trade_tick_value", 1.0)
+
+        # Calcular cuántos pips de distancia equivalen al riesgo en USD
+        # Fórmula idéntica a la utilizada en symbol_selector.py
+        if lote_ui > 0 and trade_tick_value > 0:
+            # Valor en USD que se pierde por cada pip/punto con el lotaje actual
+            usd_per_pip = lote_ui * (trade_tick_value / (point if point > 0 else 1.0)) * point
+            if usd_per_pip > 0:
+                sl_pips = max_risk_usd / usd_per_pip
+            else:
+                sl_pips = 15.0  # Fallback de seguridad
+        else:
+            sl_pips = 15.0  # Fallback de seguridad
+
+        # Mantenemos TP proporcional o según regla de estrategia (ej: R:R 1:1.5 o fijo)
+        tp_pips = sl_pips * 2
 
         mode_str: str = "MODO TEST (BUY Forzado)" if test_mode else "Estrategia Real (MA+RSI)"
         self._log(f"Hilo de monitoreo iniciado para {self.symbol} ({timeframe_str} | {mode_str}).", "INFO")
@@ -145,24 +178,59 @@ class SymbolWorker(threading.Thread):
                     if has_open_position:
                         self._log(f"⏳ Posición abierta existente en {self.symbol}. Omitiendo nueva entrada.", "INFO")
                     elif signal in ["BUY", "SELL"]:
-                        acc_info = mt5.account_info()
-                        balance: float = acc_info.balance if acc_info else 0.0
-                        lot: float = self.risk_mgr.calculate_position_size(balance, sl_pips)
+                        # ------------------------------------------------------------------
+                        # 1. Obtener datos de riesgo y lote de la configuración
+                        # ------------------------------------------------------------------
+                        current_config = load_config()
 
-                        is_valid, msg = self.risk_mgr.validate_new_trade(self.symbol, lot)
+                        # Obtener lotaje asignado al símbolo desde la UI/config (fallback a lote mínimo del broker)
+                        symbol_lots = current_config.get("symbol_lots", {})
+                        specs = current_config.get("symbol_specs", {}).get(self.symbol, {})
+
+                        volume_min = specs.get("volume_min", 0.01)
+                        lote_ui = float(symbol_lots.get(self.symbol, volume_min))
+
+                        # ------------------------------------------------------------------
+                        # 2. Calcular SL dinámico en pips basado en el riesgo en USD
+                        # ------------------------------------------------------------------
+                        max_risk_usd = current_config.get("max_risk_usd", 10.0)
+                        point = specs.get("point", 0.00001)
+                        trade_tick_value = specs.get("trade_tick_value", 1.0)
+
+                        # Calcular cuántos pips de distancia equivalen al riesgo en USD
+                        # Fórmula idéntica a la utilizada en symbol_selector.py
+                        if lote_ui > 0 and trade_tick_value > 0:
+                            # Valor en USD que se pierde por cada pip/punto con el lotaje actual
+                            usd_per_pip = lote_ui * (trade_tick_value / (point if point > 0 else 1.0)) * point
+                            if usd_per_pip > 0:
+                                sl_pips = max_risk_usd / usd_per_pip
+                            else:
+                                sl_pips = 15.0  # Fallback de seguridad
+                        else:
+                            sl_pips = 15.0  # Fallback de seguridad
+
+                        # Mantenemos TP proporcional o según regla de estrategia (ej: R:R 1:1.5 o fijo)
+                        tp_pips = sl_pips * 1.5
+
+                        is_valid, msg = self.risk_mgr.validate_new_trade(self.symbol, lote_ui)
+
                         if not is_valid:
                             self._log(f"🛑 Riesgo rechazó entrada: {msg}", "WARN")
                         else:
-                            ticket = self.executor.send_order(
-                                signal=signal,
-                                volume=lot,
+                            resultado = self.executor.send_order(
+                                order_type=signal,
+                                volume=lote_ui,
                                 sl_pips=sl_pips,
                                 tp_pips=tp_pips
                             )
-                            if ticket:
-                                self._log(f"✅ ¡ORDEN {signal} EJECUTADA EN MT5! | Ticket #{ticket} | Lot: {lot}", "SUCCESS")
+                            # Evaluar el resultado
+                            if isinstance(resultado, dict) and resultado.get("status"):
+                                ticket = resultado.get("ticket")
+                                price = resultado.get("price")
+                                print(f"✅ [SUCCESS] ¡ORDEN BUY EJECUTADA EN MT5! | Ticket #{ticket} | Precio: {price} | Lot: {lote_ui}")
                             else:
-                                self._log(f"❌ Error al ejecutar orden {signal} en MT5.", "ERROR")
+                                error_msg = resultado.get("message") if isinstance(resultado, dict) else str(resultado)
+                                print(f"❌ [ERROR] Falló la ejecución de la orden: {error_msg}")
 
             except Exception as e:
                 # Capturar la pila de llamadas completa (Traceback)
