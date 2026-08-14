@@ -248,7 +248,7 @@ class QuantBotApp(ctk.CTk):
         has_active_workers = len(self.workers) > 0
 
         self.sidebar.set_inputs_state(enabled=not has_active_workers)
-        self.symbol_selector.update_all_inputs_state(force_all_disabled=has_active_workers)
+        self.symbol_selector.update_all_inputs_state(active_symbols=has_active_workers)
 
     def _has_open_positions(self) -> bool:
         """Verifica si existen posiciones abiertas en MT5."""

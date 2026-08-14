@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple, Dict
 import MetaTrader5 as mt5
 import re
+from datetime import datetime, timezone
+from typing import Tuple
 
 
 @dataclass
@@ -77,35 +79,55 @@ class StrategyConfig:
         }
     )
 
+    @staticmethod
+    def _utc_str_to_local_str(utc_time_str: str) -> str:
+        """
+        Convierte un string de hora en formato "HH:MM" (UTC)
+        a la hora local del computador en formato "HH:MM".
+        """
+        try:
+            now = datetime.now()
+            # Construimos un objeto datetime naive para el día de hoy con la hora especificada
+            h, m = map(int, utc_time_str.split(":"))
+            utc_dt = datetime(now.year, now.month, now.day, h, m, tzinfo=timezone.utc)
+
+            # Convertimos al huso horario local del sistema
+            local_dt = utc_dt.astimezone()
+            return local_dt.strftime("%H:%M")
+        except Exception:
+            return utc_time_str  # Si falla por algún motivo, retorna el string original
+
     def get_session_times_for_symbol(self, symbol: str) -> Tuple[str, str]:
         """
         Determina dinámicamente la hora de inicio y fin combinando
-        las divisas del par (Base y Cotizada).
+        las divisas del par (Base y Cotizada) y convierte el resultado a la HORA LOCAL.
         """
-        # Extrae exactamente los primeros 6 caracteres alfabéticos (ej: "GBPCHF_r" -> "GBPCHF")
+        # 1. Limpiar el símbolo dejando solo las 6 letras del par
         match = re.search(r"([A-Z]{6})", symbol.upper())
         clean_symbol = match.group(1) if match else symbol.upper()
 
-        # Extraer divisa base y cotizada (ejemplo: GBPCHF -> base: GBP, quote: CHF)
         base_ccy = clean_symbol[:3] if len(clean_symbol) >= 3 else ""
         quote_ccy = clean_symbol[3:6] if len(clean_symbol) >= 6 else ""
 
         times_base = self.SESSION_MAP.get(base_ccy)
         times_quote = self.SESSION_MAP.get(quote_ccy)
 
+        # 2. Determinar horarios de inicio y fin en UTC
         if times_base and times_quote:
-            # Si ambas divisas tienen horario, tomamos la hora de inicio de la primera en abrir
-            # y la hora de fin de la última en cerrar.
-            start = min(times_base[0], times_quote[0])
-            end = max(times_base[1], times_quote[1])
-            return start, end
+            start_utc = min(times_base[0], times_quote[0])
+            end_utc = max(times_base[1], times_quote[1])
         elif times_base:
-            return times_base
+            start_utc, end_utc = times_base
         elif times_quote:
-            return times_quote
+            start_utc, end_utc = times_quote
+        else:
+            start_utc, end_utc = "07:00", "21:00"
 
-        # Horario por defecto si el símbolo es un índice o no está mapeado (07:00 a 21:00)
-        return "07:00", "21:00"
+        # 3. Convertir de UTC a Hora Local
+        start_local = StrategyConfig._utc_str_to_local_str(start_utc)
+        end_local = StrategyConfig._utc_str_to_local_str(end_utc)
+
+        return start_local, end_local
 
 @dataclass
 class BotConfig:

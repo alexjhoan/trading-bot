@@ -1,6 +1,9 @@
 import customtkinter as ctk
 from typing import List, Callable, Dict, Any, Optional
 import MetaTrader5 as mt5
+from datetime import datetime
+
+from config import StrategyConfig, STRATEGY_CONFIG
 
 
 class SymbolSelectorComponent(ctk.CTkFrame):
@@ -34,6 +37,9 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self.lbl_risk_usd: Dict[str, ctk.CTkLabel] = {}
         self.lbl_sl_pips: Dict[str, ctk.CTkLabel] = {}
         self.suggestion_buttons: List[ctk.CTkButton] = []
+
+        # Agrega justo debajo:
+        self.lbl_schedule_dict: Dict[str, ctk.CTkLabel] = {}
 
         self._build_ui()
 
@@ -151,6 +157,55 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
             # Calcular el SL inicial
             self._update_sl_pips_label(symbol)
+
+            # 3. Nuevo Label de Horario de Operación con color dinámico
+            start_time, end_time = STRATEGY_CONFIG.get_session_times_for_symbol(symbol)
+            schedule_text = f"🕒 {start_time}-{end_time}"
+
+            # Evaluar si la hora actual está dentro del rango operativo local
+            is_active_session = self.is_current_time_in_range(start_time, end_time)
+            text_color = "#2ECC71" if is_active_session else "#E74C3C"  # Verde si activo, Rojo si inactivo
+
+            lbl_schedule = ctk.CTkLabel(
+                row,
+                text=f" / [{schedule_text}]",
+                font=ctk.CTkFont(size=11, weight="bold"), # Tipografía en negrita para resaltar el color
+                text_color=text_color,
+                width=110,
+                anchor="w"
+            )
+            lbl_schedule.pack(side="left", padx=(2, 10))
+            self.lbl_schedule_dict[symbol] = lbl_schedule
+
+    @staticmethod
+    def is_current_time_in_range(start_str: str, end_str: str) -> bool:
+        """
+        Comprueba si la hora local actual se encuentra dentro del rango [start_str, end_str].
+        Maneja rangos normales (ej: 08:00 - 17:00) y que cruzan la medianoche (ej: 22:00 - 07:00).
+        """
+        try:
+            now_time = datetime.now().time()
+            start_time = datetime.strptime(start_str, "%H:%M").time()
+            end_time = datetime.strptime(end_str, "%H:%M").time()
+
+            if start_time <= end_time:
+                # Rango en el mismo día (ej. 08:00 a 17:00)
+                return start_time <= now_time <= end_time
+            else:
+                # Rango que cruza medianoche (ej. 22:00 a 07:00)
+                return now_time >= start_time or now_time <= end_time
+        except Exception:
+            return False
+
+    def update_schedules_color(self) -> None:
+        """
+        Actualiza el color de todos los labels de horario según la hora local actual.
+        """
+        for symbol, lbl in self.lbl_schedule_dict.items():
+            start_time, end_time = STRATEGY_CONFIG.get_session_times_for_symbol(symbol)
+            is_active_session = self.is_current_time_in_range(start_time, end_time)
+            text_color = "#2ECC71" if is_active_session else "#E74C3C"
+            lbl.configure(text_color=text_color)
 
     def _update_sl_pips_label(self, symbol: str) -> None:
         """Actualiza las etiquetas de Riesgo $ y SL (pips) según el lotaje y max_risk_usd."""
@@ -304,13 +359,16 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self.on_toggle_callback(symbol, is_active)
 
     def _update_single_symbol_input_state(self, symbol: str, force_disable: bool = False) -> None:
-        """Actualiza el estado de un único input de lotaje según su switch individual."""
+        """
+        Actualiza el input de lotaje según su switch individual o si se fuerza el bloqueo.
+        """
         if symbol not in self.entry_lots:
             return
 
         entry = self.entry_lots[symbol]
         is_switch_on = self.switch_vars.get(symbol, ctk.BooleanVar()).get()
-        should_disable = force_disable or is_switch_on
+        # Se inhabilita únicamente si el switch está activado O si este par específico tiene una orden activa
+        should_disable = is_switch_on or force_disable
 
         if should_disable:
             entry.configure(
@@ -326,14 +384,16 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             )
         entry.update_idletasks()
 
-    def update_all_inputs_state(self, force_all_disabled: bool = False) -> None:
+    def update_all_inputs_state(self, active_symbols: Optional[List[str]] = None) -> None:
         """
         Recorre todos los símbolos y actualiza sus inputs individualmente.
-        Si force_all_disabled es True (operaciones reales en MT5), bloquea todos.
-        Si es False, evalúa el switch de cada símbolo por separado.
+        Si se pasa la lista `active_symbols`, desactiva solo los pares que están cotizando/operando en vivo.
         """
+        active_list = active_symbols or []
         for symbol in self.symbols:
-            self._update_single_symbol_input_state(symbol, force_disable=force_all_disabled)
+            # Se fuerza el bloqueo únicamente si este símbolo en particular tiene una posición activa
+            is_active_trade = symbol in active_list
+            self._update_single_symbol_input_state(symbol, force_disable=is_active_trade)
 
     def update_symbol_specs(self, symbol_specs: Dict[str, Dict[str, Any]]) -> None:
         """Actualiza el diccionario de especificaciones de símbolos y refresca la UI."""
