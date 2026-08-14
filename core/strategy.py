@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, Callable
+from datetime import datetime, time
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
@@ -14,6 +15,7 @@ class PriceActionStrategy:
         2. Momentum (RSI favor del movimiento).
         3. Fuerza de Vela (Relación Cuerpo/Sombras).
     - Regla: Requiere min_confluence_score (ej. 2 de 3) para habilitar la orden.
+    - Filtro Dinámico de Horarios: Identifica la ventana de liquidez según las divisas del par.
     """
 
     def __init__(
@@ -25,16 +27,24 @@ class PriceActionStrategy:
         volume_ma_period: int = 20,
         rsi_period: int = 14,
         min_confluence_score: int = 2,
+        use_session_filter: bool = True,
         logger: Optional[Callable[[str, str], None]] = None,
         **kwargs: Any
     ) -> None:
+        self.config: StrategyConfig = config or STRATEGY_CONFIG
         self.symbol: str = symbol or ""
         self.pivot_window: int = pivot_window
         self.atr_period: int = atr_period
         self.volume_ma_period: int = volume_ma_period
         self.rsi_period: int = rsi_period
         self.min_confluence_score: int = min_confluence_score
+        self.use_session_filter: bool = getattr(self.config, "use_session_filter", use_session_filter)
         self._logger: Optional[Callable[[str, str], None]] = logger
+
+        # 🟢 ASIGNACIÓN DINÁMICA DE HORARIOS SEGÚN EL SÍMBOLO
+        start_str, end_str = self.config.get_session_times_for_symbol(self.symbol)
+        self.session_start: time = datetime.strptime(start_str, "%H:%M").time()
+        self.session_end: time = datetime.strptime(end_str, "%H:%M").time()
 
     def _log(self, message: str, level: str = "INFO") -> None:
         """Envía logs al GUI si hay un logger registrado, o a la consola estándar."""
@@ -42,6 +52,13 @@ class PriceActionStrategy:
             self._logger(message, level)
         else:
             print(f"[{level}] {message}")
+
+    def _is_within_session(self, current_time: time) -> bool:
+        """Valida si la hora actual está dentro de la ventana operativa dinámica."""
+        if self.session_start <= self.session_end:
+            return self.session_start <= current_time <= self.session_end
+        else:  # Para sesiones que cruzan la medianoche (ej. Asia/Australia: 22:00 a 08:00)
+            return current_time >= self.session_start or current_time <= self.session_end
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calcula pivotes, indicadores técnicos y métricas de velas."""
@@ -113,21 +130,38 @@ class PriceActionStrategy:
         prev_candle = df_analyzed.iloc[-3]
         curr_candle = df_analyzed.iloc[-2]
 
+        # 🟢 EVALUACIÓN DINÁMICA DEL FILTRO DE HORARIO
+        if self.use_session_filter:
+            candle_time = (
+                pd.to_datetime(curr_candle.name).time()
+                if hasattr(curr_candle, "name") and isinstance(curr_candle.name, (pd.Timestamp, datetime))
+                else datetime.now().time()
+            )
+
+            if not self._is_within_session(candle_time):
+                start_str = self.session_start.strftime("%H:%M")
+                end_str = self.session_end.strftime("%H:%M")
+                debug_msg = (
+                    f"⏰ [FILTRO HORARIO DINÁMICO] {self.symbol} | Hora actual: {candle_time.strftime('%H:%M:%S')}\n"
+                    f"   ├─ Estado: Fuera de rango de alta liquidez para este par ({start_str} - {end_str} UTC).\n"
+                    f"   └─ El bot se reactivará automáticamente a las: {start_str} hrs."
+                )
+                self._log(debug_msg, "WARNING")
+
+                return {
+                    "signal": "HOLD",
+                    "support": 0.0,
+                    "resistance": 0.0,
+                    "atr": float(curr_candle.get("atr", 0.0)),
+                    "score": 0,
+                    "reason": f"Fuera de Horario Operativo para {self.symbol}. Se reactiva a las {start_str}"
+                }
+
         curr_close = float(curr_candle["close"])
         prev_close = float(prev_candle["close"])
         resistance = float(curr_candle["resistance"])
         support = float(curr_candle["support"])
         current_atr = float(curr_candle["atr"])
-
-        # if pd.isna(resistance) or pd.isna(support) or pd.isna(current_atr):
-        #     return {
-        #         "signal": "HOLD",
-        #         "support": 0.0,
-        #         "resistance": 0.0,
-        #         "atr": 0.0,
-        #         "score": 0,
-        #         "reason": "Niveles en NaN"
-        #     }
 
         # 1. TRIGGER OBLIGATORIO: Rompimiento de Estructura (BOS)
         raw_buy = (prev_close <= resistance) and (curr_close > resistance)
@@ -167,16 +201,23 @@ class PriceActionStrategy:
             else f"BOS descartado por baja confluencia ({score}/{self.min_confluence_score} requerido)"
         )
 
-        # 🟢 REGISTRO DE DEPURACIÓN EN GUI
-        debug_msg = (
-            f"🔍 [ANALISIS ESTRATEGIA] {self.symbol} | Cierre: {curr_close:.5f}\n"
-            f"   ├─ Resistencia (Pivot High): {resistance:.5f}\n"
-            f"   ├─ Soporte (Pivot Low): {support:.5f}\n"
-            f"   ├─ Score Confluencia: {score}/3 ({', '.join(score_details) if score_details else 'Ninguno'})\n"
-            f"   ├─ ATR (14): {current_atr:.5f}\n"
-            f"   └─ Resultado: {final_signal} ➔ Razón: {reason}"
-        )
-        self._log(debug_msg, "INFO")
+        # 🟢 REGISTRO DE DEPURACIÓN EN GUI / CONSOLA
+
+        if final_signal == "HOLD":
+            debug_msg = (
+                f"🔍 [ANALISIS ESTRATEGIA] {self.symbol}: {final_signal} ➔ Razón: {reason}"
+            )
+            self._log(debug_msg, "WARNING")
+        else:
+            debug_msg = (
+                f"🔍 [ANALISIS ESTRATEGIA] {self.symbol} | Cierre: {curr_close:.5f}\n"
+                f"   ├─ Resistencia (Pivot High): {resistance:.5f}\n"
+                f"   ├─ Soporte (Pivot Low): {support:.5f}\n"
+                f"   ├─ Score Confluencia: {score}/3 ({', '.join(score_details) if score_details else 'Ninguno'})\n"
+                f"   ├─ ATR (14): {current_atr:.5f}\n"
+                f"   └─ Resultado: {final_signal} ➔ Razón: {reason}"
+            )
+            self._log(debug_msg, "INFO")
 
         return {
             "signal": final_signal,

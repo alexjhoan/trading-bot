@@ -5,9 +5,17 @@ Todo:
   ☐ cambiar los iconos por defecto por otros de la librería de CTK que si no esta operativa, si esta operativa o si hay algun error
   ☐ que configure los datos Primero que nada si no estan configurados antes de abrir MT5
   ☐ verificar que la estrategia no esta tomando las temporalidades del usuario
+  ☐ no esta tomando el SL calculado ni el TP, tambien hay que validar que el SL el TP y salidas las esta analizando para que el bot pueda gestionar de ser necesario
+
+
 
 
 prompt
  entonces te voy a facilitar los archivos que involucran esta funcionalidad, porfa puedes analizarlos y ayudarme a conseguir la falla, adicionamente no asumas, si necesitas mas archivos me lo comentas y con gusto te los facilito igual hazme todas las preguntas necesarias, ademas para evitar disparidad en el codigo, solo dime que secciones de codigo tengo que ajustar y lo cambio, ya que sin querer se pueden cambiar nombre de variables o funciones y se pueden dañar mas cosas
 
 
+ proximo prompt para estrategia
+
+no quitar los logs solo que sea mas ordenado
+no modificar variables ya que cambia el resto del codigo
+modificar solo lo que esta dentro de esta funcion manteniendo variables ya definidas y salidas como ya estan

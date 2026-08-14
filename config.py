@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Tuple, Dict
 import MetaTrader5 as mt5
+import re
 
 
 @dataclass
@@ -39,7 +40,7 @@ class RiskConfig:
     min_lot_size: float = 0.01
     max_lot_size: float = 10.0
     use_equity_instead_of_balance: bool = True
-    default_sl_pips = 20 
+    default_sl_pips = 20
     default_tp_pips = 40
 
     @property
@@ -58,6 +59,53 @@ class StrategyConfig:
     rsi_overbought: float = 70.0
     rsi_oversold: float = 30.0
 
+    # 🟢 NUEVAS CONFIGURACIONES DE SESIÓN Y FILTRO
+    use_session_filter: bool = True
+
+    # Mapa base de sesiones por divisa (Horarios estándar UTC)
+    # Ejemplo: Europa/Londres (07:00 - 16:00 UTC), Nueva York (12:00 - 21:00 UTC), Asia/Sídney (22:00 - 08:00 UTC)
+    SESSION_MAP: Dict[str, Tuple[str, str]] = field(
+        default_factory=lambda: {
+            "USD": ("12:00", "21:00"),  # Sesión Nueva York
+            "CAD": ("12:00", "21:00"),
+            "EUR": ("07:00", "16:00"),  # Sesión Londres / Europa
+            "GBP": ("07:00", "16:00"),
+            "CHF": ("07:00", "16:00"),
+            "JPY": ("00:00", "09:00"),  # Sesión Tokio / Asia
+            "AUD": ("22:00", "07:00"),  # Sesión Sídney / Australia
+            "NZD": ("22:00", "07:00"),
+        }
+    )
+
+    def get_session_times_for_symbol(self, symbol: str) -> Tuple[str, str]:
+        """
+        Determina dinámicamente la hora de inicio y fin combinando
+        las divisas del par (Base y Cotizada).
+        """
+        # Extrae exactamente los primeros 6 caracteres alfabéticos (ej: "GBPCHF_r" -> "GBPCHF")
+        match = re.search(r"([A-Z]{6})", symbol.upper())
+        clean_symbol = match.group(1) if match else symbol.upper()
+
+        # Extraer divisa base y cotizada (ejemplo: GBPCHF -> base: GBP, quote: CHF)
+        base_ccy = clean_symbol[:3] if len(clean_symbol) >= 3 else ""
+        quote_ccy = clean_symbol[3:6] if len(clean_symbol) >= 6 else ""
+
+        times_base = self.SESSION_MAP.get(base_ccy)
+        times_quote = self.SESSION_MAP.get(quote_ccy)
+
+        if times_base and times_quote:
+            # Si ambas divisas tienen horario, tomamos la hora de inicio de la primera en abrir
+            # y la hora de fin de la última en cerrar.
+            start = min(times_base[0], times_quote[0])
+            end = max(times_base[1], times_quote[1])
+            return start, end
+        elif times_base:
+            return times_base
+        elif times_quote:
+            return times_quote
+
+        # Horario por defecto si el símbolo es un índice o no está mapeado (07:00 a 21:00)
+        return "07:00", "21:00"
 
 @dataclass
 class BotConfig:
