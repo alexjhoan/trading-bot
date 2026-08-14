@@ -384,12 +384,18 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             )
         entry.update_idletasks()
 
-    def update_all_inputs_state(self, active_symbols: Optional[List[str]] = None) -> None:
+    def update_all_inputs_state(self, active_symbols: Optional[Any] = None) -> None:
         """
         Recorre todos los símbolos y actualiza sus inputs individualmente.
         Si se pasa la lista `active_symbols`, desactiva solo los pares que están cotizando/operando en vivo.
         """
-        active_list = active_symbols or []
+        if isinstance(active_symbols, (list, tuple, set)):
+            active_list = list(active_symbols)
+        elif isinstance(active_symbols, bool):
+            active_list = self.symbols if active_symbols else []
+        else:
+            active_list = []
+
         for symbol in self.symbols:
             # Se fuerza el bloqueo únicamente si este símbolo en particular tiene una posición activa
             is_active_trade = symbol in active_list

@@ -248,7 +248,7 @@ class QuantBotApp(ctk.CTk):
         has_active_workers = len(self.workers) > 0
 
         self.sidebar.set_inputs_state(enabled=not has_active_workers)
-        self.symbol_selector.update_all_inputs_state(active_symbols=has_active_workers)
+        self.symbol_selector.update_all_inputs_state(active_symbols=list(self.workers.keys()))
 
     def _has_open_positions(self) -> bool:
         """Verifica si existen posiciones abiertas en MT5."""
@@ -258,17 +258,17 @@ class QuantBotApp(ctk.CTk):
         except Exception:
             return False
 
-        def on_sidebar_risk_changed(self) -> None:
-            """Recalcula los Pips en tiempo real cuando el usuario escribe en la Sidebar."""
-            try:
-                acc_info = mt5.account_info()
-                balance = acc_info.balance if acc_info else 0.0
-                risk_pct = self.sidebar.get_sidebar_values().get("risk_pct", 0.01)
+    def on_sidebar_risk_changed(self) -> None:
+        """Recalcula los Pips en tiempo real cuando el usuario escribe en la Sidebar."""
+        try:
+            acc_info = mt5.account_info()
+            balance = acc_info.balance if acc_info else 0.0
+            risk_pct = self.sidebar.get_sidebar_values().get("risk_pct", 0.01)
 
-                max_risk_usd = balance * risk_pct
-                self.symbol_selector.set_max_risk_usd(max_risk_usd)
-            except Exception:
-                pass
+            max_risk_usd = balance * risk_pct
+            self.symbol_selector.set_max_risk_usd(max_risk_usd)
+        except Exception:
+            pass
 
     def _update_account_loop(self) -> None:
         """Bucle secundario en segundo plano."""
@@ -288,6 +288,7 @@ class QuantBotApp(ctk.CTk):
 
         except Exception as e:
             print(f"[DEBUG ACCOUNT] Excepción en loop: {e}")
+            traceback.print_exc()
 
         self.after(5000, self._update_account_loop)
 
