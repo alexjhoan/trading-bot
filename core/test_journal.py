@@ -8,13 +8,12 @@ journal = TradingJournal()
 journal.log_trade(
     ticket=1001234,
     symbol="EURUSD_r",
-    strategy_name="SimpleTrendStrategy (MA+RSI)",
+    strategy_name="PriceActionStrategy",
     order_type="BUY",
     volume=0.01,
     price_open=1.08500,
     price_close=1.08750,
     pnl=25.00,  # Ganancia simulated de $25
-    ia_analysis="Prueba inicial: Cruce alcista de MAs respaldado por consolidación en soporte clave.",
 )
 
 print("\n✨ Revisa la carpeta 'logs/'. Deberías ver el nuevo archivo .md generado.")

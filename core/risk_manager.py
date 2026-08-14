@@ -5,8 +5,60 @@ from config import RISK_CONFIG, RiskConfig
 
 class RiskManager:
 
-    def __init__(self, config: RiskConfig = RISK_CONFIG) -> None:
+    def __init__(self, config: RiskConfig = RISK_CONFIG, log_callback: Optional[Any] = None) -> None:
         self.config: RiskConfig = config
+        self.log_callback = log_callback
+
+    def _log(self, message: str, level: str = "INFO") -> None:
+        """Método auxiliar para imprimir o enviar logs a la GUI."""
+        if self.log_callback:
+            self.log_callback("RiskManager", message, level)
+        else:
+            print(f"[{level}] {message}")
+
+    def calculate_sl_pips_from_risk(
+        self,
+        balance: float,
+        fixed_lot: float,
+        risk_pct: float = 0.01,
+        symbol: Optional[str] = None
+    ) -> float:
+        """
+        Calcula la distancia en Pips del Stop Loss basándose en el % de riesgo
+        y el lotaje fijo seleccionados desde la GUI.
+
+        Fórmula: Pips SL = (Balance * %Riesgo) / (Lotaje * Valor Pip)
+        """
+        if balance <= 0 or fixed_lot <= 0:
+            return 20.0  # SL por defecto de seguridad en pips
+
+        # 1. Monto en dinero a arriesgar en USD
+        risk_amount: float = balance * risk_pct
+
+        # 2. Valor del pip para 1.0 lote (Estándar $10/pip en Forex USD)
+        pip_value_per_lot: float = 10.0
+
+        if symbol:
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info is not None and symbol_info.trade_tick_value > 0:
+                pip_size = symbol_info.point * 10 if symbol_info.digits in (3, 5) else symbol_info.point
+                pip_value_per_lot = (symbol_info.trade_tick_value / symbol_info.trade_tick_size) * pip_size
+
+        # 3. Cálculo de Pips de Stop Loss
+        sl_pips: float = risk_amount / (fixed_lot * pip_value_per_lot)
+
+        print(
+            f"🛡️ [RIESGO SL] Balance: ${balance:.2f} | Riesgo ({risk_pct * 100:.1f}%): ${risk_amount:.2f} | "
+            f"Lote Fijo: {fixed_lot} ➔ SL Pips Calculado: {sl_pips:.1f}"
+        )
+
+        debug_msg = (
+            f"🛡️ [RIESGO SL] Balance: ${balance:.2f} | Riesgo ({risk_pct * 100:.1f}%): ${risk_amount:.2f} | "
+            f"Lote Fijo: {fixed_lot} ➔ SL Pips Calculado: {sl_pips:.1f}"
+        )
+        self._log(debug_msg, "INFO")
+
+        return round(sl_pips, 1)
 
     def calculate_position_size(
           self,
@@ -27,8 +79,13 @@ class RiskManager:
           # 1. Dinero exacto a arriesgar en USD
           risk_amount: float = balance * effective_risk_pct
 
-          # 2. Valor aproximado por pip de 1.0 lote estándar ($10 por pip en pares USD)
+          # 2. Obtener valor de Pip dinámico según el símbolo en MT5
           pip_value_per_lot: float = 10.0
+          if symbol:
+              symbol_info = mt5.symbol_info(symbol)
+              if symbol_info is not None and symbol_info.trade_tick_value > 0:
+                  pip_size = symbol_info.point * 10 if symbol_info.digits in (3, 5) else symbol_info.point
+                  pip_value_per_lot = (symbol_info.trade_tick_value / symbol_info.trade_tick_size) * pip_size
 
           # 3. Cálculo del tamaño de la posición
           raw_lot: float = risk_amount / (sl_pips * pip_value_per_lot)

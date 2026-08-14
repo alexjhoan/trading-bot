@@ -152,21 +152,19 @@ class SidebarComponent(ctk.CTkFrame):
         self.lbl_balance.configure(text=f"💰 Balance: ${balance:,.2f}")
         self.lbl_equity.configure(text=f"📊 Equidad: ${equity:,.2f}")
 
-    def get_parameters(self) -> Dict[str, Any]:
-        """Retorna los parámetros actualizados del Sidebar."""
+    def get_sidebar_values(self) -> Dict[str, Any]:
+        """Devuelve los valores configurados en el sidebar (riesgo, timeframe y test mode)."""
         try:
-            raw_val = float(self.entry_risk.get().replace(",", "."))
-            # Si el usuario ingresa un valor como 1.0 (que significa 1%), lo convertimos a 0.01.
-            # Si ingresa 0.01 (que ya es decimal), lo mantenemos.
+            raw_val = float(self.entry_risk.get().strip())
             risk_pct = raw_val / 100.0 if raw_val >= 0.1 else raw_val
         except ValueError:
-            risk_pct = 0.01  # Fallback a 1% de riesgo en caso de input inválido
+            risk_pct = 0.01
 
         tf_str: str = str(self.opt_tf.get())
         tf_val: int = TIMEFRAME_OPTIONS.get(tf_str, mt5.TIMEFRAME_M1)
 
         return {
-            "risk_pct": risk_pct,             # Ej: 0.01 para 1%
+            "risk_pct": risk_pct,
             "test_mode": self.switch_test_mode.get() == 1,
             "timeframe_str": tf_str,
             "timeframe_val": tf_val,

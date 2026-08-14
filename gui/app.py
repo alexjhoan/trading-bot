@@ -97,28 +97,41 @@ class QuantBotApp(ctk.CTk):
         )
         self.console.pack(fill="both", expand=True)
 
-    def _handle_symbol_toggle(self, symbol: str, active: bool) -> None:
-        if active:
-            if symbol not in self.workers or not self.workers[symbol].is_alive():
-                stop_evt = threading.Event()
-                self.stop_events[symbol] = stop_evt
+    def _handle_symbol_toggle(self, symbol: str, is_active: bool) -> None:
+        if is_active:
+            # Usar get_sidebar_values() en lugar de get_sidebar_values()
+            if hasattr(self.sidebar, "get_sidebar_values"):
+                sidebar_vals = self.sidebar.get_sidebar_values()
+            elif hasattr(self.sidebar, "get_values"):
+                sidebar_vals = self.sidebar.get_values()
+            else:
+                sidebar_vals = {"risk_pct": 0.01, "test_mode": False, "timeframe_val": 1}
 
-                # Obtener parámetros del sidebar (como el riesgo %)
-                params = self.sidebar.get_parameters()
+            stop_evt = threading.Event()
+            self.stop_events[symbol] = stop_evt
 
-                worker = SymbolWorker(
-                    symbol=symbol,
-                    params=params,
-                    log_callback=self.console.log,
-                    stop_event=stop_evt
-                )
-                self.workers[symbol] = worker
-                worker.start()
-                self.console.log(symbol, f"▶️ Monitoreo iniciado para {symbol}", "INFO")
+            # Crear worker asegurando que self.on_worker_log exista
+            worker = SymbolWorker(
+                symbol=symbol,
+                log_callback=self.on_worker_log,  # 👈 Ahora ya existe
+                stop_event=stop_evt,
+                timeframe=sidebar_vals.get("timeframe_val", 1),
+                test_mode=sidebar_vals.get("test_mode", False),
+                risk_pct=sidebar_vals.get("risk_pct", 0.01)
+            )
+
+            self.workers[symbol] = worker
+            worker.start()
+
+            if hasattr(self, "on_worker_log"):
+                self.on_worker_log(symbol, f"Hilo iniciado para {symbol}", "INFO")
         else:
             if symbol in self.stop_events:
                 self.stop_events[symbol].set()
-                self.console.log(symbol, f"⏹️ Monitoreo detenido para {symbol}", "WARNING")
+            if symbol in self.workers:
+                del self.workers[symbol]
+            if hasattr(self, "on_worker_log"):
+                self.on_worker_log(symbol, f"Deteniendo hilo para {symbol}...", "WARN")
 
     def _handle_symbols_list_changed(self, new_symbols: List[str]) -> None:
         self.symbols = new_symbols
@@ -141,7 +154,7 @@ class QuantBotApp(ctk.CTk):
         """Ejecuta una orden de prueba rápida."""
         def run_test():
             try:
-                params = self.sidebar.get_parameters()
+                params = self.sidebar.get_sidebar_values()
                 test_symbol = self.symbols[0] if self.symbols else "EURUSD_r"
 
                 self.console.log("General", f"🧪 Iniciando orden de prueba en {test_symbol}...", "INFO")
@@ -204,16 +217,20 @@ class QuantBotApp(ctk.CTk):
             stop_event = threading.Event()
             self.stop_events[symbol] = stop_event
 
+            # 1. Obtener valores actuales del Sidebar
+            sidebar_vals = self.sidebar.get_sidebar_values()
+
+            # 2. Instanciar SymbolWorker pasando los parámetros extraídos
             worker = SymbolWorker(
                 symbol=symbol,
-                timeframe_str=self.sidebar.get_parameters().get("timeframe", "M15"),
-                risk_pct=self.sidebar.get_parameters().get("risk_pct", 0.01),
-                stop_event=stop_event,
-                log_callback=self._log_from_worker,
-                lot_size=self.symbol_selector.get_symbol_lots().get(symbol, 0.01)
+                log_callback=self.on_worker_log,
+                stop_event=self.stop_events[symbol],
+                timeframe=sidebar_vals["timeframe_val"],  # 👈 Se envía el timeframe seleccionado
+                test_mode=sidebar_vals["test_mode"],      # 👈 Se envía si el switch 'Test Mode' está activo
+                risk_pct=sidebar_vals["risk_pct"]
             )
-            self.workers[symbol] = worker
             worker.start()
+            self.workers[symbol] = worker
         else:
             self.console.log(symbol, f"🛑 Deteniendo monitoreo para {symbol}...", "INFO")
             if symbol in self.stop_events:
@@ -226,14 +243,12 @@ class QuantBotApp(ctk.CTk):
         self.update_controls_state()
 
     def update_controls_state(self) -> None:
-        """Sincroniza el estado de los controles con las posiciones abiertas de MT5."""
-        has_real_trades = self._has_open_positions()
+        """Sincroniza el estado de los controles verificando si hay hilos/workers ejecutándose."""
+        # En lugar de bloquear por cualquier orden en MT5, verificamos si hay bots activos en ejecución
+        has_active_workers = len(self.workers) > 0
 
-        # Si hay posiciones abiertas, se deshabilita el sidebar
-        self.sidebar.set_inputs_state(enabled=not has_real_trades)
-
-        # Actualizar selector de símbolos
-        self.symbol_selector.update_all_inputs_state(force_all_disabled=has_real_trades)
+        self.sidebar.set_inputs_state(enabled=not has_active_workers)
+        self.symbol_selector.update_all_inputs_state(force_all_disabled=has_active_workers)
 
     def _has_open_positions(self) -> bool:
         """Verifica si existen posiciones abiertas en MT5."""
@@ -248,7 +263,7 @@ class QuantBotApp(ctk.CTk):
             try:
                 acc_info = mt5.account_info()
                 balance = acc_info.balance if acc_info else 0.0
-                risk_pct = self.sidebar.get_parameters().get("risk_pct", 0.01)
+                risk_pct = self.sidebar.get_sidebar_values().get("risk_pct", 0.01)
 
                 max_risk_usd = balance * risk_pct
                 self.symbol_selector.set_max_risk_usd(max_risk_usd)
@@ -263,7 +278,7 @@ class QuantBotApp(ctk.CTk):
                 balance = acc_info.balance
                 self.sidebar.update_account_info(balance, acc_info.equity)
 
-                risk_pct = self.sidebar.get_parameters().get("risk_pct", 0.01)
+                risk_pct = self.sidebar.get_sidebar_values().get("risk_pct", 0.01)
                 self.symbol_selector.set_max_risk_usd(balance * risk_pct)
 
                 # Mantener estado de controles sincronizado con MT5
@@ -287,6 +302,15 @@ class QuantBotApp(ctk.CTk):
             self.console_tabview.sync_tabs(self.symbols)
 
         self.update_controls_state()
+
+    def on_worker_log(self, symbol: str, message: str, level: str = "INFO") -> None:
+        """Callback que reciben los workers para enviar logs a la consola de la UI."""
+        if hasattr(self, "console") and self.console:
+            self.console.log(symbol, message, level)
+        elif hasattr(self, "console_tabview") and self.console_tabview:
+            self.console_tabview.log(symbol, message, level)
+        else:
+            print(f"[{level}] [{symbol}] {message}")
 
 if __name__ == "__main__":
     app = QuantBotApp()

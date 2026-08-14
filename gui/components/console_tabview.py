@@ -90,29 +90,32 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
         Escribe un log en la pestaña especificada.
         Si la pestaña objetivo no existe, la crea dinámicamente.
         """
-        timestamp = time.strftime("[%H:%M:%S] ")
-        prefix = {
-            "INFO": "ℹ️ ",
-            "WARN": "⚠️ [WARN] ",
-            "ERROR": "❌ [ERROR] ",
-            "SUCCESS": "✅ [SUCCESS] "
-        }.get(level, "")
+        def _update_gui():
+          timestamp = time.strftime("[%H:%M:%S] ")
+          prefix = {
+              "INFO": "ℹ️ ",
+              "WARN": "⚠️ [WARN] ",
+              "ERROR": "❌ [ERROR] ",
+              "SUCCESS": "✅ [SUCCESS] "
+          }.get(level, "")
 
-        formatted_msg = f"{timestamp}{prefix}{message}\n"
+          formatted_msg = f"{timestamp}{prefix}{message}\n"
 
-        # Auto-creación de emergencia si llega log de un símbolo sin pestaña
-        if target not in self.console_boxes and target != "General":
-            self.add_symbol_tab(target)
+          if target not in self.console_boxes and target != "General":
+              self.add_symbol_tab(target)
 
-        box = self.console_boxes.get(target) or self.console_boxes.get("General")
+          box = self.console_boxes.get(target) or self.console_boxes.get("General")
 
-        if box:
-            current_state = box.cget("state")
-            if current_state == "disabled":
-                box.configure(state="normal")
+          if box:
+              current_state = box.cget("state")
+              if current_state == "disabled":
+                  box.configure(state="normal")
 
-            box.insert("end", formatted_msg)
-            box.see("end")  # Auto-scroll siempre al final
+              box.insert("end", formatted_msg)
+              box.see("end")
 
-            if current_state == "disabled":
-                box.configure(state="disabled")
+              if current_state == "disabled":
+                  box.configure(state="disabled")
+
+        # Delegar la ejecución al hilo de la GUI
+        self.after(0, _update_gui)

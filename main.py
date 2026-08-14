@@ -9,7 +9,7 @@ from config import BOT_CONFIG, RISK_CONFIG, STRATEGY_CONFIG, SYMBOL_CONFIG
 import core.connector as connector
 from core.executor import OrderExecutor
 from core.risk_manager import RiskManager
-from core.strategy import SimpleTrendStrategy
+from core.strategy import PriceActionStrategy
 
 
 
@@ -87,7 +87,7 @@ def run_bot():
             print("🛑 Deteniendo ejecución: Activa 'Algo Trading' en MT5.")
             return
 
-        strategy = SimpleTrendStrategy(STRATEGY_CONFIG)
+        strategy = PriceActionStrategy(STRATEGY_CONFIG)
         risk_mgr = RiskManager(RISK_CONFIG)
         executor = OrderExecutor(SYMBOL_CONFIG, RISK_CONFIG, STRATEGY_CONFIG)
 
@@ -127,13 +127,14 @@ def run_bot():
             has_open_position = positions is not None and len(positions) > 0
 
             # 3. Determinación de la Señal
-            TEST_MODE = True  # 👈 Cambia a False para volver a la estrategia real
+            TEST_MODE = False  # 👈 Cambia a False para volver a la estrategia real
 
             if TEST_MODE:
                 signal = "BUY"
                 print(f"🧪 [MODO TEST] Señal FORZADA generada: {signal}")
             else:
-                signal = strategy.generate_signal(df)
+                signal_res = strategy.generate_signal(df)
+                signal = signal_res.get("signal", "HOLD") if isinstance(signal_res, dict) else str(signal_res)
                 print(f"📡 Señal obtenida ({active_symbol}): {signal}")
 
             # 4. Gestión de posiciones existentes (ej. trailing stop o cierres por señal contraria)
@@ -148,23 +149,30 @@ def run_bot():
                 if acc_info is None:
                     continue
 
-                # Calcular lotaje seguro
-                lot_size = risk_mgr.calculate_position_size(
+                # 1. Definir o tomar parámetros de riesgo (de RISK_CONFIG o variables locales)
+                fixed_lot = RISK_CONFIG.max_lot_size  # O un lote fijo configurado, p. ej. 0.1
+                risk_pct = RISK_CONFIG.risk_per_trade_pct # ej. 0.01 (1%)
+
+                # 2. Calcular los pips de Stop Loss dinámicos basados en el riesgo y lotaje
+                sl_pips = risk_mgr.calculate_sl_pips_from_risk(
                     balance=acc_info.balance,
-                    sl_pips=RISK_CONFIG.default_sl_pips,
+                    fixed_lot=fixed_lot,
+                    risk_pct=risk_pct,
+                    symbol=active_symbol
                 )
 
-                # Validar reglas de gestión de riesgo
+                # 3. Validar el trade con las reglas de gestión de riesgo
                 is_valid, reason = risk_mgr.validate_new_trade(
-                    symbol=active_symbol, proposed_lot=lot_size
+                    symbol=active_symbol, proposed_lot=fixed_lot
                 )
 
                 if is_valid:
                     if not BOT_CONFIG.dry_run:
-                        print(f"🚀 Enviando orden {signal} por {lot_size} lotes en {active_symbol}...")
-                        executor.send_order(signal=signal, volume=lot_size)
+                        print(f"🚀 Enviando orden {signal} por {fixed_lot} lotes en {active_symbol} (SL: {sl_pips} pips)...")
+                        # Asegúrate de pasar el sl_pips correspondiente al executor
+                        executor.send_order(order_type=signal, volume=fixed_lot, sl_pips=sl_pips)
                     else:
-                        print(f"🧪 [DRY_RUN] Simulando orden {signal} en {active_symbol}.")
+                        print(f"🧪 [DRY_RUN] Simulando orden {signal} en {active_symbol} con SL de {sl_pips} pips.")
                 else:
                     print(f"🚫 Rechazado por Riesgo: {reason}")
 

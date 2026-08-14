@@ -117,7 +117,7 @@ class OrderExecutor:
             "sl": sl_price,
             "tp": tp_price,
             "deviation": 10,
-            "magic": 999111,
+            "magic": 123456,
             "comment": comment or "Bot Order",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": get_filling_mode(self.symbol),
