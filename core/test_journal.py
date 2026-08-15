@@ -1,5 +1,10 @@
 # test_journal.py
-from journal_logger import TradingJournal
+import sys
+import os
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from core.journal_logger import TradingJournal, _safe_print
 
 # Instanciar el diario
 journal = TradingJournal()
@@ -13,7 +18,7 @@ journal.log_trade(
     volume=0.01,
     price_open=1.08500,
     price_close=1.08750,
-    pnl=25.00,  # Ganancia simulated de $25
+    pnl=25.00,  # Ganancia simultada de $25
 )
 
-print("\n✨ Revisa la carpeta 'logs/'. Deberías ver el nuevo archivo .md generado.")
+_safe_print("\n✨ Revisa la carpeta 'history/'. Deberías ver el nuevo archivo .md generado.")

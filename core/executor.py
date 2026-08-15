@@ -1,4 +1,4 @@
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 import MetaTrader5 as mt5
 from config import RISK_CONFIG, STRATEGY_CONFIG, SYMBOL_CONFIG, SymbolConfig, RiskConfig, StrategyConfig
 from .journal_logger import TradingJournal
@@ -73,7 +73,7 @@ class OrderExecutor:
         sl_pips: float = 0.0,
         tp_pips: float = 0.0,
         comment: str = ""
-    ) -> Optional[int]:
+    ) -> Dict[str, Any]:
         symbol_info = mt5.symbol_info(self.symbol)
         if symbol_info is None:
             print(f"❌ [MT5] No se pudo obtener symbol_info para {self.symbol}")
@@ -160,20 +160,22 @@ class OrderExecutor:
             return {"status": False, "message": msg, "retcode": result.retcode}
 
         print(f"✅ ¡Orden ejecutada con éxito! Ticket #{result.order} | Precio: {result.price}")
-        return {"status": True, "ticket": result.order, "price": result.price, "volume": result.volume}
 
         # 📌 Guardar registro de la APERTURA en el diario inmediatamente
-        self.journal.log_entry(
-            ticket=result.order,
-            symbol=self.symbol,
-            order_type=order_type_mt5,
-            volume=volume,
-            price=price,
-            sl=sl_price,
-            tp=tp_price
-        )
+        try:
+            self.journal.log_entry(
+                ticket=result.order,
+                symbol=self.symbol,
+                order_type="BUY" if order_type_mt5 == mt5.ORDER_TYPE_BUY else "SELL",
+                volume=volume,
+                price=price,
+                sl=sl_price,
+                tp=tp_price
+            )
+        except Exception as log_err:
+            print(f"⚠️ No se pudo escribir log de apertura: {log_err}")
 
-        return result.order
+        return {"status": True, "ticket": result.order, "price": result.price, "volume": result.volume}
 
     def close_position(self, position, reason: str = "EarlyExit") -> bool:
         """Cierra la posición y guarda el registro con PnL en el diario Markdown."""

@@ -2,6 +2,15 @@ import os
 from datetime import datetime
 import MetaTrader5 as mt5
 
+
+def _safe_print(msg: str) -> None:
+    """Imprime mensajes de forma segura evitando fallos de codificación Unicode en Windows."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode("ascii", errors="ignore").decode("ascii"))
+
+
 class TradingJournal:
     def __init__(self, base_folder="history"):
         self.base_folder = base_folder
@@ -13,7 +22,7 @@ class TradingJournal:
         # %V obtiene el número de semana ISO (01 a 53)
         week_number = datetime.now().strftime("%V")
         year = datetime.now().strftime("%Y")
-        
+
         file_name = f"semana_{week_number}_{year}.md"
         return os.path.join(self.base_folder, file_name)
 
@@ -34,32 +43,32 @@ class TradingJournal:
                     f.write(f"# 📈 Historial de Operaciones - Semana {week_num}\n\n")
                     f.write("| Fecha/Hora | Ticket | Símbolo | Tipo | Lotes | Precio Ent. | SL | TP | Estado | PnL ($) |\n")
                     f.write("|---|---|---|---|---|---|---|---|---|---|\n")
-                print(f"📄 [LOG] Archivo semanal creado: {self.filename}")
+                _safe_print(f"📄 [LOG] Archivo semanal creado: {self.filename}")
             except Exception as e:
-                print(f"❌ [LOG ERROR] Error creando archivo semanal {self.filename}: {e}")
+                _safe_print(f"❌ [LOG ERROR] Error creando archivo semanal {self.filename}: {e}")
 
     def log_entry(self, ticket: int, symbol: str, order_type: str, volume: float, price: float, sl: float, tp: float):
         """Registra la APERTURA de una posición inmediatamente en el diario semanal."""
         self._ensure_folder_and_header()  # Asegura que apunte al archivo semanal correcto
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"| {now} | {ticket} | {symbol} | {order_type} | {volume} | {price:.5f} | {sl:.5f} | {tp:.5f} | 🟢 ABIERTA | Pendiente |\n"
-        
+
         try:
             with open(self.filename, "a", encoding="utf-8") as f:
                 f.write(line)
-            print(f"📝 [LOG APERTURA] Orden #{ticket} guardada en {self.filename}")
+            _safe_print(f"📝 [LOG APERTURA] Orden #{ticket} guardada en {self.filename}")
         except Exception as e:
-            print(f"❌ [LOG ERROR] No se pudo escribir apertura en {self.filename}: {e}")
+            _safe_print(f"❌ [LOG ERROR] No se pudo escribir apertura en {self.filename}: {e}")
 
     def log_trade(self, ticket: int, symbol: str, strategy_name: str, order_type: str, volume: float, price_open: float, price_close: float, pnl: float):
         """Registra el CIERRE de una operación con su PnL final."""
         self._ensure_folder_and_header()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"| {now} | {ticket} | {symbol} | {order_type} | {volume} | {price_open:.5f} | - | - | 🔴 CERRADA | ${pnl:+.2f} |\n"
-        
+
         try:
             with open(self.filename, "a", encoding="utf-8") as f:
                 f.write(line)
-            print(f"📝 [LOG CIERRE] Orden #{ticket} actualizada en {self.filename}")
+            _safe_print(f"📝 [LOG CIERRE] Orden #{ticket} actualizada en {self.filename}")
         except Exception as e:
-            print(f"❌ [LOG ERROR] No se pudo escribir cierre en {self.filename}: {e}")
+            _safe_print(f"❌ [LOG ERROR] No se pudo escribir cierre en {self.filename}: {e}")

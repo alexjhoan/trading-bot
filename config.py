@@ -3,7 +3,6 @@ from typing import Optional, Tuple, Dict
 import MetaTrader5 as mt5
 import re
 from datetime import datetime, timezone
-from typing import Tuple
 
 
 @dataclass
@@ -36,14 +35,14 @@ class RiskConfig:
     """Estructura de configuración de parámetros de riesgo modificables."""
 
     symbol_config: SymbolConfig  # Toma las variables de símbolo/sufijo automáticamente
-    risk_per_trade_pct = 0.01   # 0.01 representa el 1% del capital total por operación
+    risk_per_trade_pct: float = 0.01   # 0.01 representa el 1% del capital total por operación
     max_daily_drawdown_pct: float = 5.0
     max_open_positions: int = 3
     min_lot_size: float = 0.01
     max_lot_size: float = 10.0
     use_equity_instead_of_balance: bool = True
-    default_sl_pips = 20
-    default_tp_pips = 40
+    default_sl_pips: int = 20
+    default_tp_pips: int = 40
 
     @property
     def symbol(self) -> str:

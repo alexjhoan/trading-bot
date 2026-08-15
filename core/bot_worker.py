@@ -83,6 +83,7 @@ class SymbolWorker(threading.Thread):
                 # 2. Evaluar Modo Test o Estrategia Real
                 if self.test_mode:
                     signal = "BUY"
+                    signal_data = {"signal": "BUY", "reason": "Modo Test Activo"}
                     self._log(f"🧪 [MODO TEST] Señal forzada BUY en {self.symbol}", "INFO")
                 else:
                     self._log(f"🧠 [ANALIZANDO] Llamando a generate_signal() para {self.symbol}...", "INFO")

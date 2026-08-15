@@ -192,13 +192,23 @@ class PriceActionStrategy:
             score += 1
             score_details.append(f"Vela Fuerte {body_ratio * 100:.0f}% (+1)")
 
-        signal_type = "BUY" if raw_buy else "SELL"
-        is_valid = score >= self.min_confluence_score
+        if raw_buy:
+            signal_type = "BUY"
+        elif raw_sell:
+            signal_type = "SELL"
+        else:
+            signal_type = "HOLD"
+
+        is_valid = (signal_type != "HOLD") and (score >= self.min_confluence_score)
         final_signal = signal_type if is_valid else "HOLD"
         reason = (
-            f"BOS Confirmado con Score {score}/{3}: {', '.join(score_details)}"
+            f"BOS Confirmado ({signal_type}) con Score {score}/3: {', '.join(score_details)}"
             if is_valid
-            else f"BOS descartado por baja confluencia ({score}/{self.min_confluence_score} requerido)"
+            else (
+                f"Sin rompimiento de estructura (BOS)"
+                if signal_type == "HOLD"
+                else f"BOS {signal_type} descartado por baja confluencia ({score}/{self.min_confluence_score} requerido)"
+            )
         )
 
         # 🟢 REGISTRO DE DEPURACIÓN EN GUI / CONSOLA

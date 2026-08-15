@@ -58,11 +58,7 @@ class QuantBotApp(ctk.CTk):
         # 2. Iniciar el bucle de actualización de la cuenta
         # -----------------------------------------------------------------
         self._update_account_loop()
-
-        self.console_tabview = ConsoleTabviewComponent(
-            master=self.main_frame,
-            symbols=self.symbols
-        )
+        self.console_tabview = self.console
 
     def _build_ui(self) -> None:
         # 1. Sidebar (Columna 0)
@@ -177,70 +173,6 @@ class QuantBotApp(ctk.CTk):
             event.set()
         shutdown_mt5()
         super().destroy()
-
-    def _on_toggle(self, symbol: str) -> None:
-        """Se ejecuta al instante al pulsar el switch."""
-        is_active = self.switch_vars[symbol].get()
-
-        # 1. Notificar a la App para que reevalúe bloqueos de UI INMEDIATAMENTE
-        if hasattr(self.master, "update_controls_state"):
-            self.master.update_controls_state()
-
-        # 2. Ejecutar callback del worker si existe
-        if self.on_toggle_callback:
-            self.on_toggle_callback(symbol, is_active)
-
-    def set_inputs_enabled(self, force_all_disabled: bool = False) -> None:
-        """Aplica el bloqueo/desbloqueo instantáneo con estilos desvanecidos."""
-        for symbol, entry in self.entry_lots.items():
-            is_switch_on = self.switch_vars.get(symbol, ctk.BooleanVar()).get()
-            should_disable = force_all_disabled or is_switch_on
-
-            if should_disable:
-                entry.configure(
-                    state="disabled",
-                    fg_color="#1A1A1A",
-                    text_color="#555555"
-                )
-            else:
-                entry.configure(
-                    state="normal",
-                    fg_color="#333333",
-                    text_color="#FFFFFF"
-                )
-            entry.update_idletasks()
-
-    def _on_symbol_toggle(self, symbol: str, is_active: bool) -> None:
-        """Maneja el encendido/apagado de un bot por símbolo y actualiza la UI al instante."""
-        if is_active:
-            self.console.log(symbol, f"🚀 Activando monitoreo para {symbol}...", "INFO")
-            stop_event = threading.Event()
-            self.stop_events[symbol] = stop_event
-
-            # 1. Obtener valores actuales del Sidebar
-            sidebar_vals = self.sidebar.get_sidebar_values()
-
-            # 2. Instanciar SymbolWorker pasando los parámetros extraídos
-            worker = SymbolWorker(
-                symbol=symbol,
-                log_callback=self.on_worker_log,
-                stop_event=self.stop_events[symbol],
-                timeframe=sidebar_vals["timeframe_val"],  # 👈 Se envía el timeframe seleccionado
-                test_mode=sidebar_vals["test_mode"],      # 👈 Se envía si el switch 'Test Mode' está activo
-                risk_pct=sidebar_vals["risk_pct"]
-            )
-            worker.start()
-            self.workers[symbol] = worker
-        else:
-            self.console.log(symbol, f"🛑 Deteniendo monitoreo para {symbol}...", "INFO")
-            if symbol in self.stop_events:
-                self.stop_events[symbol].set()
-                del self.stop_events[symbol]
-            if symbol in self.workers:
-                del self.workers[symbol]
-
-        # ⚡ IMPORTANTE: Refrescar el estado de los controles AL INSTANTE
-        self.update_controls_state()
 
     def update_controls_state(self) -> None:
         """Sincroniza el estado de los controles verificando si hay hilos/workers ejecutándose."""

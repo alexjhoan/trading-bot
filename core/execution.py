@@ -1,3 +1,7 @@
+"""
+⚠️ [DEPRECATED] Este módulo (execution.py / ExecutionHandler) está obsoleto.
+Utiliza `OrderExecutor` en `core/executor.py` para la ejecución activa del bot.
+"""
 from typing import Any, Dict, Optional, Tuple
 import MetaTrader5 as mt5
 
