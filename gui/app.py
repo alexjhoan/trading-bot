@@ -7,13 +7,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# 2. Ahora sí podemos importar CustomTkinter y los módulos propios
+# 2. Módulos propios y librerías
 import customtkinter as ctk
 import threading
 from typing import Dict, List, Any
 import MetaTrader5 as mt5
 
-from gui.components import SidebarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
+from gui.components import TopbarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
 from core.bot_worker import SymbolWorker
 from core.config_manager import load_config, save_config
 from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs
@@ -27,11 +27,13 @@ class QuantBotApp(ctk.CTk):
         super().__init__()
 
         self.title("🤖 Quant Trading Bot - Auto Execution")
-        self.geometry("1100x720")
-        self.minsize(980, 650)
+        self.geometry("1150x760")
+        self.minsize(1000, 680)
 
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
+        # Configuración de Grid Principal (Row 0: Topbar, Row 1: Main Panel)
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
         # Cargar configuración persistente
         self.config_data: Dict[str, Any] = load_config()
@@ -61,30 +63,30 @@ class QuantBotApp(ctk.CTk):
         self.console_tabview = self.console
 
     def _build_ui(self) -> None:
-        # 1. Sidebar (Columna 0)
-        self.sidebar = SidebarComponent(
+        # 1. Topbar Superior (Fila 0)
+        self.topbar = TopbarComponent(
             self,
             on_test_order_callback=self._execute_test_order,
             on_config_saved_callback=self._on_config_reloaded
         )
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        self.topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
-        # 2. Panel Central (Columna 1) - Lo asignamos como self.main_frame
+        # 2. Panel Central (Fila 1)
         self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        self.main_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         self.main_frame.grid_rowconfigure(1, weight=1)
         self.main_frame.grid_columnconfigure(0, weight=1)
 
-        # 3. Selector de Símbolos (dentro de self.main_frame)
+        # 3. Selector de Símbolos y Tabla por Par (dentro de self.main_frame)
         self.symbol_selector = SymbolSelectorComponent(
             self.main_frame,
             symbols=self.symbols,
             available_symbols=self.config_data.get("available_symbols", []),
-            symbol_specs=self.config_data.get("symbol_specs", {}),  # 🟢 AGREGAR ESTA LÍNEA
+            symbol_specs=self.config_data.get("symbol_specs", {}),
             on_toggle_callback=self._handle_symbol_toggle,
             on_symbols_changed_callback=self._handle_symbols_list_changed
         )
-        self.symbol_selector.pack(fill="x", pady=(0, 10))
+        self.symbol_selector.pack(fill="x", pady=(0, 8))
 
         # 4. Consola de Logs (dentro de self.main_frame)
         self.console = ConsoleTabviewComponent(
@@ -94,46 +96,43 @@ class QuantBotApp(ctk.CTk):
         self.console.pack(fill="both", expand=True)
 
     def _handle_symbol_toggle(self, symbol: str, is_active: bool) -> None:
+        """Maneja el encendido / apagado del monitoreo de un símbolo específico."""
         if is_active:
-            # Usar get_sidebar_values() en lugar de get_sidebar_values()
-            if hasattr(self.sidebar, "get_sidebar_values"):
-                sidebar_vals = self.sidebar.get_sidebar_values()
-            elif hasattr(self.sidebar, "get_values"):
-                sidebar_vals = self.sidebar.get_values()
-            else:
-                sidebar_vals = {"risk_pct": 0.01, "test_mode": False, "timeframe_val": 1}
+            # Obtener configuración propia de este par desde symbol_selector
+            sym_config = self.symbol_selector.get_symbol_config(symbol)
+            topbar_vals = self.topbar.get_topbar_values()
 
             stop_evt = threading.Event()
             self.stop_events[symbol] = stop_evt
 
-            # Crear worker asegurando que self.on_worker_log exista
             worker = SymbolWorker(
                 symbol=symbol,
-                log_callback=self.on_worker_log,  # 👈 Ahora ya existe
+                log_callback=self.on_worker_log,
                 stop_event=stop_evt,
-                timeframe=sidebar_vals.get("timeframe_val", 1),
-                test_mode=sidebar_vals.get("test_mode", False),
-                risk_pct=sidebar_vals.get("risk_pct", 0.01)
+                timeframe=sym_config["timeframe_val"],
+                test_mode=topbar_vals.get("test_mode", False),
+                risk_pct=sym_config["risk_pct"],
+                lot=sym_config["lot"]
             )
 
             self.workers[symbol] = worker
             worker.start()
 
-            if hasattr(self, "on_worker_log"):
-                self.on_worker_log(symbol, f"Hilo iniciado para {symbol}", "INFO")
+            self.console.log(symbol, f"🚀 Monitoreo activado ({symbol} | Lote: {sym_config['lot']} | Riesgo: {sym_config['risk_pct']*100:.1f}% | TF: {sym_config['timeframe_str']})", "INFO")
         else:
             if symbol in self.stop_events:
                 self.stop_events[symbol].set()
+                del self.stop_events[symbol]
             if symbol in self.workers:
                 del self.workers[symbol]
-            if hasattr(self, "on_worker_log"):
-                self.on_worker_log(symbol, f"Deteniendo hilo para {symbol}...", "WARN")
+
+            self.console.log(symbol, f"🛑 Monitoreo detenido para {symbol}...", "WARN")
 
     def _handle_symbols_list_changed(self, new_symbols: List[str]) -> None:
         self.symbols = new_symbols
         self.save_settings()
 
-        # ⚡ Sincronizar las pestañas de la consola inmediatamente
+        # Sincronizar las pestañas de la consola inmediatamente
         if hasattr(self, "console"):
             self.console.sync_tabs(self.symbols)
 
@@ -150,11 +149,8 @@ class QuantBotApp(ctk.CTk):
         """Ejecuta una orden de prueba rápida."""
         def run_test():
             try:
-                params = self.sidebar.get_sidebar_values()
                 test_symbol = self.symbols[0] if self.symbols else "EURUSD_r"
-
                 self.console.log("General", f"🧪 Iniciando orden de prueba en {test_symbol}...", "INFO")
-                # Lógica de prueba...
             except Exception as e:
                 self.console.log("General", f"❌ Error en orden de prueba: {e}", "ERROR")
 
@@ -174,67 +170,24 @@ class QuantBotApp(ctk.CTk):
         shutdown_mt5()
         super().destroy()
 
-    def update_controls_state(self) -> None:
-        """Sincroniza el estado de los controles verificando si hay hilos/workers ejecutándose."""
-        # En lugar de bloquear por cualquier orden en MT5, verificamos si hay bots activos en ejecución
-        has_active_workers = len(self.workers) > 0
-
-        self.sidebar.set_inputs_state(enabled=not has_active_workers)
-        self.symbol_selector.update_all_inputs_state(active_symbols=list(self.workers.keys()))
-
-    def _has_open_positions(self) -> bool:
-        """Verifica si existen posiciones abiertas en MT5."""
-        try:
-            positions = mt5.positions_get()
-            return positions is not None and len(positions) > 0
-        except Exception:
-            return False
-
-    def on_sidebar_risk_changed(self) -> None:
-        """Recalcula los Pips en tiempo real cuando el usuario escribe en la Sidebar."""
-        try:
-            acc_info = mt5.account_info()
-            balance = acc_info.balance if acc_info else 0.0
-            risk_pct = self.sidebar.get_sidebar_values().get("risk_pct", 0.01)
-
-            max_risk_usd = balance * risk_pct
-            self.symbol_selector.set_max_risk_usd(max_risk_usd)
-        except Exception:
-            pass
-
     def _update_account_loop(self) -> None:
-        """Bucle secundario en segundo plano."""
+        """Bucle secundario en segundo plano para actualizar balance y equidad."""
         try:
             acc_info = mt5.account_info()
             if acc_info is not None:
                 balance = acc_info.balance
-                self.sidebar.update_account_info(balance, acc_info.equity)
-
-                risk_pct = self.sidebar.get_sidebar_values().get("risk_pct", 0.01)
-                self.symbol_selector.set_max_risk_usd(balance * risk_pct)
-
-                # Mantener estado de controles sincronizado con MT5
-                self.update_controls_state()
+                equity = acc_info.equity
+                self.topbar.update_account_info(balance, equity)
+                self.symbol_selector.set_account_balance(balance)
             else:
-                self.sidebar.update_account_info(0.0, 0.0)
+                self.topbar.update_account_info(0.0, 0.0)
+                self.symbol_selector.set_account_balance(0.0)
 
         except Exception as e:
             print(f"[DEBUG ACCOUNT] Excepción en loop: {e}")
             traceback.print_exc()
 
         self.after(5000, self._update_account_loop)
-
-    def on_symbols_changed(self, new_symbols: List[str]) -> None:
-        """Callback cuando cambia la selección de símbolos activos."""
-        self.symbols = list(new_symbols)
-        self.config_data["active_symbols"] = self.symbols
-        save_config(self.config_data)
-
-        # Asegurar que la consola tenga pestaña para todos los activos
-        if hasattr(self, "console_tabview"):
-            self.console_tabview.sync_tabs(self.symbols)
-
-        self.update_controls_state()
 
     def on_worker_log(self, symbol: str, message: str, level: str = "INFO") -> None:
         """Callback que reciben los workers para enviar logs a la consola de la UI."""
@@ -244,6 +197,7 @@ class QuantBotApp(ctk.CTk):
             self.console_tabview.log(symbol, message, level)
         else:
             print(f"[{level}] [{symbol}] {message}")
+
 
 if __name__ == "__main__":
     app = QuantBotApp()

@@ -1,8 +1,9 @@
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, Tuple
 from datetime import datetime, time
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
+import MetaTrader5 as mt5
 from config import StrategyConfig, STRATEGY_CONFIG
 
 
@@ -129,6 +130,25 @@ class PriceActionStrategy:
         # Usar la última vela cerrada (iloc[-2]) para evitar repaint
         prev_candle = df_analyzed.iloc[-3]
         curr_candle = df_analyzed.iloc[-2]
+
+        # 🟢 EVALUACIÓN DE MERCADO CERRADO (FINES DE SEMANA / MT5 DISABLED)
+        now_dt = datetime.now()
+        market_open, open_reason = self.config.is_market_open(self.symbol, now_dt)
+        if not market_open:
+            debug_msg = (
+                f"🛑 [MERCADO CERRADO] {self.symbol} | {open_reason}\n"
+                f"   └─ El análisis de estrategia se suspende hasta la apertura del mercado."
+            )
+            self._log(debug_msg, "WARNING")
+
+            return {
+                "signal": "HOLD",
+                "support": 0.0,
+                "resistance": 0.0,
+                "atr": float(curr_candle.get("atr", 0.0)),
+                "score": 0,
+                "reason": open_reason
+            }
 
         # 🟢 EVALUACIÓN DINÁMICA DEL FILTRO DE HORARIO
         if self.use_session_filter:

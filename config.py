@@ -63,6 +63,32 @@ class StrategyConfig:
     # 🟢 NUEVAS CONFIGURACIONES DE SESIÓN Y FILTRO
     use_session_filter: bool = True
 
+    def is_market_open(self, symbol: str, current_dt: Optional[datetime] = None) -> Tuple[bool, str]:
+        """
+        Valida si el mercado está abierto para operar.
+        Verifica el estado del símbolo en MT5 y el fin de semana para Forex/CFDs.
+        """
+        current_dt = current_dt or datetime.now()
+        if symbol:
+            try:
+                info = mt5.symbol_info(symbol)
+                if info is not None and info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
+                    return False, f"Mercado cerrado en MT5 ({symbol})"
+            except Exception:
+                pass
+
+        # Respaldo por día de la semana para pares Forex/Metales/Índices (Sábado=5, Domingo=6)
+        is_weekend = current_dt.weekday() in (5, 6)
+        is_crypto_or_synthetic = any(
+            k in symbol.upper()
+            for k in ["BTC", "ETH", "SOL", "BOOM", "CRASH", "VOLATILITY", "STEP", "JUMP"]
+        )
+
+        if is_weekend and not is_crypto_or_synthetic:
+            return False, "Mercado cerrado por Fin de Semana"
+
+        return True, "Mercado abierto"
+
     # Mapa base de sesiones por divisa (Horarios estándar UTC)
     # Ejemplo: Europa/Londres (07:00 - 16:00 UTC), Nueva York (12:00 - 21:00 UTC), Asia/Sídney (22:00 - 08:00 UTC)
     SESSION_MAP: Dict[str, Tuple[str, str]] = field(

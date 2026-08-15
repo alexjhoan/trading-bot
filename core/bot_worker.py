@@ -45,6 +45,7 @@ class SymbolWorker(threading.Thread):
         timeframe: int = mt5.TIMEFRAME_M1,
         test_mode: bool = False,
         risk_pct: float = 0.01,
+        lot: float = 0.01,
     ) -> None:
         super().__init__(daemon=True)
         self.symbol = symbol
@@ -53,6 +54,7 @@ class SymbolWorker(threading.Thread):
         self.timeframe = timeframe
         self.test_mode = test_mode
         self.risk_pct = risk_pct
+        self.lot = lot
 
         self.strategy = PriceActionStrategy(
             symbol=self.symbol,
@@ -69,7 +71,7 @@ class SymbolWorker(threading.Thread):
 
         while not self.stop_event.is_set():
             try:
-                # 1. Obtener datos según la temporalidad del Sidebar
+                # 1. Obtener datos según la temporalidad configurada para este símbolo
                 df = get_historical_data(
                     symbol=self.symbol,
                     timeframe=self.timeframe,
@@ -95,11 +97,21 @@ class SymbolWorker(threading.Thread):
                 if signal in ["BUY", "SELL"]:
                     positions = mt5.positions_get(symbol=self.symbol)
                     if not positions:
-                        # Ejecutar orden
+                        acc_info = mt5.account_info()
+                        balance = acc_info.balance if acc_info else 0.0
+
+                        sl_pips = self.risk_manager.calculate_sl_pips_from_risk(
+                            balance=balance,
+                            fixed_lot=self.lot,
+                            risk_pct=self.risk_pct,
+                            symbol=self.symbol
+                        )
+
+                        # Ejecutar orden con lote y SL específicos del par
                         resultado = self.executor.send_order(
                             order_type=signal,
-                            volume=0.01,
-                            sl_pips=20.0
+                            volume=self.lot,
+                            sl_pips=sl_pips
                         )
                         if isinstance(resultado, dict) and not resultado.get("status", False):
                             self._log(f"Error al ejecutar orden: {resultado.get('message', 'Desconocido')}", "ERROR")
