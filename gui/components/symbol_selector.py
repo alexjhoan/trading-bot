@@ -321,9 +321,18 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self._update_symbol_calc(symbol)
 
     def _add_symbol(self) -> None:
-        sym = self.entry_symbol.get().strip().upper()
-        if not sym:
+        raw_sym = self.entry_symbol.get().strip()
+        if not raw_sym:
             return
+
+        # Buscar si existe coincidencia exacta (insensible a mayúsculas) en available_symbols (nombres reales de MT5)
+        matched = None
+        for s in self.available_symbols:
+            if s.lower() == raw_sym.lower():
+                matched = s
+                break
+
+        sym = matched if matched else raw_sym
 
         specs = self.symbol_specs.get(sym, {})
         min_lot = specs.get("volume_min", 0.01)
@@ -366,12 +375,12 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 self.on_symbols_changed_callback(self.symbols)
 
     def _on_search_changed(self, event: Any) -> None:
-        query = self.entry_symbol.get().strip().upper()
+        query = self.entry_symbol.get().strip().lower()
         if not query:
             self._hide_suggestions()
             return
 
-        matches = [s for s in self.available_symbols if query in s.upper()][:5]
+        matches = [s for s in self.available_symbols if query in s.lower()][:5]
         if matches:
             self._show_suggestions(matches)
         else:

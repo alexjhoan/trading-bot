@@ -52,9 +52,9 @@ def calculate_sleep_seconds(timeframe_seconds: int) -> float:
 
 
 def run_bot():
-    # 1. Sobrescribir símbolo si se pasa por línea de comandos (ej: python main.py GBPUSD)
+    # 1. Sobrescribir símbolo si se pasa por línea de comandos (ej: python main.py EURUSD_r)
     if len(sys.argv) > 1:
-        custom_symbol = sys.argv[1].strip().upper()
+        custom_symbol = sys.argv[1].strip()
         SYMBOL_CONFIG.symbol = custom_symbol
 
     active_symbol = SYMBOL_CONFIG.full_symbol

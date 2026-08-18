@@ -1,11 +1,14 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable
 import MetaTrader5 as mt5
 import pandas as pd
 
 
 def get_historical_data(
-    symbol: str, timeframe: int, rates_count: int
+    symbol: str,
+    timeframe: int,
+    rates_count: int,
+    log_callback: Optional[Callable[[str, str, str], None]] = None
 ) -> Optional[pd.DataFrame]:
     """Extrae velas históricas de MT5 y las devuelve en un DataFrame de Pandas.
 
@@ -13,16 +16,36 @@ def get_historical_data(
     :param timeframe: Temporalidad de MT5 (ej. mt5.TIMEFRAME_M15,
         mt5.TIMEFRAME_H1).
     :param rates_count: Cantidad de velas hacia atrás a extraer.
+    :param log_callback: Callback opcional para enviar logs a la GUI/usuario (symbol, message, level).
     :return: DataFrame procesado o None si ocurre un error.
     """
-    # 1. Solicitar los datos a la API de MT5
+    # 1. Asegurar que el símbolo esté seleccionado en la Observación de Mercado (Market Watch) de MT5
+    if not mt5.symbol_select(symbol, True):
+        # Intentar coincidencia case-insensitive por si hubo un error de casing (ej. EURUSD_R vs EURUSD_r)
+        all_symbols = mt5.symbols_get()
+        matched_name = None
+        if all_symbols:
+            matched_name = next((s.name for s in all_symbols if s.name.lower() == symbol.lower()), None)
+        
+        if matched_name and mt5.symbol_select(matched_name, True):
+            symbol = matched_name
+        else:
+            msg = f"❌ El símbolo '{symbol}' no está activo o no existe en la terminal MT5. Código: {mt5.last_error()}"
+            print(msg)
+            if log_callback:
+                log_callback(symbol, msg, "ERROR")
+            return None
+
+    # 2. Solicitar los datos a la API de MT5
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, rates_count)
 
     # Manejo defensivo de errores si no se obtienen datos
     if rates is None or len(rates) == 0:
-        print(
-            f"❌ Error al obtener datos para {symbol}. Código: {mt5.last_error()}"
-        )
+        err_code, err_msg = mt5.last_error()
+        msg = f"❌ Error al obtener datos para {symbol}. Código: ({err_code}, '{err_msg}')"
+        print(msg)
+        if log_callback:
+            log_callback(symbol, msg, "ERROR")
         return None
 
     # 2. Convertir la tupla de registros estructurados a un DataFrame de Pandas

@@ -37,9 +37,17 @@ class QuantBotApp(ctk.CTk):
 
         # Cargar configuración persistente
         self.config_data: Dict[str, Any] = load_config()
-        self.symbols: List[str] = self.config_data.get(
-            "active_symbols", []
-        )
+        raw_active_symbols: List[str] = self.config_data.get("active_symbols", [])
+        available_symbols: List[str] = self.config_data.get("available_symbols", [])
+
+        # Sanitizar coincidencia de mayúsculas/minúsculas según la lista disponible de MT5
+        if available_symbols:
+            avail_map = {s.lower(): s for s in available_symbols}
+            self.symbols = [avail_map.get(s.lower(), s) for s in raw_active_symbols]
+        else:
+            self.symbols = raw_active_symbols
+
+        self.config_data["active_symbols"] = self.symbols
 
         self.stop_events: Dict[str, threading.Event] = {}
         self.workers: Dict[str, SymbolWorker] = {}

@@ -75,7 +75,8 @@ class SymbolWorker(threading.Thread):
                 df = get_historical_data(
                     symbol=self.symbol,
                     timeframe=self.timeframe,
-                    rates_count=100
+                    rates_count=100,
+                    log_callback=self.log_callback
                 )
 
                 if df is None or df.empty:
