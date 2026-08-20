@@ -93,8 +93,12 @@ class SymbolWorker(threading.Thread):
                     signal_data = self.strategy.generate_signal(df)
                     signal = signal_data.get("signal", "HOLD") if isinstance(signal_data, dict) else str(signal_data)
 
-                # 3. Ejecución de la Orden
+                # 3. Gestión de Posiciones Abiertas y Ejecución de Nueva Orden
                 self._log(f"🧠 [ANALIZANDO antes de la señal] {signal_data} - {self.symbol}...", "INFO")
+
+                # Siempre gestionar posiciones abiertas existentes (Break-Even y cierre por cambio de tendencia)
+                self.executor.manage_open_positions(signal)
+
                 if signal in ["BUY", "SELL"]:
                     positions = mt5.positions_get(symbol=self.symbol)
                     if not positions:
@@ -108,11 +112,16 @@ class SymbolWorker(threading.Thread):
                             symbol=self.symbol
                         )
 
-                        # Ejecutar orden con lote y SL específicos del par
+                        # Take Profit = 2x Stop Loss (Ratio 1:2)
+                        rr_ratio = getattr(self.strategy.config, "risk_reward_ratio", 2.0)
+                        tp_pips = round(sl_pips * rr_ratio, 1)
+
+                        # Ejecutar orden con lote, SL y TP calculados
                         resultado = self.executor.send_order(
                             order_type=signal,
                             volume=self.lot,
-                            sl_pips=sl_pips
+                            sl_pips=sl_pips,
+                            tp_pips=tp_pips
                         )
                         if isinstance(resultado, dict) and not resultado.get("status", False):
                             self._log(f"Error al ejecutar orden: {resultado.get('message', 'Desconocido')}", "ERROR")

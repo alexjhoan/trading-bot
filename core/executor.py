@@ -86,26 +86,27 @@ class OrderExecutor:
 
         point = symbol_info.point
         digits = symbol_info.digits
+        pip_size = self._get_pip_size(symbol_info)
         order_type_mt5 = mt5.ORDER_TYPE_BUY if order_type.upper() == "BUY" else mt5.ORDER_TYPE_SELL
 
         # 1. Determinar precio de entrada según tipo de orden
         price = tick.ask if order_type.upper() == "BUY" else tick.bid
 
-        # 2. Calcular SL y TP absolutos
+        # 2. Calcular SL y TP absolutos usando el tamaño real de pip
         sl_price = 0.0
         tp_price = 0.0
 
         if sl_pips > 0:
             if order_type.upper() == "BUY":
-                sl_price = round(price - (sl_pips * point), digits)
+                sl_price = round(price - (sl_pips * pip_size), digits)
             else:
-                sl_price = round(price + (sl_pips * point), digits)
+                sl_price = round(price + (sl_pips * pip_size), digits)
 
         if tp_pips > 0:
             if order_type.upper() == "BUY":
-                tp_price = round(price + (tp_pips * point), digits)
+                tp_price = round(price + (tp_pips * pip_size), digits)
             else:
-                tp_price = round(price - (tp_pips * point), digits)
+                tp_price = round(price - (tp_pips * pip_size), digits)
 
         # 3. Armar Request
         request = {
@@ -244,7 +245,9 @@ class OrderExecutor:
 
             # Cierre por cambio de tendencia
             if (is_buy and current_signal == "SELL") or (not is_buy and current_signal == "BUY"):
-                print("⚠️ Cambio de tendencia detectado. Cerrando anticipadamente...")
+                msg = f"⚠️ [GESTIÓN ACTIVA] Cambio de tendencia detectado ({current_signal}). Cerrando posición #{pos.ticket}..."
+                print(msg)
+                self._log(msg, "WARNING")
                 self.close_position(pos, reason="Cambio_Tendencia")
                 continue
 
@@ -261,17 +264,25 @@ class OrderExecutor:
                 else (pos.price_open - curr_price) / pip_size
             )
 
-            if profit_pips > 15.0:
+            be_trigger = getattr(self.strategy_config, "breakeven_trigger_pips", 10.0)
+            if profit_pips >= be_trigger:
                 new_sl = pos.price_open
-                if (is_buy and pos.sl < new_sl) or (not is_buy and pos.sl > new_sl):
+                needs_update = (is_buy and pos.sl < new_sl) or (not is_buy and (pos.sl == 0.0 or pos.sl > new_sl))
+                if needs_update:
                     req = {
                         "action": mt5.TRADE_ACTION_SLTP,
                         "position": pos.ticket,
                         "sl": round(new_sl, symbol_info.digits),
                         "tp": pos.tp,
                     }
-                    mt5.order_send(req)
-                    print(f"🛡️ SL movido a Break-Even en posición #{pos.ticket}")
+                    res = mt5.order_send(req)
+                    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                        msg = f"🛡️ [BREAK-EVEN] SL movido a precio de entrada ({new_sl}) en posición #{pos.ticket} (Ganancia: +{profit_pips:.1f} pips)"
+                        print(msg)
+                        self._log(msg, "SUCCESS")
+                    else:
+                        err_comment = res.comment if res else "Sin respuesta MT5"
+                        print(f"⚠️ Error actualizando SL a Break-Even: {err_comment}")
 
     def print_performance_summary(self):
         """Muestra en consola el resumen de flotante actual y balance general."""
