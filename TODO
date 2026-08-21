@@ -3,7 +3,7 @@ Todo:
   ☐ los lotes deben venir de la config del broker
   ☐ cambiar los iconos por defecto por otros de la librería de CTK que si no esta operativa, si esta operativa o si hay algun error
   ☐ que configure los datos Primero que nada si no estan configurados antes de abrir MT5
-  ☐
+  ☐ si ya tiene una operacion abierta que no analice proximas entreadas si no si mantiene la orden abierta o si la modifica o si la cierra
 
 
 prompt

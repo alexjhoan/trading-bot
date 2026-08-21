@@ -16,7 +16,7 @@ import MetaTrader5 as mt5
 from gui.components import TopbarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
 from core.bot_worker import SymbolWorker
 from core.config_manager import load_config, save_config
-from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs
+from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs, check_user_credentials_exist
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -55,22 +55,44 @@ class QuantBotApp(ctk.CTk):
         self._build_ui()
 
         # -----------------------------------------------------------------
-        # 1. Intentar inicializar MT5 al arrancar la app
+        # 1. Validar credenciales de usuario antes de inicializar MT5
         # -----------------------------------------------------------------
-        if initialize_mt5():
-            print("[DEBUG MT5] ✅ Conexión inicializada correctamente con la terminal MT5.")
-            self.console.log("General", "🔌 Conexión con MT5 establecida.", "SUCCESS")
-            # Detectar y tomar las riendas de operaciones abiertas
-            self._adopt_open_positions()
+        creds_ok, creds_msg = check_user_credentials_exist()
+        if not creds_ok:
+            print(f"[DEBUG MT5] ⚠️ {creds_msg} Solicitando datos de acceso...")
+            self.console.log("General", f"⚠️ {creds_msg}", "WARNING")
+            self.console.log("General", "👉 Por favor configure su ID de Cuenta (Login), Contraseña y Servidor para conectar con MT5.", "INFO")
+            # Abrir modal de configuración para pedir que llene los datos
+            self.after(400, self._open_credentials_prompt)
         else:
-            print("[DEBUG MT5] ❌ No se pudo conectar a MT5 al iniciar la app.")
-            self.console.log("General", "❌ No se pudo conectar a MT5. Revisa tus credenciales.", "ERROR")
+            if initialize_mt5():
+                print("[DEBUG MT5] ✅ Conexión inicializada correctamente con la terminal MT5.")
+                self.console.log("General", "🔌 Conexión con MT5 establecida.", "SUCCESS")
+                # Detectar y tomar las riendas de operaciones abiertas
+                self._adopt_open_positions()
+            else:
+                print("[DEBUG MT5] ❌ No se pudo conectar a MT5 al iniciar la app.")
+                self.console.log("General", "❌ No se pudo autenticar en MT5. Verifique sus credenciales.", "ERROR")
+                self.after(400, self._open_credentials_prompt)
 
         # -----------------------------------------------------------------
         # 2. Iniciar el bucle de actualización de la cuenta
         # -----------------------------------------------------------------
         self._update_account_loop()
         self.console_tabview = self.console
+
+    def _open_credentials_prompt(self) -> None:
+        """Abre la ventana modal de configuración para que el usuario ingrese sus datos de acceso."""
+        ConfigWindow(parent=self, on_save_callback=self._on_credentials_saved)
+
+    def _on_credentials_saved(self) -> None:
+        """Se ejecuta al guardar las credenciales en la ventana de configuración."""
+        self._on_config_reloaded()
+        if initialize_mt5():
+            self.console.log("General", "🔌 Conexión con MT5 establecida tras ingresar credenciales.", "SUCCESS")
+            self._adopt_open_positions()
+        else:
+            self.console.log("General", "❌ Falló la conexión con las credenciales ingresadas. Verifique el servidor y contraseña.", "ERROR")
 
     def _adopt_open_positions(self) -> None:
         """Detecta operaciones abiertas en MT5, agrega el par a la lista si no está y enciende el switch de monitoreo."""

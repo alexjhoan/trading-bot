@@ -101,8 +101,14 @@ class ConfigWindow(ctk.CTkToplevel):
     def _get_form_data(self) -> Dict[str, Any]:
         # Mantener las listas existentes al construir el diccionario
         data = self.config_data.copy()
+        raw_login = self.entries["login_entry"].get().strip()
+        try:
+            login_val = int(raw_login) if raw_login else 0
+        except ValueError:
+            login_val = 0
+
         data.update({
-            "login": int(self.entries["login_entry"].get().strip() or 0),
+            "login": login_val,
             "password": self.entries["password_entry"].get().strip(),
             "server": self.entries["server_entry"].get().strip(),
             "symbol_suffix": self.entries["suffix_entry"].get().strip(),
@@ -112,8 +118,23 @@ class ConfigWindow(ctk.CTkToplevel):
         })
         return data
 
+    def _validate_inputs(self, data: Dict[str, Any]) -> tuple[bool, str]:
+        """Valida que los campos obligatorios para MT5 no estén vacíos."""
+        if not data.get("login") or data.get("login") <= 0:
+            return False, "❌ Debe ingresar un ID de Cuenta (Login) numérico válido."
+        if not data.get("password"):
+            return False, "❌ Debe ingresar la contraseña de su cuenta MT5."
+        if not data.get("server"):
+            return False, "❌ Debe ingresar el Servidor del Bróker (ej: MetaQuotes-Demo)."
+        return True, "Ok"
+
     def _test_connection(self) -> None:
         data = self._get_form_data()
+        is_valid, msg = self._validate_inputs(data)
+        if not is_valid:
+            self.status_label.configure(text=msg, text_color="#EF4444")
+            return
+
         self.status_label.configure(text="Intentando conectar a MT5...", text_color="yellow")
         self.update()
 
@@ -122,7 +143,7 @@ class ConfigWindow(ctk.CTkToplevel):
             init_kwargs["path"] = data["path"]
 
         if not mt5.initialize(**init_kwargs):
-            self.status_label.configure(text=f"Error al inicializar MT5: {mt5.last_error()}", text_color="#EF4444")
+            self.status_label.configure(text=f"❌ Error al inicializar MT5: {mt5.last_error()}", text_color="#EF4444")
             return
 
         authorized = mt5.login(login=data["login"], password=data["password"], server=data["server"])
@@ -143,12 +164,16 @@ class ConfigWindow(ctk.CTkToplevel):
     def _save(self) -> None:
         try:
             data = self._get_form_data()
+            is_valid, msg = self._validate_inputs(data)
+            if not is_valid:
+                self.status_label.configure(text=msg, text_color="#EF4444")
+                return
 
             # Cargar la configuración actual para preservar 'active_symbols' o 'max_risk_usd' si no están en la ventana modal
             current_config = load_config()
 
             # Mantener los active_symbols con sus lotes actuales si existen
-            data["active_symbols"] = current_config.get("active_symbols", {})
+            data["active_symbols"] = current_config.get("active_symbols", [])
             data["max_risk_usd"] = current_config.get("max_risk_usd", 10.0)
 
             # Intentar conectarse a MT5 para descargar todos los símbolos del broker
@@ -156,31 +181,33 @@ class ConfigWindow(ctk.CTkToplevel):
             if data.get("path"):
                 init_kwargs["path"] = data["path"]
 
+            self.status_label.configure(text="Conectando y obteniendo símbolos de MT5...", text_color="yellow")
+            self.update()
+
             if mt5.initialize(**init_kwargs):
-              if data.get("login") and data.get("password") and data.get("server"):
-                  mt5.login(
-                      login=int(data["login"]),
-                      password=str(data["password"]),
-                      server=str(data["server"])
-                  )
+                if data.get("login") and data.get("password") and data.get("server"):
+                    mt5.login(
+                        login=int(data["login"]),
+                        password=str(data["password"]),
+                        server=str(data["server"])
+                    )
 
-              broker_symbols = get_all_available_symbols()
-              if broker_symbols:
-                  data["available_symbols"] = broker_symbols
-                  # 🟢 NUEVA LÍNEA: Guardar las especificaciones de los símbolos en config.json
-                  data["symbol_specs"] = get_all_symbol_specs(broker_symbols)
+                broker_symbols = get_all_available_symbols()
+                if broker_symbols:
+                    data["available_symbols"] = broker_symbols
+                    data["symbol_specs"] = get_all_symbol_specs(broker_symbols)
 
-              mt5.shutdown()
+                mt5.shutdown()
 
             # Guardar en config.json
             if save_config(data):
-              self.status_label.configure(
-                  text="✅ Configuración guardada y símbolos actualizados",
-                  text_color="#10B981"
-              )
-              if self.on_save_callback:
-                  self.on_save_callback()
-              self.after(1200, self.destroy)
+                self.status_label.configure(
+                    text="✅ Configuración guardada y símbolos actualizados",
+                    text_color="#10B981"
+                )
+                if self.on_save_callback:
+                    self.on_save_callback()
+                self.after(1000, self.destroy)
             else:
                 self.status_label.configure(
                     text="❌ Error al guardar config.json",

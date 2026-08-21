@@ -37,7 +37,7 @@ class OrderExecutor:
         risk_config: RiskConfig = RISK_CONFIG,
         strategy_config: StrategyConfig = STRATEGY_CONFIG,
         strategy_name: any = "SimpleTrend",
-        log_callback: Optional[Callable[[str, str, str], None]] = None # 👈 Callback opcional
+        log_callback: Optional[Callable[[str, str, str], None]] = None
     ) -> None:
         self.symbol = symbol or symbol_config.full_symbol
         self.symbol_config = symbol_config
@@ -46,7 +46,6 @@ class OrderExecutor:
         self.journal = TradingJournal()
         self.log_callback = log_callback
 
-        # 🛡️ Garantizar que sea un string sin importar qué le hayan pasado:
         if isinstance(strategy_name, str):
             self.strategy_name = strategy_name
         elif hasattr(strategy_name, "__class__"):
@@ -124,7 +123,7 @@ class OrderExecutor:
             "type_filling": get_filling_mode(self.symbol),
         }
 
-        # 🟢 PRINT DE DEPURACIÓN EN CONSOLA (Muestra exactamente lo que se envía)
+        # Print de depuración en consola
         print("=" * 60)
         print(f"🔍 [DEBUG MT5 REQUEST] Enviando orden para {self.symbol}:")
         print(f"   ├─ Tipo: {order_type} ({'BUY' if order_type_mt5 == 0 else 'SELL'})")
@@ -136,7 +135,6 @@ class OrderExecutor:
         print(f"   └─ Filling Mode: {request['type_filling']}")
         print("=" * 60)
 
-        # 🟢 REGISTRO DE DEPURACIÓN EN GUI
         debug_msg = (
             f"🔍 [DEBUG MT5 REQUEST] Enviando orden para {self.symbol}:\n"
             f"   ├─ Tipo: {order_type}\n"
@@ -162,7 +160,7 @@ class OrderExecutor:
 
         print(f"✅ ¡Orden ejecutada con éxito! Ticket #{result.order} | Precio: {result.price}")
 
-        # 📌 Guardar registro de la APERTURA en el diario inmediatamente
+        # Guardar registro de la APERTURA en el diario
         try:
             self.journal.log_entry(
                 ticket=result.order,
@@ -186,10 +184,10 @@ class OrderExecutor:
 
         order_type = (
             mt5.ORDER_TYPE_SELL
-            if position.type == mt5.ORDER_TYPE_BUY
+            if position.type == mt5.POSITION_TYPE_BUY
             else mt5.ORDER_TYPE_BUY
         )
-        price = symbol_info.bid if position.type == mt5.ORDER_TYPE_BUY else symbol_info.ask
+        price = symbol_info.bid if position.type == mt5.POSITION_TYPE_BUY else symbol_info.ask
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -208,11 +206,11 @@ class OrderExecutor:
         result = mt5.order_send(request)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             pos_type_str = "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL"
-            pnl = position.profit + position.swap  # PnL real incluyendo swap
+            pnl = position.profit + position.swap
 
-            print(
-                f"🔒 Posición #{position.ticket} cerrada por {reason} | PnL Final: ${pnl:+.2f}"
-            )
+            msg = f"🔒 Posición #{position.ticket} ({position.symbol}) cerrada por {reason} | PnL Final: ${pnl:+.2f}"
+            print(msg)
+            self._log(msg, "SUCCESS" if pnl >= 0 else "WARNING")
 
             # Escribir en el Diario Markdown al cerrar la operación
             self.journal.log_trade(
@@ -231,24 +229,95 @@ class OrderExecutor:
         print(f"❌ Error cerrando posición #{position.ticket}: {ret_comment}")
         return False
 
+    def modify_sltp(self, position, new_sl: float, new_tp: float, reason: str = "Ajuste") -> bool:
+        """Modifica los niveles de Stop Loss y Take Profit en MT5."""
+        symbol_info = mt5.symbol_info(position.symbol)
+        if symbol_info is None:
+            return False
+
+        digits = symbol_info.digits
+        sl_val = round(new_sl, digits) if new_sl > 0 else position.sl
+        tp_val = round(new_tp, digits) if new_tp > 0 else position.tp
+
+        # Si no hay cambios reales significativos, omitir
+        if abs(sl_val - position.sl) < symbol_info.point and abs(tp_val - position.tp) < symbol_info.point:
+            return True
+
+        req = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": position.ticket,
+            "symbol": position.symbol,
+            "sl": sl_val,
+            "tp": tp_val,
+        }
+        res = mt5.order_send(req)
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            msg = f"🛡️ [{reason.upper()}] Posición #{position.ticket} actualizada ➔ SL: {sl_val} | TP: {tp_val}"
+            print(msg)
+            self._log(msg, "SUCCESS")
+            return True
+        else:
+            err_comment = res.comment if res else "Sin respuesta MT5"
+            print(f"⚠️ Error actualizando SL/TP en #{position.ticket}: {err_comment}")
+            return False
+
+    def manage_position_with_strategy(self, position: Any, management_result: Dict[str, Any]) -> None:
+        """
+        Ejecuta la acción recomendada por el análisis de posición de la estrategia:
+        - EARLY_CLOSE: Cierre prematuro por invalidación de tendencia o confluencia
+        - MODIFY_SLTP: Actualización de Stop Loss o Take Profit
+        - BREAK-EVEN: Movimiento a precio de entrada cuando alcanza el objetivo parcial
+        """
+        action = management_result.get("action", "MONITOR")
+        reason = management_result.get("reason", "")
+        close_reason = management_result.get("close_reason", "EarlyExit")
+
+        # 1. Cierre prematuro por invalidación
+        if action == "EARLY_CLOSE":
+            self._log(f"⚠️ [GESTIÓN ACTIVA] {reason}", "WARNING")
+            self.close_position(position, reason=close_reason)
+            return
+
+        # 2. Modificación de SL / TP (Trailing o Estructura)
+        if action == "MODIFY_SLTP":
+            new_sl = float(management_result.get("suggested_sl", position.sl))
+            new_tp = float(management_result.get("suggested_tp", position.tp))
+            self.modify_sltp(position, new_sl=new_sl, new_tp=new_tp, reason="Trailing ATR")
+
+        # 3. Break-Even dinámico estándar (Garantía de protección)
+        symbol_info = mt5.symbol_info(self.symbol)
+        if symbol_info:
+            is_buy = position.type == mt5.POSITION_TYPE_BUY
+            pip_size = self._get_pip_size(symbol_info)
+            curr_price = symbol_info.bid if is_buy else symbol_info.ask
+            profit_pips = (
+                (curr_price - position.price_open) / pip_size
+                if is_buy
+                else (position.price_open - curr_price) / pip_size
+            )
+
+            be_trigger = getattr(self.strategy_config, "breakeven_trigger_pips", 10.0)
+            if profit_pips >= be_trigger:
+                new_sl = position.price_open
+                needs_update = (is_buy and (position.sl < new_sl or position.sl == 0.0)) or (not is_buy and (position.sl > new_sl or position.sl == 0.0))
+                if needs_update:
+                    self.modify_sltp(position, new_sl=new_sl, new_tp=position.tp, reason=f"Break-Even (+{profit_pips:.1f}p)")
+
     def manage_open_positions(self, current_signal: str) -> None:
-        """Monitorea posiciones abiertas del símbolo, aplica cierres por señal opuesta y Break-Even."""
+        """Fallback de monitoreo de posiciones abiertas cuando no se pasa análisis detallado."""
         positions = mt5.positions_get(symbol=self.symbol)
         if not positions:
             return
 
         for pos in positions:
             is_buy = pos.type == mt5.POSITION_TYPE_BUY
-
-            # 1. Cierre por cambio de tendencia / señal opuesta
             if (is_buy and current_signal == "SELL") or (not is_buy and current_signal == "BUY"):
-                msg = f"⚠️ [GESTIÓN ACTIVA] Cambio de tendencia ({current_signal}) en posición #{pos.ticket} ({'BUY' if is_buy else 'SELL'}). Cerrando anticipadamente..."
+                msg = f"⚠️ [GESTIÓN ACTIVA] Cambio de tendencia ({current_signal}) en posición #{pos.ticket}. Cerrando anticipadamente..."
                 print(msg)
                 self._log(msg, "WARNING")
                 self.close_position(pos, reason="Cambio_Tendencia")
                 continue
 
-            # 2. Break-Even dinámico
             symbol_info = mt5.symbol_info(self.symbol)
             if symbol_info is None:
                 continue
@@ -266,20 +335,7 @@ class OrderExecutor:
                 new_sl = pos.price_open
                 needs_update = (is_buy and (pos.sl < new_sl or pos.sl == 0.0)) or (not is_buy and (pos.sl > new_sl or pos.sl == 0.0))
                 if needs_update:
-                    req = {
-                        "action": mt5.TRADE_ACTION_SLTP,
-                        "position": pos.ticket,
-                        "sl": round(new_sl, symbol_info.digits),
-                        "tp": pos.tp,
-                    }
-                    res = mt5.order_send(req)
-                    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                        msg = f"🛡️ [BREAK-EVEN] SL movido a precio de entrada ({new_sl}) en posición #{pos.ticket} (Ganancia: +{profit_pips:.1f} pips)"
-                        print(msg)
-                        self._log(msg, "SUCCESS")
-                    else:
-                        err_comment = res.comment if res else "Sin respuesta MT5"
-                        print(f"⚠️ Error actualizando SL a Break-Even: {err_comment}")
+                    self.modify_sltp(pos, new_sl=new_sl, new_tp=pos.tp, reason=f"Break-Even (+{profit_pips:.1f}p)")
 
     def print_performance_summary(self):
         """Muestra en consola el resumen de flotante actual y balance general."""

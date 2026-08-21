@@ -34,7 +34,9 @@ def calculate_sleep_seconds(timeframe_seconds: int) -> float:
 class SymbolWorker(threading.Thread):
     """
     Hilo de ejecución independiente por cada par de divisas.
-    Analiza el mercado en segundo plano ejecutando la estrategia al cierre de vela.
+    - Si ya existe una posición abierta: omite análisis de nuevas entradas y ejecuta
+      análisis de gestión activa (modificación de SL/TP, Trailing Stop y Cierre Prematuro).
+    - Si no existe posición abierta: analiza el mercado buscando confluencias para nuevas entradas.
     """
 
     def __init__(
@@ -75,7 +77,7 @@ class SymbolWorker(threading.Thread):
                 df = get_historical_data(
                     symbol=self.symbol,
                     timeframe=self.timeframe,
-                    rates_count=250,
+                    rates_count=300,
                     log_callback=self.log_callback
                 )
 
@@ -83,25 +85,44 @@ class SymbolWorker(threading.Thread):
                     time.sleep(3)
                     continue
 
-                # 2. Evaluar Modo Test o Estrategia Real
-                if self.test_mode:
-                    signal = "BUY"
-                    signal_data = {"signal": "BUY", "reason": "Modo Test Activo"}
-                    self._log(f"🧪 [MODO TEST] Señal forzada BUY en {self.symbol}", "INFO")
+                # 2. Verificar si ya existe al menos una posición abierta en este par
+                open_positions = mt5.positions_get(symbol=self.symbol)
+
+                if open_positions and len(open_positions) > 0:
+                    # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP Y CIERRE PREMATURO
+                    for pos in open_positions:
+                        pos_type_str = "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL"
+                        pnl_current = pos.profit + pos.swap
+                        self._log(
+                            f"🛡️ [POSICIÓN ACTIVA DETECTADA] {self.symbol} #{pos.ticket} ({pos_type_str} {pos.volume} lotes | PnL: ${pnl_current:+.2f}). "
+                            f"Omitiendo búsqueda de nuevas entradas. Analizando SL/TP y posibles cierres prematuros...",
+                            "INFO"
+                        )
+
+                        # Análisis de la posición abierta con la estrategia cuantitativa
+                        mgmt_result = self.strategy.analyze_open_position(df=df, position=pos)
+                        action = mgmt_result.get("action", "MONITOR")
+                        reason = mgmt_result.get("reason", "")
+
+                        self._log(f"🔎 [ANÁLISIS GESTIÓN POSICIÓN] #{pos.ticket} ➔ Acción: {action} | Razón: {reason}", "INFO")
+
+                        # Ejecutar acción recomendada (Cierre prematuro, modificación de SL/TP, Break-Even)
+                        self.executor.manage_position_with_strategy(position=pos, management_result=mgmt_result)
+
                 else:
-                    self._log(f"🧠 [ANALIZANDO] Llamando a generate_signal() para {self.symbol}...", "INFO")
-                    signal_data = self.strategy.generate_signal(df)
-                    signal = signal_data.get("signal", "HOLD") if isinstance(signal_data, dict) else str(signal_data)
+                    # 🟢 RAMA B: NO HAY POSICIONES ABIERTAS ➔ BUSCAR NUEVAS ENTRADAS
+                    if self.test_mode:
+                        signal = "BUY"
+                        signal_data = {"signal": "BUY", "reason": "Modo Test Activo"}
+                        self._log(f"🧪 [MODO TEST] Señal forzada BUY en {self.symbol}", "INFO")
+                    else:
+                        self._log(f"🧠 [ANALIZANDO] Sin órdenes abiertas en {self.symbol}. Evaluando confluencias para nueva entrada...", "INFO")
+                        signal_data = self.strategy.generate_signal(df)
+                        signal = signal_data.get("signal", "HOLD") if isinstance(signal_data, dict) else str(signal_data)
 
-                # 3. Gestión de Posiciones Abiertas y Ejecución de Nueva Orden
-                self._log(f"🧠 [ANALIZANDO antes de la señal] {signal_data} - {self.symbol}...", "INFO")
+                    self._log(f"🧠 [RESULTADO ANÁLISIS] {signal_data} - {self.symbol}", "INFO")
 
-                # Siempre gestionar posiciones abiertas existentes (Break-Even y cierre por cambio de tendencia)
-                self.executor.manage_open_positions(signal)
-
-                if signal in ["BUY", "SELL"]:
-                    positions = mt5.positions_get(symbol=self.symbol)
-                    if not positions:
+                    if signal in ["BUY", "SELL"]:
                         acc_info = mt5.account_info()
                         balance = acc_info.balance if acc_info else 0.0
 
@@ -135,7 +156,7 @@ class SymbolWorker(threading.Thread):
             seconds = TIMEFRAME_SECONDS_MAP.get(self.timeframe, 60)
             sleep_time = calculate_sleep_seconds(seconds)
 
-            # 🟢 Notificación enviada a la consola de la GUI
+            # Notificación enviada a la consola de la GUI
             self._log(f"⏳ Próximo análisis de vela en {int(sleep_time)} segundos...", "INFO")
 
             # Espera interrumpible

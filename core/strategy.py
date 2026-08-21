@@ -10,12 +10,17 @@ from config import StrategyConfig, STRATEGY_CONFIG
 class PriceActionStrategy:
     """
     Estrategia Cuantitativa de Acción del Precio con Puntuación de Confluencia:
-    - Trigger Obligatorio: Retest / Reacción en Soportes y Resistencias a favor de Tendencia.
-    - Puntuación (Score):
-        1. Tendencia Macro (Filtro EMA 200).
-        2. Volumen Institucional (Tick Volume > Media Móvil de Volumen).
-        3. Patrón de Vela / Fuerza de Reacción (Hammer, Engulfing o Cuerpo Fuerte).
-    - Regla: Requiere min_confluence_score (ej. 2 de 3) para habilitar la orden.
+    - 1. Filtro Previo de Tendencia Macro: EMA 200 (Solo compras si Precio > EMA200, solo ventas si Precio < EMA200).
+    - 2. Trigger Obligatorio: Retroceso de Fibonacci igual o mayor al 61.8% (Zona dorada / descuento profundo >= 61.8%).
+    - 3. Puntuación de Confluencia (Score):
+        a. Tendencia Macro (Filtro EMA 200).
+        b. Volumen Institucional (Tick Volume > Media Móvil de Volumen).
+        c. Patrón de Vela / Fuerza de Reacción (Hammer, Shooting Star o Vela con cuerpo >= 50%).
+    - 4. Módulo de Gestión Activa de Posiciones Abiertas:
+        - Análisis de Trailing Stop dinámico por ATR / Estructura.
+        - Análisis de Cierre Prematuro por inversión de tendencia (cruce EMA 200 opuesta).
+        - Modificación dinámica de SL / TP si el mercado genera nuevos swings favorables.
+    - Regla: Requiere min_confluence_score (ej. 2 de 3) para habilitar nuevas órdenes.
     - Gestión de Riesgo: Niveles dinámicos SL / TP basados en ATR con Respaldo Estático.
     - Filtro Dinámico de Horarios: Identifica la ventana de liquidez según las divisas del par.
     """
@@ -27,7 +32,7 @@ class PriceActionStrategy:
         pivot_window: int = 3,
         atr_period: int = 14,
         volume_ma_period: int = 20,
-        rsi_period: int = 14,  # Mantenido para retrocompatibilidad
+        rsi_period: int = 14,
         min_confluence_score: int = 2,
         use_session_filter: bool = True,
         logger: Optional[Callable[[str, str], None]] = None,
@@ -43,12 +48,13 @@ class PriceActionStrategy:
         self.use_session_filter: bool = getattr(self.config, "use_session_filter", use_session_filter)
         self._logger: Optional[Callable[[str, str], None]] = logger
 
-        # Parámetros de gestión de riesgo ATR y Fallback Estático
+        # Parámetros de gestión de riesgo ATR, Fibonacci y Fallback Estático
         self.ema_trend_period: int = kwargs.get("ema_trend_period", 200)
         self.atr_sl_mult: float = kwargs.get("atr_sl_mult", 1.5)
         self.atr_tp_mult: float = kwargs.get("atr_tp_mult", 3.0)
         self.static_sl_pips: float = kwargs.get("static_sl_pips", 20.0)
         self.static_tp_pips: float = kwargs.get("static_tp_pips", 40.0)
+        self.lookback_swing: int = kwargs.get("lookback_swing", 50)
 
         # 🟢 ASIGNACIÓN DINÁMICA DE HORARIOS SEGÚN EL SÍMBOLO
         start_str, end_str = self.config.get_session_times_for_symbol(self.symbol)
@@ -70,15 +76,14 @@ class PriceActionStrategy:
             return current_time >= self.session_start or current_time <= self.session_end
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calcula pivotes en tiempo real (sin lag de ventana centrada), EMA 200, ATR y patrones de vela."""
+        """Calcula pivotes en tiempo real, niveles de Fibonacci 61.8%, EMA 200, ATR y patrones de vela."""
         w = self.pivot_window
         df = df.copy()
 
-        # 1. Detección de Pivot High y Pivot Low (Sin center=True para evitar repaint en tiempo real)
+        # 1. Detección de Pivot High y Pivot Low (Sin center=True para evitar repaint)
         df["pivot_high"] = np.nan
         df["pivot_low"] = np.nan
 
-        # Causa pivote usando ventana retrospectiva pura
         rolling_max = df["high"].shift(1).rolling(window=w).max()
         rolling_min = df["low"].shift(1).rolling(window=w).min()
 
@@ -88,15 +93,44 @@ class PriceActionStrategy:
         df.loc[is_pivot_high, "pivot_high"] = df["high"].shift(w)
         df.loc[is_pivot_low, "pivot_low"] = df["low"].shift(w)
 
-        # Resistencia y Soporte proyectados
+        # Resistencia y Soporte proyectados (Swing High y Swing Low)
         df["resistance"] = df["pivot_high"].ffill()
         df["support"] = df["pivot_low"].ffill()
 
-        # 2. Indicadores Estándar (ATR y EMA Trend)
+        # 🟢 SALVAGUARDA ANTI-NaN MULTICAPA:
+        # Capa 1: Si no hay pivotes formados, usar el Swing High/Low de las últimas `lookback_swing` velas
+        rolling_swing_high = df["high"].rolling(window=self.lookback_swing, min_periods=1).max()
+        rolling_swing_low = df["low"].rolling(window=self.lookback_swing, min_periods=1).min()
+
+        df["resistance"] = df["resistance"].fillna(rolling_swing_high)
+        df["support"] = df["support"].fillna(rolling_swing_low)
+
+        # Capa 2: Relleno hacia atrás (bfill) por si el inicio de la serie no tiene datos
+        df["resistance"] = df["resistance"].bfill().ffill()
+        df["support"] = df["support"].bfill().ffill()
+
+        # 2. Cálculo de Niveles de Fibonacci 61.8% basados en el impulso swing actual
+        swing_range = (df["resistance"] - df["support"]).abs()
+
+        # Capa 3: Si resistance == support (rango plano), asegurar una distancia mínima basada en el precio
+        zero_range_mask = (swing_range <= 1e-6) | swing_range.isna()
+        if zero_range_mask.any():
+            fallback_offset = df["close"] * 0.001
+            df.loc[zero_range_mask, "resistance"] = df.loc[zero_range_mask, "close"] + fallback_offset
+            df.loc[zero_range_mask, "support"] = df.loc[zero_range_mask, "close"] - fallback_offset
+            swing_range = (df["resistance"] - df["support"]).abs()
+
+        # Para compras (retroceso desde Swing High): el nivel 61.8% está en resistance - (0.618 * swing_range)
+        df["fibo_618_buy"] = df["resistance"] - (swing_range * 0.618)
+
+        # Para ventas (retroceso desde Swing Low): el nivel 61.8% está en support + (0.618 * swing_range)
+        df["fibo_618_sell"] = df["support"] + (swing_range * 0.618)
+
+        # 3. Indicadores Estándar (ATR y EMA Trend)
         df["atr"] = ta.atr(high=df["high"], low=df["low"], close=df["close"], length=self.atr_period)
         df["ema_trend"] = ta.ema(close=df["close"], length=self.ema_trend_period)
 
-        # 3. Análisis de Volumen (Tick Volume en MT5)
+        # 4. Análisis de Volumen (Tick Volume en MT5)
         vol_col = "tick_volume" if "tick_volume" in df.columns else "volume"
         if vol_col in df.columns:
             df["vol_ma"] = ta.sma(df[vol_col], length=self.volume_ma_period)
@@ -104,7 +138,7 @@ class PriceActionStrategy:
         else:
             df["high_volume"] = True
 
-        # 4. Métrica de Estructura de Vela y Patrones (Hammer / Engulfing)
+        # 5. Métrica de Estructura de Vela y Patrones (Hammer / Engulfing)
         candle_range = df["high"] - df["low"]
         candle_body = (df["close"] - df["open"]).abs()
         upper_wick = df["high"] - np.maximum(df["open"], df["close"])
@@ -119,15 +153,96 @@ class PriceActionStrategy:
 
         return df
 
+    def analyze_open_position(self, df: pd.DataFrame, position: Any) -> Dict[str, Any]:
+        """
+        Analiza una posición abierta para determinar:
+        1. Cierre prematuro por invalidación de tendencia (inversión contra EMA 200).
+        2. Actualización / Optimización de SL (Trailing Stop dinámico por ATR o Swings).
+        3. Ajuste de TP si la estructura de soporte/resistencia ha cambiado.
+        """
+        min_bars = max(self.pivot_window * 2, self.atr_period, self.volume_ma_period, self.ema_trend_period) + 10
+        if df is None or len(df) < min_bars:
+            return {"action": "HOLD", "reason": "Insuficiente historial para análisis de posición"}
+
+        df_analyzed = self.calculate_indicators(df)
+        curr_candle = df_analyzed.iloc[-2]
+        curr_close = float(curr_candle["close"])
+        ema_trend = float(curr_candle.get("ema_trend", curr_close))
+        current_atr = float(curr_candle.get("atr", 0.0))
+
+        is_buy = position.type == mt5.POSITION_TYPE_BUY
+        pos_type_str = "BUY" if is_buy else "SELL"
+        price_open = position.price_open
+        current_sl = position.sl
+        current_tp = position.tp
+
+        # A. Cierre prematuro por invalidación de tendencia macro (EMA 200)
+        if is_buy and curr_close < ema_trend:
+            return {
+                "action": "EARLY_CLOSE",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró por debajo de la EMA200 ({ema_trend:.5f}) invalidando la compra",
+                "close_reason": "Invalidacion_EMA200"
+            }
+        elif not is_buy and curr_close > ema_trend:
+            return {
+                "action": "EARLY_CLOSE",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró por encima de la EMA200 ({ema_trend:.5f}) invalidando la venta",
+                "close_reason": "Invalidacion_EMA200"
+            }
+
+        # B. Trailing Stop dinámico por ATR (Protección de ganancias sin ahogar la operación)
+        suggested_sl = current_sl
+        suggested_tp = current_tp
+        needs_sl_update = False
+        needs_tp_update = False
+
+        if current_atr > 0:
+            trailing_offset = current_atr * self.atr_sl_mult
+            if is_buy:
+                new_trailing_sl = curr_close - trailing_offset
+                # Solo mover el SL hacia arriba (nunca hacia abajo) y si ya está protegiendo en positivo o mejorando el SL inicial
+                if new_trailing_sl > current_sl and new_trailing_sl > price_open:
+                    suggested_sl = new_trailing_sl
+                    needs_sl_update = True
+            else:
+                new_trailing_sl = curr_close + trailing_offset
+                # Solo mover el SL hacia abajo en ventas (nunca hacia arriba)
+                if (current_sl == 0.0 or new_trailing_sl < current_sl) and new_trailing_sl < price_open:
+                    suggested_sl = new_trailing_sl
+                    needs_sl_update = True
+
+        if needs_sl_update or needs_tp_update:
+            return {
+                "action": "MODIFY_SLTP",
+                "suggested_sl": suggested_sl,
+                "suggested_tp": suggested_tp,
+                "reason": f"Ajuste dinámico Trailing Stop ATR ({current_atr:.5f}) en {pos_type_str} #{position.ticket}"
+            }
+
+        return {
+            "action": "MONITOR",
+            "current_sl": current_sl,
+            "current_tp": current_tp,
+            "reason": f"Posición {pos_type_str} #{position.ticket} en monitoreo activo y alineada con la tendencia"
+        }
+
     def generate_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        Evalúa las reglas de trading y calcula la confluencia de la entrada basada en Retest.
+        Evalúa las reglas de trading para NUEVAS ENTRADAS en orden estricto:
+        1. Filtro de Horario y Mercado Abierto.
+        2. Validación de Tendencia Macro (EMA 200).
+        3. Retroceso de Fibonacci >= 61.8% en la dirección de la tendencia.
+        4. Sistema de Puntuación de Confluencia (Volumen y Patrón de Vela).
         """
         min_bars = max(self.pivot_window * 2, self.atr_period, self.volume_ma_period, self.ema_trend_period) + 10
         if df is None or len(df) < min_bars:
 
             debug_msg = (
                 f"🔍 [ANALISIS ESTRATEGIA] {self.symbol}\n"
+                f"   ├─ Resistencia (Pivot High): 0.0\n"
+                f"   ├─ Soporte (Pivot Low): 0.0\n"
+                f"   ├─ Score Confluencia: 0/3 (Ninguno)\n"
+                f"   ├─ ATR (14): 0\n"
                 f"   └─ Resultado: Insuficiente historial de datos"
             )
             self._log(debug_msg, "INFO")
@@ -149,7 +264,7 @@ class PriceActionStrategy:
         prev_candle = df_analyzed.iloc[-3]
         curr_candle = df_analyzed.iloc[-2]
 
-        # 🟢 EVALUACIÓN DE MERCADO CERRADO (FINES DE SEMANA / MT5 DISABLED)
+        # 🟢 1. EVALUACIÓN DE MERCADO CERRADO (FINES DE SEMANA / MT5 DISABLED)
         now_dt = datetime.now()
         market_open, open_reason = self.config.is_market_open(self.symbol, now_dt)
         if not market_open:
@@ -170,7 +285,7 @@ class PriceActionStrategy:
                 "reason": open_reason
             }
 
-        # 🟢 EVALUACIÓN DINÁMICA DEL FILTRO DE HORARIO
+        # 🟢 2. EVALUACIÓN DINÁMICA DEL FILTRO DE HORARIO DE SESIÓN
         if self.use_session_filter:
             candle_time = (
                 pd.to_datetime(curr_candle.name).time()
@@ -200,57 +315,62 @@ class PriceActionStrategy:
                 }
 
         curr_close = float(curr_candle["close"])
-        curr_low = float(curr_candle["low"])
-        curr_high = float(curr_candle["high"])
-        resistance = float(curr_candle["resistance"])
-        support = float(curr_candle["support"])
-        current_atr = float(curr_candle.get("atr", 0.0))
-        ema_trend = float(curr_candle.get("ema_trend", curr_close))
+        raw_res = curr_candle.get("resistance", np.nan)
+        raw_sup = curr_candle.get("support", np.nan)
+        resistance = float(curr_close * 1.001 if pd.isna(raw_res) else raw_res)
+        support = float(curr_close * 0.999 if pd.isna(raw_sup) else raw_sup)
+        current_atr = float(curr_candle.get("atr", 0.0) if not pd.isna(curr_candle.get("atr", 0.0)) else 0.0)
+        ema_trend = float(curr_candle.get("ema_trend", curr_close) if not pd.isna(curr_candle.get("ema_trend", curr_close)) else curr_close)
 
-        # Tolerancia de retest en base al ATR (0.25 ATR de margen para tocar el nivel)
-        retest_margin = current_atr * 0.25 if current_atr > 0 else 0.0005
+        # Niveles de Fibonacci 61.8%
+        raw_fibo_buy = curr_candle.get("fibo_618_buy", 0.0)
+        raw_fibo_sell = curr_candle.get("fibo_618_sell", 0.0)
+        fibo_618_buy = float(0.0 if pd.isna(raw_fibo_buy) else raw_fibo_buy)
+        fibo_618_sell = float(0.0 if pd.isna(raw_fibo_sell) else raw_fibo_sell)
 
-        # 1. TRIGGER DE RETEST (Reacción en zona clave)
-        # Compra: El mínimo de la vela testeó el soporte y cerró por encima
-        retest_buy = (curr_low <= (support + retest_margin)) and (curr_close > support)
-        # Venta: El máximo de la vela testeó la resistencia y cerró por debajo
-        retest_sell = (curr_high >= (resistance - retest_margin)) and (curr_close < resistance)
+        # 🟢 3. VALIDACIÓN PREVIA DE TENDENCIA MACRO (EMA 200)
+        is_bullish_trend = curr_close > ema_trend
+        is_bearish_trend = curr_close < ema_trend
 
-        # 2. SISTEMA DE PUNTUACIÓN DE CONFLUENCIA
+        # 🟢 4. VALIDACIÓN DE RETROCESO DE FIBONACCI >= 61.8% (SEGÚN LA TENDENCIA)
+        fibo_buy = is_bullish_trend and (fibo_618_buy > 0) and (curr_close <= fibo_618_buy) and (curr_close >= support)
+        fibo_sell = is_bearish_trend and (fibo_618_sell > 0) and (curr_close >= fibo_618_sell) and (curr_close <= resistance)
+
+        # 🟢 5. SISTEMA DE PUNTUACIÓN DE CONFLUENCIA (SCORE)
         score = 0
         score_details = []
 
-        # Confirmación A: Tendencia Macro con EMA 200
-        if retest_buy and curr_close > ema_trend:
+        # Confirmación A: Tendencia Macro alineada con EMA 200
+        if fibo_buy:
             score += 1
-            score_details.append(f"Tendencia Alcista (Precio > EMA{self.ema_trend_period}) (+1)")
-        elif retest_sell and curr_close < ema_trend:
+            score_details.append(f"Tendencia Alcista Macro (Precio > EMA{self.ema_trend_period}) (+1)")
+        elif fibo_sell:
             score += 1
-            score_details.append(f"Tendencia Bajista (Precio < EMA{self.ema_trend_period}) (+1)")
+            score_details.append(f"Tendencia Bajista Macro (Precio < EMA{self.ema_trend_period}) (+1)")
 
         # Confirmación B: Volumen Institucional Superior a la Media
         vol_ok = bool(curr_candle.get("high_volume", False))
         if vol_ok:
             score += 1
-            score_details.append("Volumen Alto (+1)")
+            score_details.append("Volumen Institucional Alto (+1)")
 
-        # Confirmación C: Patrón de Reacción / Fuerza de Vela (Hammer o Cuerpo Fuerte)
+        # Confirmación C: Patrón de Reacción / Fuerza de Vela (Hammer o Cuerpo Fuerte >= 50%)
         body_ratio = float(curr_candle.get("body_ratio", 0.0))
         is_bull_hammer = bool(curr_candle.get("is_bullish_hammer", False))
         is_bear_hammer = bool(curr_candle.get("is_bearish_hammer", False))
 
-        if retest_buy and (is_bull_hammer or body_ratio >= 0.50):
+        if fibo_buy and (is_bull_hammer or body_ratio >= 0.50):
             patron = "Hammer Alcista" if is_bull_hammer else f"Vela Fuerte ({body_ratio * 100:.0f}%)"
             score += 1
             score_details.append(f"Patrón: {patron} (+1)")
-        elif retest_sell and (is_bear_hammer or body_ratio >= 0.50):
+        elif fibo_sell and (is_bear_hammer or body_ratio >= 0.50):
             patron = "Shooting Star" if is_bear_hammer else f"Vela Fuerte ({body_ratio * 100:.0f}%)"
             score += 1
             score_details.append(f"Patrón: {patron} (+1)")
 
-        if retest_buy:
+        if fibo_buy:
             signal_type = "BUY"
-        elif retest_sell:
+        elif fibo_sell:
             signal_type = "SELL"
         else:
             signal_type = "HOLD"
@@ -258,19 +378,17 @@ class PriceActionStrategy:
         is_valid = (signal_type != "HOLD") and (score >= self.min_confluence_score)
         final_signal = signal_type if is_valid else "HOLD"
 
-        # 3. CÁLCULO DE STOP LOSS Y TAKE PROFIT (ATR O FALLBACK ESTÁTICO)
+        # 🟢 6. CÁLCULO DE STOP LOSS Y TAKE PROFIT (ATR O FALLBACK ESTÁTICO)
         sl_price = 0.0
         tp_price = 0.0
 
         if final_signal != "HOLD":
-            # Determinación del tamaño de pip/punto para el respaldo estático
             point = 0.0001 if "JPY" not in self.symbol else 0.01
 
             if current_atr > 0:
                 sl_dist = current_atr * self.atr_sl_mult
                 tp_dist = current_atr * self.atr_tp_mult
             else:
-                # Fallback estático en pips si el ATR no está disponible o da cero
                 sl_dist = self.static_sl_pips * point
                 tp_dist = self.static_tp_pips * point
 
@@ -282,17 +400,16 @@ class PriceActionStrategy:
                 tp_price = curr_close - tp_dist
 
         reason = (
-            f"Retest Confirmado ({signal_type}) con Score {score}/3: {', '.join(score_details)}"
+            f"Fibo >= 61.8% ({signal_type}) con Score {score}/3: {', '.join(score_details)}"
             if is_valid
             else (
-                f"Sin retest en zonas clave"
+                f"Esperando retroceso Fibo >= 61.8% alineado con EMA{self.ema_trend_period}"
                 if signal_type == "HOLD"
-                else f"Retest {signal_type} descartado por baja confluencia ({score}/{self.min_confluence_score} requerido)"
+                else f"Zona Fibo {signal_type} descartada por baja confluencia ({score}/{self.min_confluence_score} requerido)"
             )
         )
 
         # 🟢 REGISTRO DE DEPURACIÓN EN GUI / CONSOLA
-
         if final_signal == "HOLD":
             debug_msg = (
                 f"🔍 [ANALISIS ESTRATEGIA] {self.symbol}: {final_signal} ➔ Razón: {reason}"
@@ -303,6 +420,7 @@ class PriceActionStrategy:
                 f"🔍 [ANALISIS ESTRATEGIA] {self.symbol} | Cierre: {curr_close:.5f}\n"
                 f"   ├─ Resistencia (Pivot High): {resistance:.5f}\n"
                 f"   ├─ Soporte (Pivot Low): {support:.5f}\n"
+                f"   ├─ Fibo 61.8%: {fibo_618_buy if final_signal == 'BUY' else fibo_618_sell:.5f}\n"
                 f"   ├─ Score Confluencia: {score}/3 ({', '.join(score_details) if score_details else 'Ninguno'})\n"
                 f"   ├─ ATR (14): {current_atr:.5f} | SL: {sl_price:.5f} | TP: {tp_price:.5f}\n"
                 f"   └─ Resultado: {final_signal} ➔ Razón: {reason}"

@@ -1,6 +1,32 @@
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import MetaTrader5 as mt5
 from core.config_manager import load_config
+
+
+def check_user_credentials_exist() -> Tuple[bool, str]:
+    """
+    Verifica si existen credenciales válidas en config.json antes de intentar conectar a MT5.
+    Retorna (True, 'Ok') o (False, 'Motivo de fallo').
+    """
+    config: Dict[str, Any] = load_config()
+    login = config.get("login", 0)
+    password = str(config.get("password", "") or "").strip()
+    server = str(config.get("server", "") or "").strip()
+
+    try:
+        login_int = int(login or 0)
+    except (ValueError, TypeError):
+        login_int = 0
+
+    if login_int <= 0:
+        return False, "Falta el ID de Cuenta (Login) en la configuración."
+    if not password:
+        return False, "Falta la Contraseña de la cuenta MT5."
+    if not server:
+        return False, "Falta el Servidor del Bróker."
+
+    return True, "Credenciales completas."
+
 
 def get_symbol_specs(symbol: str) -> Dict[str, Any]:
     """

@@ -3,6 +3,7 @@ from .topbar import TopbarComponent
 from .symbol_selector import SymbolSelectorComponent
 from .console_tabview import ConsoleTabviewComponent
 from .config_window import ConfigWindow
+from .tooltip import ToolTip
 
 __all__ = [
     "SidebarComponent",
@@ -10,4 +11,5 @@ __all__ = [
     "SymbolSelectorComponent",
     "ConsoleTabviewComponent",
     "ConfigWindow",
+    "ToolTip",
 ]
