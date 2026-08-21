@@ -54,7 +54,7 @@ class PriceActionStrategy:
         self.atr_tp_mult: float = kwargs.get("atr_tp_mult", 3.0)
         self.static_sl_pips: float = kwargs.get("static_sl_pips", 20.0)
         self.static_tp_pips: float = kwargs.get("static_tp_pips", 40.0)
-        self.lookback_swing: int = kwargs.get("lookback_swing", 50)
+        self.lookback_swing: int = kwargs.get("lookback_swing", 70)
 
         # 🟢 PARÁMETROS DE FILTRO DE CORRELACIÓN DE PARES (PEARSON)
         self.use_correlation_filter: bool = getattr(self.config, "use_correlation_filter", kwargs.get("use_correlation_filter", True))
@@ -162,8 +162,7 @@ class PriceActionStrategy:
         """
         Analiza una posición abierta para determinar:
         1. Cierre prematuro por invalidación de tendencia (inversión contra EMA 200).
-        2. Actualización / Optimización de SL (Trailing Stop dinámico por ATR o Swings).
-        3. Ajuste de TP si la estructura de soporte/resistencia ha cambiado.
+        2. Trailing Stop dinámico por ATR + Estructura (Dando margen amplio de retroceso).
         """
         min_bars = max(self.pivot_window * 2, self.atr_period, self.volume_ma_period, self.ema_trend_period) + 10
         if df is None or len(df) < min_bars:
@@ -172,63 +171,78 @@ class PriceActionStrategy:
         df_analyzed = self.calculate_indicators(df)
         curr_candle = df_analyzed.iloc[-2]
         curr_close = float(curr_candle["close"])
+        curr_low = float(curr_candle["low"])
+        curr_high = float(curr_candle["high"])
+
         ema_trend = float(curr_candle.get("ema_trend", curr_close))
         current_atr = float(curr_candle.get("atr", 0.0))
 
         is_buy = position.type == mt5.POSITION_TYPE_BUY
         pos_type_str = "BUY" if is_buy else "SELL"
-        price_open = position.price_open
-        current_sl = position.sl
-        current_tp = position.tp
+        price_open = float(position.price_open)
+        current_sl = float(position.sl)
+        current_tp = float(position.tp)
 
         # A. Cierre prematuro por invalidación de tendencia macro (EMA 200)
         if is_buy and curr_close < ema_trend:
             return {
                 "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró por debajo de la EMA200 ({ema_trend:.5f}) invalidando la compra",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró bajo EMA200 ({ema_trend:.5f})",
                 "close_reason": "Invalidacion_EMA200"
             }
         elif not is_buy and curr_close > ema_trend:
             return {
                 "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró por encima de la EMA200 ({ema_trend:.5f}) invalidando la venta",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró sobre EMA200 ({ema_trend:.5f})",
                 "close_reason": "Invalidacion_EMA200"
             }
 
-        # B. Trailing Stop dinámico por ATR (Protección de ganancias sin ahogar la operación)
+        # B. Trailing Stop inteligente por ATR y Mínimos/Máximos de Vela con margen de respiración
         suggested_sl = current_sl
         suggested_tp = current_tp
         needs_sl_update = False
-        needs_tp_update = False
 
         if current_atr > 0:
-            trailing_offset = current_atr * self.atr_sl_mult
-            if is_buy:
-                new_trailing_sl = curr_close - trailing_offset
-                # Solo mover el SL hacia arriba (nunca hacia abajo) y si ya está protegiendo en positivo o mejorando el SL inicial
-                if new_trailing_sl > current_sl and new_trailing_sl > price_open:
-                    suggested_sl = new_trailing_sl
-                    needs_sl_update = True
-            else:
-                new_trailing_sl = curr_close + trailing_offset
-                # Solo mover el SL hacia abajo en ventas (nunca hacia arriba)
-                if (current_sl == 0.0 or new_trailing_sl < current_sl) and new_trailing_sl < price_open:
-                    suggested_sl = new_trailing_sl
-                    needs_sl_update = True
+            # Multiplicador configurable o 4.0x ATR para dar más aire
+            trailing_offset = current_atr * max(4.0, self.atr_sl_mult)
+            # Requisito: Exigir que la operación tenga al menos 1.0x ATR de flotante positivo antes de ajustar el SL
+            activation_buffer = current_atr * 1.0
 
-        if needs_sl_update or needs_tp_update:
+            if is_buy:
+                # Solo evaluar si el precio de cierre actual superó el precio de apertura + margen
+                if curr_close >= (price_open + activation_buffer):
+                    # Trailing tomando como base el MÍNIMO de la última vela cerrada menos el offset
+                    new_trailing_sl = curr_low - trailing_offset
+
+                    # Regla de Oro: Solo mover SL hacia arriba y garantizar que esté sobre el SL anterior
+                    if new_trailing_sl > current_sl and new_trailing_sl > price_open:
+                        suggested_sl = new_trailing_sl
+                        needs_sl_update = True
+
+            else:  # SELL
+                # Solo evaluar si el precio de cierre bajó lo suficiente a favor
+                if curr_close <= (price_open - activation_buffer):
+                    # Trailing tomando como base el MÁXIMO de la última vela cerrada más el offset
+                    new_trailing_sl = curr_high + trailing_offset
+
+                    # Regla de Oro: Solo mover SL hacia abajo en ventas
+                    if (current_sl == 0.0 or new_trailing_sl < current_sl) and new_trailing_sl < price_open:
+                        suggested_sl = new_trailing_sl
+                        needs_sl_update = True
+
+        if needs_sl_update:
             return {
                 "action": "MODIFY_SLTP",
                 "suggested_sl": suggested_sl,
                 "suggested_tp": suggested_tp,
-                "reason": f"Ajuste dinámico Trailing Stop ATR ({current_atr:.5f}) en {pos_type_str} #{position.ticket}"
+                "reason": f"Trailing Stop ajustado tras confirmación de avance ({pos_type_str} #{position.ticket})"
             }
 
         return {
             "action": "MONITOR",
             "current_sl": current_sl,
             "current_tp": current_tp,
-            "reason": f"Posición {pos_type_str} #{position.ticket} en monitoreo activo y alineada con la tendencia"
+            "reason": f"Posición {pos_type_str} #{position.ticket} respetando margen de respiración"
         }
 
     def generate_signal(self, df: pd.DataFrame) -> Dict[str, Any]:
