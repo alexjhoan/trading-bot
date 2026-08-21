@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, Callable, Tuple
+from typing import Optional, Dict, Any, Callable, Tuple, List
 from datetime import datetime, time
 import numpy as np
 import pandas as pd
@@ -55,6 +55,11 @@ class PriceActionStrategy:
         self.static_sl_pips: float = kwargs.get("static_sl_pips", 20.0)
         self.static_tp_pips: float = kwargs.get("static_tp_pips", 40.0)
         self.lookback_swing: int = kwargs.get("lookback_swing", 50)
+
+        # 🟢 PARÁMETROS DE FILTRO DE CORRELACIÓN DE PARES (PEARSON)
+        self.use_correlation_filter: bool = getattr(self.config, "use_correlation_filter", kwargs.get("use_correlation_filter", True))
+        self.correlation_threshold: float = getattr(self.config, "correlation_threshold", kwargs.get("correlation_threshold", 0.70))
+        self.correlation_window: int = getattr(self.config, "correlation_window", kwargs.get("correlation_window", 50))
 
         # 🟢 ASIGNACIÓN DINÁMICA DE HORARIOS SEGÚN EL SÍMBOLO
         start_str, end_str = self.config.get_session_times_for_symbol(self.symbol)
@@ -437,3 +442,110 @@ class PriceActionStrategy:
             "tp": tp_price,
             "reason": reason
         }
+
+    # =========================================================================
+    # 🟢 MÓDULO DE GESTIÓN Y FILTRADO DE CORRELACIÓN DE PARES (PEARSON)
+    # =========================================================================
+
+    def calculate_pair_correlations(self, market_data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """
+        Calcula la matriz de correlación de Pearson basada en los retornos y precios
+        de cierre de todos los pares entregados por el bot.
+
+        :param market_data: Diccionario { 'EURUSD': df1, 'GBPUSD': df2, ... }
+        :return: DataFrame con la matriz de correlación entre pares
+        """
+        close_prices: Dict[str, pd.Series] = {}
+
+        for symbol, df in market_data.items():
+            if df is not None and not df.empty and "close" in df.columns:
+                # Tomar los últimos N cierres configurados en la ventana de correlación
+                close_series = df["close"].tail(self.correlation_window).reset_index(drop=True)
+                if len(close_series) >= 5:
+                    close_prices[symbol] = close_series
+
+        if len(close_prices) < 2:
+            return pd.DataFrame()  # No hay suficientes pares para calcular correlación
+
+        prices_df = pd.DataFrame(close_prices)
+        # Matriz de correlación de Pearson entre los retornos porcentuales
+        returns_df = prices_df.pct_change().dropna()
+
+        if len(returns_df) >= 3:
+            correlation_matrix = returns_df.corr(method="pearson")
+        else:
+            correlation_matrix = prices_df.corr(method="pearson")
+
+        return correlation_matrix
+
+    def validate_correlation_filter(
+        self,
+        target_symbol: str,
+        signal_type: str,
+        active_positions: List[Dict[str, Any]],
+        market_data: Dict[str, pd.DataFrame]
+    ) -> Tuple[bool, str]:
+        """
+        Valida si una nueva señal en 'target_symbol' entra en conflicto o sobreexpone
+        el riesgo con las posiciones ya abiertas en la cuenta.
+
+        :param target_symbol: Par que generó la nueva señal (ej: 'GBPUSD')
+        :param signal_type: 'BUY' o 'SELL'
+        :param active_positions: Lista de órdenes abiertas [ {'symbol': 'EURUSD', 'type': 'SELL'}, ... ]
+        :param market_data: Diccionario con los DataFrames de todos los pares relevantes
+        :return: (True, motivo) si la operación está permitida, (False, motivo) si se bloquea por correlación.
+        """
+        if not self.use_correlation_filter:
+            return True, "Filtro de correlación desactivado"
+
+        if not active_positions:
+            return True, "Sin posiciones abiertas en otros pares"
+
+        corr_matrix = self.calculate_pair_correlations(market_data)
+
+        if corr_matrix.empty or target_symbol not in corr_matrix.columns:
+            return True, "Fallback seguro: Matriz de correlación no disponible o insuficiente historial"
+
+        for pos in active_positions:
+            open_symbol = pos.get("symbol", "")
+            open_type = pos.get("type", "").upper()  # 'BUY' o 'SELL'
+
+            # Ignorar si es el mismo par (el control de posición única por par ya lo gestiona)
+            if open_symbol == target_symbol:
+                continue
+
+            if open_symbol in corr_matrix.columns:
+                try:
+                    correlation_value = float(corr_matrix.loc[target_symbol, open_symbol])
+                except Exception:
+                    continue
+
+                if pd.isna(correlation_value):
+                    continue
+
+                # 1. Correlación POSITIVA ALTA (ej: GBPUSD y EURUSD ~ +0.85)
+                # Si se mueven igual, NO abrir direcciones opuestas (evita arbitraje / conflicto de divisa)
+                if correlation_value >= self.correlation_threshold:
+                    if signal_type != open_type:
+                        block_msg = (
+                            f"🚫 [FILTRO CORRELACIÓN] Señal {signal_type} en {target_symbol} bloqueada. "
+                            f"Conflicto directo con {open_symbol} ({open_type}) ➔ Correlación: {correlation_value:+.2f} "
+                            f"(Umbral >= {self.correlation_threshold:.2f})"
+                        )
+                        self._log(block_msg, "WARNING")
+                        return False, block_msg
+
+                # 2. Correlación NEGATIVA ALTA (ej: EURUSD y USDCHF ~ -0.85)
+                # Si se mueven opuestos, una COMPRA en uno equivale a una VENTA en el otro
+                elif correlation_value <= -self.correlation_threshold:
+                    if signal_type == open_type:
+                        block_msg = (
+                            f"🚫 [FILTRO CORRELACIÓN] Señal {signal_type} en {target_symbol} bloqueada. "
+                            f"Sobreexposición inversa con {open_symbol} ({open_type}) ➔ Correlación: {correlation_value:+.2f} "
+                            f"(Umbral <= -{self.correlation_threshold:.2f})"
+                        )
+                        self._log(block_msg, "WARNING")
+                        return False, block_msg
+
+        return True, "Validación de correlación exitosa: Sin conflictos de riesgo con posiciones activas"
+

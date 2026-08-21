@@ -123,6 +123,45 @@ class SymbolWorker(threading.Thread):
                     self._log(f"🧠 [RESULTADO ANÁLISIS] {signal_data} - {self.symbol}", "INFO")
 
                     if signal in ["BUY", "SELL"]:
+                        # 🟢 VALIDACIÓN DE FILTRO DE CORRELACIÓN DE PARES (PEARSON)
+                        all_open_positions = mt5.positions_get()
+                        other_positions = [
+                            {
+                                "symbol": p.symbol,
+                                "type": "BUY" if p.type == mt5.POSITION_TYPE_BUY else "SELL",
+                                "ticket": p.ticket
+                            }
+                            for p in all_open_positions
+                            if p.symbol != self.symbol
+                        ] if all_open_positions else []
+
+                        if other_positions and self.strategy.use_correlation_filter:
+                            market_data: Dict[str, pd.DataFrame] = {self.symbol: df}
+                            rates_needed = max(self.strategy.correlation_window + 10, 60)
+
+                            for pos in other_positions:
+                                sym_other = pos["symbol"]
+                                if sym_other not in market_data:
+                                    df_other = get_historical_data(
+                                        symbol=sym_other,
+                                        timeframe=self.timeframe,
+                                        rates_count=rates_needed
+                                    )
+                                    if df_other is not None and not df_other.empty:
+                                        market_data[sym_other] = df_other
+
+                            is_safe_to_trade, corr_reason = self.strategy.validate_correlation_filter(
+                                target_symbol=self.symbol,
+                                signal_type=signal,
+                                active_positions=other_positions,
+                                market_data=market_data
+                            )
+
+                            if not is_safe_to_trade:
+                                self._log(f"🚫 [ORDEN CANCELADA POR CORRELACIÓN] {corr_reason}", "WARNING")
+                                signal = "HOLD"
+
+                    if signal in ["BUY", "SELL"]:
                         acc_info = mt5.account_info()
                         balance = acc_info.balance if acc_info else 0.0
 

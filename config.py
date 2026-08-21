@@ -63,6 +63,11 @@ class StrategyConfig:
     # 🟢 NUEVAS CONFIGURACIONES DE SESIÓN Y FILTRO
     use_session_filter: bool = True
 
+    # 🟢 FILTRO DE CORRELACIÓN DE PARES (PEARSON)
+    use_correlation_filter: bool = True
+    correlation_threshold: float = 0.70  # 70% de correlación alta
+    correlation_window: int = 80  # Ventana de 50 velas para el cálculo de Pearson
+
     def is_market_open(self, symbol: str, current_dt: Optional[datetime] = None) -> Tuple[bool, str]:
         """
         Valida si el mercado está abierto para operar.
