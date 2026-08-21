@@ -13,7 +13,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "magic_number": 999111,
     "max_slippage": 10,
     "active_symbols": [],
-    "available_symbols": []
+    "available_symbols": [],
+    "symbol_lots": {},
+    "symbol_risk_pcts": {},
+    "symbol_timeframes": {}
 }
 
 def load_config() -> Dict[str, Any]:

@@ -128,10 +128,6 @@ class PriceActionStrategy:
 
             debug_msg = (
                 f"🔍 [ANALISIS ESTRATEGIA] {self.symbol}\n"
-                f"   ├─ Resistencia (Pivot High): 0.0\n"
-                f"   ├─ Soporte (Pivot Low): 0.0\n"
-                f"   ├─ Score Confluencia: 0/3 (Ninguno)\n"
-                f"   ├─ ATR (14): 0\n"
                 f"   └─ Resultado: Insuficiente historial de datos"
             )
             self._log(debug_msg, "INFO")

@@ -232,26 +232,23 @@ class OrderExecutor:
         return False
 
     def manage_open_positions(self, current_signal: str) -> None:
-        """Monitorea posiciones abiertas, aplica cierres por señal opuesta y Trailing Stop / Break-Even."""
+        """Monitorea posiciones abiertas del símbolo, aplica cierres por señal opuesta y Break-Even."""
         positions = mt5.positions_get(symbol=self.symbol)
         if not positions:
             return
 
         for pos in positions:
-            if pos.magic != 123456:
-                continue
-
             is_buy = pos.type == mt5.POSITION_TYPE_BUY
 
-            # Cierre por cambio de tendencia
+            # 1. Cierre por cambio de tendencia / señal opuesta
             if (is_buy and current_signal == "SELL") or (not is_buy and current_signal == "BUY"):
-                msg = f"⚠️ [GESTIÓN ACTIVA] Cambio de tendencia detectado ({current_signal}). Cerrando posición #{pos.ticket}..."
+                msg = f"⚠️ [GESTIÓN ACTIVA] Cambio de tendencia ({current_signal}) en posición #{pos.ticket} ({'BUY' if is_buy else 'SELL'}). Cerrando anticipadamente..."
                 print(msg)
                 self._log(msg, "WARNING")
                 self.close_position(pos, reason="Cambio_Tendencia")
                 continue
 
-            # Trailing Stop / Break-Even
+            # 2. Break-Even dinámico
             symbol_info = mt5.symbol_info(self.symbol)
             if symbol_info is None:
                 continue
@@ -267,7 +264,7 @@ class OrderExecutor:
             be_trigger = getattr(self.strategy_config, "breakeven_trigger_pips", 10.0)
             if profit_pips >= be_trigger:
                 new_sl = pos.price_open
-                needs_update = (is_buy and pos.sl < new_sl) or (not is_buy and (pos.sl == 0.0 or pos.sl > new_sl))
+                needs_update = (is_buy and (pos.sl < new_sl or pos.sl == 0.0)) or (not is_buy and (pos.sl > new_sl or pos.sl == 0.0))
                 if needs_update:
                     req = {
                         "action": mt5.TRADE_ACTION_SLTP,

@@ -60,6 +60,8 @@ class QuantBotApp(ctk.CTk):
         if initialize_mt5():
             print("[DEBUG MT5] ✅ Conexión inicializada correctamente con la terminal MT5.")
             self.console.log("General", "🔌 Conexión con MT5 establecida.", "SUCCESS")
+            # Detectar y tomar las riendas de operaciones abiertas
+            self._adopt_open_positions()
         else:
             print("[DEBUG MT5] ❌ No se pudo conectar a MT5 al iniciar la app.")
             self.console.log("General", "❌ No se pudo conectar a MT5. Revisa tus credenciales.", "ERROR")
@@ -69,6 +71,33 @@ class QuantBotApp(ctk.CTk):
         # -----------------------------------------------------------------
         self._update_account_loop()
         self.console_tabview = self.console
+
+    def _adopt_open_positions(self) -> None:
+        """Detecta operaciones abiertas en MT5, agrega el par a la lista si no está y enciende el switch de monitoreo."""
+        try:
+            positions = mt5.positions_get()
+            if not positions:
+                return
+
+            for pos in positions:
+                sym = pos.symbol
+                pos_type = "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL"
+
+                # 1. Asegurar que el símbolo esté en la lista
+                if sym not in self.symbols:
+                    self.symbol_selector.ensure_symbol_present(sym, lot=pos.volume)
+                    self.console.log("General", f"➕ Agregado par {sym} detectado por orden abierta #{pos.ticket}", "INFO")
+
+                # 2. Encender el switch si está apagado
+                if not self.symbol_selector.is_symbol_active(sym):
+                    self.console.log(
+                        "General",
+                        f"⚡ [OPERACIÓN DETECTADA] #{pos.ticket} {sym} ({pos_type} {pos.volume} lotes a {pos.price_open}). Activando switch y tomando control...",
+                        "SUCCESS"
+                    )
+                    self.symbol_selector.set_symbol_active(sym, True)
+        except Exception as e:
+            print(f"[DEBUG ADOPT POSITIONS] Error al adoptar operaciones abiertas: {e}")
 
     def _build_ui(self) -> None:
         # 1. Topbar Superior (Fila 0)
@@ -91,6 +120,9 @@ class QuantBotApp(ctk.CTk):
             symbols=self.symbols,
             available_symbols=self.config_data.get("available_symbols", []),
             symbol_specs=self.config_data.get("symbol_specs", {}),
+            symbol_lots=self.config_data.get("symbol_lots", {}),
+            symbol_risk_pcts=self.config_data.get("symbol_risk_pcts", {}),
+            symbol_timeframes=self.config_data.get("symbol_timeframes", {}),
             on_toggle_callback=self._handle_symbol_toggle,
             on_symbols_changed_callback=self._handle_symbols_list_changed
         )
@@ -109,6 +141,19 @@ class QuantBotApp(ctk.CTk):
             # Obtener configuración propia de este par desde symbol_selector
             sym_config = self.symbol_selector.get_symbol_config(symbol)
             topbar_vals = self.topbar.get_topbar_values()
+
+            # Guardar inmediatamente la configuración de este par en config.json
+            if "symbol_lots" not in self.config_data:
+                self.config_data["symbol_lots"] = {}
+            if "symbol_risk_pcts" not in self.config_data:
+                self.config_data["symbol_risk_pcts"] = {}
+            if "symbol_timeframes" not in self.config_data:
+                self.config_data["symbol_timeframes"] = {}
+
+            self.config_data["symbol_lots"][symbol] = sym_config["lot"]
+            self.config_data["symbol_risk_pcts"][symbol] = round(sym_config["risk_pct"] * 100.0, 2)
+            self.config_data["symbol_timeframes"][symbol] = sym_config["timeframe_str"]
+            self.save_settings()
 
             stop_evt = threading.Event()
             self.stop_events[symbol] = stop_evt
@@ -165,10 +210,25 @@ class QuantBotApp(ctk.CTk):
         threading.Thread(target=run_test, daemon=True).start()
 
     def save_settings(self) -> None:
-        """Guarda los símbolos activos en config.json."""
+        """Guarda los símbolos activos y configuraciones individuales en config.json."""
         self.config_data["active_symbols"] = self.symbols
+
+        if hasattr(self, "symbol_selector"):
+            all_configs = self.symbol_selector.get_all_symbol_configs()
+            if "symbol_lots" not in self.config_data:
+                self.config_data["symbol_lots"] = {}
+            if "symbol_risk_pcts" not in self.config_data:
+                self.config_data["symbol_risk_pcts"] = {}
+            if "symbol_timeframes" not in self.config_data:
+                self.config_data["symbol_timeframes"] = {}
+
+            for s, cfg in all_configs.items():
+                self.config_data["symbol_lots"][s] = cfg["lot"]
+                self.config_data["symbol_risk_pcts"][s] = round(cfg["risk_pct"] * 100.0, 2)
+                self.config_data["symbol_timeframes"][s] = cfg["timeframe_str"]
+
         if save_config(self.config_data):
-            self.console.log("General", "✅ Configuración guardada.", "SUCCESS")
+            self.console.log("General", "✅ Configuración guardada en config.json.", "SUCCESS")
         else:
             self.console.log("General", "❌ Error al guardar configuración.", "ERROR")
 
@@ -179,7 +239,7 @@ class QuantBotApp(ctk.CTk):
         super().destroy()
 
     def _update_account_loop(self) -> None:
-        """Bucle secundario en segundo plano para actualizar balance y equidad."""
+        """Bucle secundario en segundo plano para actualizar balance, equidad y detectar operaciones abiertas."""
         try:
             acc_info = mt5.account_info()
             if acc_info is not None:
@@ -187,6 +247,10 @@ class QuantBotApp(ctk.CTk):
                 equity = acc_info.equity
                 self.topbar.update_account_info(balance, equity)
                 self.symbol_selector.set_account_balance(balance)
+                # Actualizar colores de horarios de mercado
+                self.symbol_selector.update_schedules_color()
+                # Verificar y adoptar operaciones abiertas en tiempo real
+                self._adopt_open_positions()
             else:
                 self.topbar.update_account_info(0.0, 0.0)
                 self.symbol_selector.set_account_balance(0.0)

@@ -104,6 +104,17 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         for symbol in self.symbols:
             self._add_symbol_row(symbol)
 
+        # Iniciar loop periódico de actualización de colores de horario (cada segundo)
+        self._start_schedule_clock_loop()
+
+    def _start_schedule_clock_loop(self) -> None:
+        """Loop continuo para actualizar el color del horario en tiempo real cuando llega la hora de apertura/cierre."""
+        try:
+            self.update_schedules_color()
+        except Exception:
+            pass
+        self.after(1000, self._start_schedule_clock_loop)
+
     def _build_table_header(self) -> None:
         """Crea la fila de encabezados tipo tabla (<th>) con títulos de columnas."""
         header = ctk.CTkFrame(self, fg_color="#1a1a1a", height=30, corner_radius=4)
@@ -319,6 +330,19 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
     def _on_input_changed(self, symbol: str) -> None:
         self._update_symbol_calc(symbol)
+        try:
+            if symbol in self.entry_lots:
+                lot_str = self.entry_lots[symbol].get().replace(",", ".").strip()
+                if lot_str:
+                    self.symbol_lots[symbol] = float(lot_str)
+            if symbol in self.entry_risk_pcts:
+                risk_str = self.entry_risk_pcts[symbol].get().replace(",", ".").strip()
+                if risk_str:
+                    self.symbol_risk_pcts[symbol] = float(risk_str)
+            if symbol in self.opt_timeframes:
+                self.symbol_timeframes[symbol] = self.opt_timeframes[symbol].get()
+        except Exception:
+            pass
 
     def _add_symbol(self) -> None:
         raw_sym = self.entry_symbol.get().strip()
@@ -459,6 +483,39 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         for symbol in self.symbols:
             self._update_symbol_calc(symbol)
 
+    def is_symbol_active(self, symbol: str) -> bool:
+        """Indica si el switch de este símbolo está encendido."""
+        if symbol in self.switch_vars:
+            return bool(self.switch_vars[symbol].get())
+        return False
+
+    def ensure_symbol_present(self, symbol: str, lot: Optional[float] = None) -> None:
+        """Si el símbolo no existe en la lista de la tabla, lo agrega con el lote especificado."""
+        if symbol not in self.symbols:
+            specs = self.symbol_specs.get(symbol, {})
+            min_lot = specs.get("volume_min", 0.01)
+            use_lot = lot if (lot is not None and lot > 0) else min_lot
+
+            self.symbols.append(symbol)
+            self.symbol_lots[symbol] = use_lot
+            self.symbol_risk_pcts[symbol] = 1.0
+            self.symbol_timeframes[symbol] = "M1"
+
+            self._add_symbol_row(symbol)
+
+            if self.on_symbols_changed_callback:
+                self.on_symbols_changed_callback(self.symbols)
+
+    def set_symbol_active(self, symbol: str, active: bool = True) -> None:
+        """Activa o desactiva programáticamente el switch de un símbolo disparando su callback."""
+        if symbol in self.switch_vars:
+            current_state = self.switch_vars[symbol].get()
+            if current_state != active:
+                self.switch_vars[symbol].set(active)
+                self._update_single_symbol_input_state(symbol)
+                if self.on_toggle_callback:
+                    self.on_toggle_callback(symbol, active)
+
     def get_symbol_config(self, symbol: str) -> Dict[str, Any]:
         """Obtiene la configuración individual completa de un par específico."""
         try:
@@ -481,3 +538,11 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             "timeframe_str": tf_str,
             "timeframe_val": tf_val,
         }
+
+    def get_all_symbol_configs(self) -> Dict[str, Dict[str, Any]]:
+        """Devuelve un diccionario con las configuraciones actuales de todos los símbolos."""
+        configs = {}
+        for sym in self.symbols:
+            configs[sym] = self.get_symbol_config(sym)
+        return configs
+

@@ -1,13 +1,8 @@
 Todo:
-  ☐ no se estan inhabilitando el input de porcentaje al deshabilitar el switch
   ☐ el lote minimo no se esta tomando de la divisa
   ☐ los lotes deben venir de la config del broker
   ☐ cambiar los iconos por defecto por otros de la librería de CTK que si no esta operativa, si esta operativa o si hay algun error
   ☐ que configure los datos Primero que nada si no estan configurados antes de abrir MT5
-  ☐ verificar que la estrategia no esta tomando las temporalidades del usuario
-  ☐ no esta tomando el SL calculado ni el TP, tambien hay que validar que el SL el TP y salidas las esta analizando para que el bot pueda gestionar de ser necesario
-
-  ☐ hacer que se guarden los ultimos ajustes de porcentaje y lotaje que selecciono el usuario
   ☐
 
 
