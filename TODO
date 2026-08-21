@@ -7,7 +7,8 @@ Todo:
   ☐ verificar que la estrategia no esta tomando las temporalidades del usuario
   ☐ no esta tomando el SL calculado ni el TP, tambien hay que validar que el SL el TP y salidas las esta analizando para que el bot pueda gestionar de ser necesario
 
-
+  ☐ hacer que se guarden los ultimos ajustes de porcentaje y lotaje que selecciono el usuario
+  ☐
 
 
 prompt
