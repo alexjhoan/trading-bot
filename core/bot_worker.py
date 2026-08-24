@@ -137,9 +137,33 @@ class SymbolWorker(threading.Thread):
                 # 2. Verificar si ya existe al menos una posición abierta en este par
                 open_positions = mt5.positions_get(symbol=self.symbol)
 
+                # ⚠️ FILTRO DE SEGURIDAD 1: VERIFICAR VENTANA DE ROLLOVER Y CIERRE DE MERCADO
+                cfg = load_config()
+                max_spread_allowed = float(cfg.get("max_spread_pips", 3.5))
+                close_on_rollover = bool(cfg.get("close_before_rollover", True))
+                rollover_start = str(cfg.get("rollover_start_utc", "21:30"))
+                rollover_end = str(cfg.get("rollover_end_utc", "22:30"))
+                min_before_close = int(cfg.get("weekend_close_minutes_before", 15))
+
+                is_danger_zone, danger_reason, danger_action = self.risk_manager.is_rollover_or_market_close_window(
+                    minutes_before_close=min_before_close,
+                    rollover_start=rollover_start,
+                    rollover_end=rollover_end
+                )
+
                 if open_positions and len(open_positions) > 0:
-                    # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP Y CIERRE PREMATURO
+                    # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP Y CIERRE PREMATURO / ROLLOVER
                     for pos in open_positions:
+                        # Si estamos en ventana de peligro (Rollover / Cierre de mercado) y está configurado cerrar
+                        if is_danger_zone and danger_action == "BLOCK_AND_CLOSE" and close_on_rollover:
+                            self._log(
+                                f"⚠️ [ADVERTENCIA GESTIÓN RIESGO] Cerrando posición #{pos.ticket} ({self.symbol}) preventivamente: "
+                                f"{danger_reason}. Protegiendo capital contra ensanchamiento de spread / slippage bancario.",
+                                "WARNING"
+                            )
+                            self.executor.close_position(pos, reason="SpreadRollover_RiskProtection")
+                            continue
+
                         # Rastrear ticket para feedback loop cuando cierre
                         if pos.ticket not in self.tracked_tickets:
                             acc_info = mt5.account_info()
@@ -153,8 +177,9 @@ class SymbolWorker(threading.Thread):
 
                         pos_type_str = "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL"
                         pnl_current = pos.profit + pos.swap
+                        curr_spread = self.risk_manager.get_current_spread_pips(self.symbol)
                         self._log(
-                            f"🛡️ [POSICIÓN ACTIVA DETECTADA] {self.symbol} #{pos.ticket} ({pos_type_str} {pos.volume} lotes | PnL: ${pnl_current:+.2f}). "
+                            f"🛡️ [POSICIÓN ACTIVA DETECTADA] {self.symbol} #{pos.ticket} ({pos_type_str} {pos.volume} lotes | PnL: ${pnl_current:+.2f} | Spread: {curr_spread:.1f} pips). "
                             f"Omitiendo búsqueda de nuevas entradas. Analizando SL/TP y posibles cierres prematuros...",
                             "INFO"
                         )
@@ -171,7 +196,11 @@ class SymbolWorker(threading.Thread):
 
                 else:
                     # 🟢 RAMA B: NO HAY POSICIONES ABIERTAS ➔ BUSCAR NUEVAS ENTRADAS
-                    if self.test_mode:
+                    # 1. Comprobar si estamos en zona de peligro (Rollover / Cierre semanal)
+                    if is_danger_zone:
+                        self._log(f"⏸️ [OPERATIVA EN PAUSA] {danger_reason} No se buscan nuevas entradas.", "INFO")
+                        signal = "HOLD"
+                    elif self.test_mode:
                         signal = "BUY"
                         signal_data = {"signal": "BUY", "reason": "Modo Test Activo", "score": 3}
                         self._log(f"🧪 [MODO TEST] Señal forzada BUY en {self.symbol}", "INFO")
@@ -179,8 +208,17 @@ class SymbolWorker(threading.Thread):
                         self._log(f"🧠 [ANALIZANDO] Sin órdenes abiertas en {self.symbol}. Evaluando confluencias para nueva entrada...", "INFO")
                         signal_data = self.strategy.generate_signal(df)
                         signal = signal_data.get("signal", "HOLD") if isinstance(signal_data, dict) else str(signal_data)
+                        self._log(f"🧠 [RESULTADO ANÁLISIS] {signal_data} - {self.symbol}", "INFO")
 
-                    self._log(f"🧠 [RESULTADO ANÁLISIS] {signal_data} - {self.symbol}", "INFO")
+                    # 2. Comprobar Filtro de Spread Máximo antes de avanzar a validaciones complejas
+                    if signal in ["BUY", "SELL"]:
+                        is_spread_ok, curr_spread, spread_msg = self.risk_manager.validate_spread(
+                            self.symbol, max_allowed_pips=max_spread_allowed
+                        )
+                        if not is_spread_ok:
+                            self._log(f"🚫 [ENTRADA BLOQUEADA POR SPREAD] {spread_msg}", "WARNING")
+                            signal = "HOLD"
+
 
                     if signal in ["BUY", "SELL"]:
                         # 🟢 VALIDACIÓN DE FILTRO DE CORRELACIÓN DE PARES (PEARSON)
@@ -265,6 +303,7 @@ class SymbolWorker(threading.Thread):
                             past_trades = self.ai_memory.get_relevant_past_trades(symbol=self.symbol, signal=signal, limit=3)
 
                             atr_val = signal_data.get("atr", round(sl_pips * pip_size, 5)) if isinstance(signal_data, dict) else round(sl_pips * pip_size, 5)
+                            current_spread_val = self.risk_manager.get_current_spread_pips(self.symbol)
                             candidate_setup = {
                                 "symbol": self.symbol,
                                 "signal": signal,
@@ -274,6 +313,7 @@ class SymbolWorker(threading.Thread):
                                 "default_lot": self.lot,
                                 "timeframe": "M15",
                                 "atr": atr_val,
+                                "spread_info": f"Spread actual: {current_spread_val:.1f} pips (Máx permitido: {max_spread_allowed} pips)",
                                 "confluence_score": signal_data.get("score", 2) if isinstance(signal_data, dict) else 2,
                                 "details": signal_data if isinstance(signal_data, dict) else {"reason": str(signal_data)}
                             }

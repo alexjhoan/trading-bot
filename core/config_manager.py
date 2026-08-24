@@ -22,7 +22,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "ai_provider": "Google Gemini",
     "ai_api_key": "",
     "ai_model": "gemini-2.5-flash",
-    "ai_base_url": ""
+    "ai_base_url": "",
+    "max_spread_pips": 3.5,
+    "close_before_rollover": True,
+    "rollover_start_utc": "21:30",
+    "rollover_end_utc": "22:30",
+    "weekend_close_minutes_before": 15
 }
 
 def load_config() -> Dict[str, Any]:

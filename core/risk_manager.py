@@ -100,16 +100,102 @@ class RiskManager:
 
           return final_lot
 
+    def get_current_spread_pips(self, symbol: str) -> float:
+        """Calcula el spread actual en Pips para el símbolo."""
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info is None:
+            return 999.0
+
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None or tick.ask <= 0 or tick.bid <= 0:
+            # Fallback usando el spread nativo en puntos
+            pip_size = symbol_info.point * 10.0 if symbol_info.digits in (3, 5) else symbol_info.point
+            return round((symbol_info.spread * symbol_info.point) / max(pip_size, 1e-6), 2)
+
+        pip_size = symbol_info.point * 10.0 if symbol_info.digits in (3, 5) else symbol_info.point
+        spread_raw = tick.ask - tick.bid
+        spread_pips = spread_raw / max(pip_size, 1e-6)
+        return round(spread_pips, 2)
+
+    def validate_spread(self, symbol: str, max_allowed_pips: Optional[float] = None) -> Tuple[bool, float, str]:
+        """
+        Valida que el spread actual no supere el límite permitido para evitar que el ensanchamiento
+        de spread o slippage dispare SL indeseados.
+        """
+        limit = max_allowed_pips if max_allowed_pips is not None else getattr(self.config, "max_spread_pips", 3.5)
+        current_spread = self.get_current_spread_pips(symbol)
+
+        if current_spread > limit:
+            msg = f"Spread excesivo en {symbol}: {current_spread:.1f} pips (Límite: {limit:.1f} pips). Operación bloqueada para proteger gestión."
+            return False, current_spread, msg
+
+        return True, current_spread, f"Spread aceptable ({current_spread:.1f} pips <= {limit:.1f} pips)"
+
+    def is_rollover_or_market_close_window(
+        self,
+        minutes_before_close: int = 15,
+        rollover_start: str = "21:30",
+        rollover_end: str = "22:30"
+    ) -> Tuple[bool, str, str]:
+        """
+        Detecta si estamos en la ventana de Rollover interbancario (21:30 - 22:30 UTC)
+        o en los últimos minutos antes del cierre semanal del mercado de Forex (Viernes ~21:45 UTC).
+
+        Retorna: (is_danger_zone, reason, action_needed: 'BLOCK_AND_CLOSE' | 'OK')
+        """
+        from datetime import datetime, timezone
+
+        now_utc = datetime.now(timezone.utc)
+        weekday = now_utc.weekday()  # 0=Lunes, 4=Viernes, 5=Sábado, 6=Domingo
+        current_hour_min = now_utc.strftime("%H:%M")
+
+        # 1. Cierre de Mercado de Fin de Semana (Viernes noche)
+        # Forex cierra los viernes a las 22:00 UTC (17:00 EST). Si estamos dentro de los minutos_before_close (ej. 21:45 UTC)
+        if weekday == 4:  # Viernes
+            total_minutes = now_utc.hour * 60 + now_utc.minute
+            close_minutes = 22 * 60  # 22:00 UTC
+            if (close_minutes - minutes_before_close) <= total_minutes <= (close_minutes + 60):
+                return (
+                    True,
+                    f"Cierre semanal de mercado en {max(0, close_minutes - total_minutes)} min (Viernes {current_hour_min} UTC). Bloqueo y cierre por seguridad.",
+                    "BLOCK_AND_CLOSE"
+                )
+
+        # 2. Ventana Diaria de Rollover Interbancario (Alto Spread / Spread Widening)
+        # Generalmente entre 21:30 UTC y 22:30 UTC (17:00 - 18:00 EST)
+        if rollover_start <= current_hour_min <= rollover_end:
+            return (
+                True,
+                f"Ventana de Rollover diario/Cierre de sesión ({current_hour_min} UTC entre {rollover_start}-{rollover_end}). Spreads bancarios elevados.",
+                "BLOCK_AND_CLOSE"
+            )
+
+        # 3. Fin de semana (Sábado y Domingo mercado cerrado)
+        if weekday in (5, 6):
+            return True, f"Mercado cerrado por Fin de Semana (Día {weekday}).", "BLOCK"
+
+        return False, "Horario regular de mercado y liquidez adecuada.", "OK"
+
     def validate_new_trade(
-        self, symbol: str, proposed_lot: float
+        self, symbol: str, proposed_lot: float, max_spread_pips: Optional[float] = None
     ) -> Tuple[bool, str]:
-        """Verifica límites de seguridad y estado de mercado antes de colocar la orden."""
+        """Verifica límites de seguridad, spread y estado de mercado antes de colocar la orden."""
         symbol_info: Optional[Any] = mt5.symbol_info(symbol)
         if symbol_info is None:
             return False, f"Símbolo {symbol} no encontrado en MT5."
 
         if symbol_info.trade_mode == mt5.SYMBOL_TRADE_MODE_DISABLED:
             return False, f"Mercado cerrado para {symbol} (Fines de semana). Usa crypto para pruebas."
+
+        # 1. Validación de ventana de rollover y cierre de mercado
+        is_danger, danger_reason, _ = self.is_rollover_or_market_close_window()
+        if is_danger:
+            return False, f"🚫 Operación rechazada: {danger_reason}"
+
+        # 2. Validación de Spread Máximo
+        is_spread_ok, curr_spread, spread_msg = self.validate_spread(symbol, max_spread_pips)
+        if not is_spread_ok:
+            return False, f"🚫 Operación rechazada: {spread_msg}"
 
         open_positions: Optional[int] = mt5.positions_total()
         if (
@@ -121,4 +207,5 @@ class RiskManager:
                 f"Límite de posiciones alcanzado ({open_positions}/{self.config.max_open_positions})",
             )
 
-        return True, "Validación de riesgo superada"
+        return True, f"Validación de riesgo superada (Spread: {curr_spread:.1f} pips)"
+

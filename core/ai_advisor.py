@@ -365,15 +365,17 @@ def evaluate_trade_setup(
     news_summary = candidate_setup.get("news_summary") or news_manager.format_news_summary_for_ai(symbol)
     macro_summary = candidate_setup.get("macro_summary") or analyze_macro_multitimeframe(symbol, current_price)
     psych_summary = candidate_setup.get("psych_summary") or calculate_psychological_levels(symbol, current_price)
+    spread_info = candidate_setup.get("spread_info", "Spread normal")
 
     system_instruction = (
         "Eres un Gestor de Riesgo Cuantitativo Senior de Trading Algorítmico.\n"
-        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia y riesgo.\n\n"
+        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez y riesgo.\n\n"
         "REGLAS DE BLOQUEO ESTRICTAS:\n"
         "1. Rechaza ('approved': false) si hay noticias de alto impacto (HIGH) en <30 min.\n"
-        "2. Rechaza o ajusta si la entrada/TP choca directamente contra un nivel psicológico institucional (ej. 0.XX00 / 0.XX50).\n"
-        "3. Rechaza si la señal en M15 contradice la estructura Macro (H4/D1).\n"
-        "4. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
+        "2. Rechaza ('approved': false) si el spread actual es anómalo/alto (>3.0 pips) o coincide con cierre de sesión/rollover.\n"
+        "3. Rechaza o ajusta si la entrada/TP choca directamente contra un nivel psicológico institucional (ej. 0.XX00 / 0.XX50).\n"
+        "4. Rechaza si la señal en M15 contradice la estructura Macro (H4/D1).\n"
+        "5. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
     )
 
     user_content = (
@@ -382,6 +384,7 @@ def evaluate_trade_setup(
         f"- Par: {symbol} | Dirección: {signal} | Precio: {current_price}\n"
         f"- Sugerido: SL {strat_sl} | TP {strat_tp} | Lote {strat_lot} | ATR {atr_str}\n\n"
         f"FILTROS AVANZADOS (CONTEXTO EN VIVO):\n"
+        f"- SPREAD & LIQUIDEZ: {spread_info}\n"
         f"- NOTICIAS: {news_summary}\n"
         f"- MACRO (D1/H4): {macro_summary}\n"
         f"- NIVELES INSTITUCIONALES: {psych_summary}"
@@ -397,7 +400,7 @@ def evaluate_trade_setup(
             "suggested_lot": {"type": "NUMBER"},
             "risk_reward_ratio": {"type": "NUMBER"},
             "opinion": {"type": "STRING", "description": "Breve razón técnica de validación o bloqueo"},
-            "rejection_reason": {"type": "STRING", "description": "NEWS_HIGH_IMPACT, MACRO_DIVERGENCE, PSYCHOLOGICAL_LEVEL u OK"}
+            "rejection_reason": {"type": "STRING", "description": "SPREAD_ANOMALY, NEWS_HIGH_IMPACT, MACRO_DIVERGENCE, PSYCHOLOGICAL_LEVEL u OK"}
         },
         "required": ["approved", "confidence", "ai_sl", "ai_tp", "suggested_lot", "risk_reward_ratio", "opinion", "rejection_reason"]
     }

@@ -43,6 +43,12 @@ class RiskConfig:
     use_equity_instead_of_balance: bool = True
     default_sl_pips: int = 20
     default_tp_pips: int = 40
+    max_spread_pips: float = 3.5          # Spread máximo permitido en pips para abrir operaciones
+    close_before_rollover: bool = True    # Cerrar operaciones automáticamente antes del rollover
+    rollover_start_utc: str = "21:30"     # Inicio de ventana de alto spread / rollover (UTC)
+    rollover_end_utc: str = "22:30"       # Fin de ventana de alto spread / rollover (UTC)
+    weekend_close_minutes_before: int = 15 # Minutos antes del cierre de mercado de viernes para cerrar todo
+
 
     @property
     def symbol(self) -> str:
@@ -62,11 +68,12 @@ class StrategyConfig:
 
     # 🟢 NUEVAS CONFIGURACIONES DE SESIÓN Y FILTRO
     use_session_filter: bool = True
+    ema_buffer_pct: float = 0.15  # Tolerancia de respiración para la EMA 200 (15% del ATR)
 
     # 🟢 FILTRO DE CORRELACIÓN DE PARES (PEARSON)
     use_correlation_filter: bool = True
     correlation_threshold: float = 0.70  # 70% de correlación alta
-    correlation_window: int = 80  # Ventana de 50 velas para el cálculo de Pearson
+    correlation_window: int = 50  # Ventana de 50 velas para el cálculo de Pearson
 
     def is_market_open(self, symbol: str, current_dt: Optional[datetime] = None) -> Tuple[bool, str]:
         """
