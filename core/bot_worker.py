@@ -7,7 +7,7 @@ import MetaTrader5 as mt5
 import pandas as pd
 
 from core.connector import check_account_safety, check_algo_trading_enabled
-from core.strategy import PriceActionStrategy
+from core.strategies import create_strategy_instance, get_strategy_class
 from core.executor import OrderExecutor
 from core.risk_manager import RiskManager
 from core.data_loader import get_historical_data
@@ -48,6 +48,7 @@ class SymbolWorker(threading.Thread):
         test_mode: bool = False,
         risk_pct: float = 0.01,
         lot: float = 0.01,
+        strategy_name: str = "forex",
     ) -> None:
         super().__init__(daemon=True)
         self.symbol = symbol
@@ -57,8 +58,10 @@ class SymbolWorker(threading.Thread):
         self.test_mode = test_mode
         self.risk_pct = risk_pct
         self.lot = lot
+        self.strategy_name = (strategy_name or "forex").strip().lower()
 
-        self.strategy = PriceActionStrategy(
+        self.strategy = create_strategy_instance(
+            name=self.strategy_name,
             symbol=self.symbol,
             logger=lambda msg, lvl="INFO": self._log(msg, lvl)
         )
@@ -69,7 +72,7 @@ class SymbolWorker(threading.Thread):
         self.risk_manager = RiskManager()
 
     def run(self) -> None:
-        self._log(f"Iniciando monitoreo para {self.symbol}...", "INFO")
+        self._log(f"Iniciando monitoreo para {self.symbol} con estrategia '{self.strategy_name}'...", "INFO")
 
         while not self.stop_event.is_set():
             try:

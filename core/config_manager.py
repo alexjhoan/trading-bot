@@ -12,6 +12,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "symbol_suffix": "",
     "magic_number": 999111,
     "max_slippage": 10,
+    "selected_strategy": "forex",
     "active_symbols": [],
     "available_symbols": [],
     "symbol_lots": {},

@@ -37,6 +37,7 @@ class QuantBotApp(ctk.CTk):
 
         # Cargar configuración persistente
         self.config_data: Dict[str, Any] = load_config()
+        self.selected_strategy: str = self.config_data.get("selected_strategy", "forex")
         raw_active_symbols: List[str] = self.config_data.get("active_symbols", [])
         available_symbols: List[str] = self.config_data.get("available_symbols", [])
 
@@ -125,7 +126,8 @@ class QuantBotApp(ctk.CTk):
         # 1. Topbar Superior (Fila 0)
         self.topbar = TopbarComponent(
             self,
-            on_test_order_callback=self._execute_test_order,
+            selected_strategy=self.selected_strategy,
+            on_strategy_changed_callback=self._handle_strategy_changed,
             on_config_saved_callback=self._on_config_reloaded
         )
         self.topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
@@ -157,12 +159,20 @@ class QuantBotApp(ctk.CTk):
         )
         self.console.pack(fill="both", expand=True)
 
+    def _handle_strategy_changed(self, new_strategy: str) -> None:
+        """Maneja el cambio dinámico de estrategia desde el selector del Topbar."""
+        self.selected_strategy = new_strategy
+        self.config_data["selected_strategy"] = new_strategy
+        self.save_settings()
+        self.console.log("General", f"🎯 Estrategia activa cambiada a: '{new_strategy.upper()}'. Los próximos análisis se ejecutarán con esta estrategia.", "SUCCESS")
+
     def _handle_symbol_toggle(self, symbol: str, is_active: bool) -> None:
         """Maneja el encendido / apagado del monitoreo de un símbolo específico."""
         if is_active:
             # Obtener configuración propia de este par desde symbol_selector
             sym_config = self.symbol_selector.get_symbol_config(symbol)
             topbar_vals = self.topbar.get_topbar_values()
+            active_strat = topbar_vals.get("strategy", self.selected_strategy)
 
             # Guardar inmediatamente la configuración de este par en config.json
             if "symbol_lots" not in self.config_data:
@@ -187,13 +197,14 @@ class QuantBotApp(ctk.CTk):
                 timeframe=sym_config["timeframe_val"],
                 test_mode=topbar_vals.get("test_mode", False),
                 risk_pct=sym_config["risk_pct"],
-                lot=sym_config["lot"]
+                lot=sym_config["lot"],
+                strategy_name=active_strat
             )
 
             self.workers[symbol] = worker
             worker.start()
 
-            self.console.log(symbol, f"🚀 Monitoreo activado ({symbol} | Lote: {sym_config['lot']} | Riesgo: {sym_config['risk_pct']*100:.1f}% | TF: {sym_config['timeframe_str']})", "INFO")
+            self.console.log(symbol, f"🚀 Monitoreo activado ({symbol} | Estrategia: {active_strat.upper()} | Lote: {sym_config['lot']} | Riesgo: {sym_config['risk_pct']*100:.1f}% | TF: {sym_config['timeframe_str']})", "INFO")
         else:
             if symbol in self.stop_events:
                 self.stop_events[symbol].set()
@@ -234,6 +245,7 @@ class QuantBotApp(ctk.CTk):
     def save_settings(self) -> None:
         """Guarda los símbolos activos y configuraciones individuales en config.json."""
         self.config_data["active_symbols"] = self.symbols
+        self.config_data["selected_strategy"] = self.selected_strategy
 
         if hasattr(self, "symbol_selector"):
             all_configs = self.symbol_selector.get_all_symbol_configs()
