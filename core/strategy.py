@@ -54,7 +54,8 @@ class PriceActionStrategy:
         self.atr_tp_mult: float = kwargs.get("atr_tp_mult", 3.0)
         self.static_sl_pips: float = kwargs.get("static_sl_pips", 20.0)
         self.static_tp_pips: float = kwargs.get("static_tp_pips", 40.0)
-        self.lookback_swing: int = kwargs.get("lookback_swing", 70)
+        self.lookback_swing: int = kwargs.get("lookback_swing", 50)
+        self.ema_buffer_pct: float = getattr(self.config, "ema_buffer_pct", kwargs.get("ema_buffer_pct", 0.15))
 
         # 🟢 PARÁMETROS DE FILTRO DE CORRELACIÓN DE PARES (PEARSON)
         self.use_correlation_filter: bool = getattr(self.config, "use_correlation_filter", kwargs.get("use_correlation_filter", True))
@@ -183,17 +184,19 @@ class PriceActionStrategy:
         current_sl = float(position.sl)
         current_tp = float(position.tp)
 
-        # A. Cierre prematuro por invalidación de tendencia macro (EMA 200)
-        if is_buy and curr_close < ema_trend:
+        # A. Cierre prematuro por invalidación REAL de tendencia macro con margen de tolerancia (Buffer 15% ATR)
+        ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
+
+        if is_buy and curr_close < (ema_trend - ema_buffer):
             return {
                 "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró bajo EMA200 ({ema_trend:.5f})",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) rompió la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f})",
                 "close_reason": "Invalidacion_EMA200"
             }
-        elif not is_buy and curr_close > ema_trend:
+        elif not is_buy and curr_close > (ema_trend + ema_buffer):
             return {
                 "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) cerró sobre EMA200 ({ema_trend:.5f})",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) superó la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f})",
                 "close_reason": "Invalidacion_EMA200"
             }
 
@@ -203,8 +206,8 @@ class PriceActionStrategy:
         needs_sl_update = False
 
         if current_atr > 0:
-            # Multiplicador configurable o 4.0x ATR para dar más aire
-            trailing_offset = current_atr * max(4.0, self.atr_sl_mult)
+            # Multiplicador configurable o 2.0x ATR para dar más aire
+            trailing_offset = current_atr * max(2.0, self.atr_sl_mult)
             # Requisito: Exigir que la operación tenga al menos 1.0x ATR de flotante positivo antes de ajustar el SL
             activation_buffer = current_atr * 1.0
 
@@ -347,9 +350,15 @@ class PriceActionStrategy:
         fibo_618_buy = float(0.0 if pd.isna(raw_fibo_buy) else raw_fibo_buy)
         fibo_618_sell = float(0.0 if pd.isna(raw_fibo_sell) else raw_fibo_sell)
 
-        # 🟢 3. VALIDACIÓN PREVIA DE TENDENCIA MACRO (EMA 200)
-        is_bullish_trend = curr_close > ema_trend
-        is_bearish_trend = curr_close < ema_trend
+        # 🟢 3. VALIDACIÓN FLEXIBLE DE TENDENCIA MACRO CON BUFFER (EMA 200)
+        # En lugar de ser un corte estricto, le damos un respiro de hasta 15% de un ATR por debajo/encima de la EMA
+        ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
+
+        # Se permite COMPRA incluso si el precio penetró levemente por debajo de la EMA (hasta ema_trend - ema_buffer)
+        is_bullish_trend = curr_close >= (ema_trend - ema_buffer)
+
+        # Se permite VENTA incluso si el precio penetró levemente por encima de la EMA (hasta ema_trend + ema_buffer)
+        is_bearish_trend = curr_close <= (ema_trend + ema_buffer)
 
         # 🟢 4. VALIDACIÓN DE RETROCESO DE FIBONACCI >= 61.8% (SEGÚN LA TENDENCIA)
         fibo_buy = is_bullish_trend and (fibo_618_buy > 0) and (curr_close <= fibo_618_buy) and (curr_close >= support)
@@ -359,13 +368,13 @@ class PriceActionStrategy:
         score = 0
         score_details = []
 
-        # Confirmación A: Tendencia Macro alineada con EMA 200
+        # Confirmación A: Tendencia Macro alineada con EMA 200 con margen de tolerancia
         if fibo_buy:
             score += 1
-            score_details.append(f"Tendencia Alcista Macro (Precio > EMA{self.ema_trend_period}) (+1)")
+            score_details.append(f"Tendencia Alcista Macro (Precio >= EMA{self.ema_trend_period} - buffer) (+1)")
         elif fibo_sell:
             score += 1
-            score_details.append(f"Tendencia Bajista Macro (Precio < EMA{self.ema_trend_period}) (+1)")
+            score_details.append(f"Tendencia Bajista Macro (Precio <= EMA{self.ema_trend_period} + buffer) (+1)")
 
         # Confirmación B: Volumen Institucional Superior a la Media
         vol_ok = bool(curr_candle.get("high_volume", False))

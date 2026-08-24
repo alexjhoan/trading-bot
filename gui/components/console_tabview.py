@@ -260,18 +260,24 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
 
             # 🟢 ACTUALIZAR AUTOMÁTICAMENTE EL ÍCONO Y TOOLTIP SEGÚN EL LOG
             if target != "General" and target in self.console_boxes:
-                if "POSICIÓN ACTIVA DETECTADA" in message or "OPERACIÓN DETECTADA" in message or "Operación abierta" in message:
+                msg_upper = message.upper()
+
+                if "POSICIÓN ACTIVA DETECTADA" in msg_upper or "OPERACIÓN DETECTADA" in msg_upper or "OPERACIÓN ABIERTA" in msg_upper:
                     self.set_symbol_status(target, "OPEN_ORDER", f"[{target}] Operación abierta activa. Modificando SL/TP y protegiendo...")
-                elif "Monitoreo detenido" in message:
+                elif "MONITOREO DETENIDO" in msg_upper:
                     self.set_symbol_status(target, "INACTIVE", f"[{target}] Monitoreo apagado")
-                elif "ANALIZANDO" in message or "Monitoreo activado" in message or "Próximo análisis" in message:
+                elif "CERRADA" in msg_upper or "CIERRE PREMATURO" in msg_upper or "SL ALCANZADO" in msg_upper or "TP ALCANZADO" in msg_upper or "STOP LOSS" in msg_upper or "TAKE PROFIT" in msg_upper:
+                    # 🟢 Al cerrarse cualquier posición, regresar inmediatamente al estado activo de búsqueda (WAITING)
+                    self.set_symbol_status(target, "WAITING", f"[{target}] Operación cerrada. Reanudando análisis en espera de confluencias")
+                elif "SIN ÓRDENES ABIERTAS" in msg_upper or "ANALIZANDO" in msg_upper or "MONITOREO ACTIVADO" in msg_upper or "PRÓXIMO ANÁLISIS" in msg_upper:
+                    # Si el bot está analizando velas y no tiene órdenes activas, asegurar estado WAITING (🟢)
+                    self.set_symbol_status(target, "WAITING", f"[{target}] Activo: Analizando velas y buscando confluencia de entrada")
+                elif "FILTRO HORARIO" in msg_upper or "MERCADO CERRADO" in msg_upper or "FILTRO CORRELACIÓN" in msg_upper or level in ["WARN", "WARNING"]:
                     if self.symbol_status.get(target) != "OPEN_ORDER":
-                        self.set_symbol_status(target, "WAITING", f"[{target}] Activo: Analizando velas y buscando confluencia de entrada")
-                elif "FILTRO HORARIO" in message or "MERCADO CERRADO" in message or level in ["WARN", "WARNING"]:
-                    if self.symbol_status.get(target) != "OPEN_ORDER":
-                        self.set_symbol_status(target, "WARNING", f"[{target}] Advertencia / Fuera de sesión operativa de alta liquidez")
+                        self.set_symbol_status(target, "WARNING", f"[{target}] Advertencia / Fuera de sesión o filtro activo")
                 elif level == "ERROR":
-                    self.set_symbol_status(target, "ERROR", f"[{target}] Error reportado en el procesamiento")
+                    if self.symbol_status.get(target) != "OPEN_ORDER":
+                        self.set_symbol_status(target, "ERROR", f"[{target}] Error reportado en el procesamiento")
 
         # Delegar la ejecución al hilo de la GUI
         self.after(0, _update_gui)

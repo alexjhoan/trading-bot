@@ -273,6 +273,22 @@ class QuantBotApp(ctk.CTk):
                 self.symbol_selector.update_schedules_color()
                 # Verificar y adoptar operaciones abiertas en tiempo real
                 self._adopt_open_positions()
+
+                # 🟢 Sincronizar estado de las pestañas en la consola según las órdenes vivas en MT5
+                if hasattr(self, "console") and self.console:
+                    positions = mt5.positions_get()
+                    open_symbols = {p.symbol for p in positions} if positions else set()
+
+                    for sym in self.symbols:
+                        is_active = self.symbol_selector.is_symbol_active(sym)
+                        if not is_active:
+                            self.console.set_symbol_status(sym, "INACTIVE")
+                        elif sym in open_symbols:
+                            self.console.set_symbol_status(sym, "OPEN_ORDER", f"[{sym}] Operación abierta activa. Monitoreando SL/TP...")
+                        else:
+                            # Si no hay orden abierta y el bot está activo, asegurar estado WAITING (🟢)
+                            if self.console.symbol_status.get(sym) == "OPEN_ORDER":
+                                self.console.set_symbol_status(sym, "WAITING", f"[{sym}] Operación cerrada. Analizando mercado en espera de confluencias")
             else:
                 self.topbar.update_account_info(0.0, 0.0)
                 self.symbol_selector.set_account_balance(0.0)
