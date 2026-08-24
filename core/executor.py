@@ -71,6 +71,8 @@ class OrderExecutor:
         volume: float,
         sl_pips: float = 0.0,
         tp_pips: float = 0.0,
+        sl_price: float = 0.0,
+        tp_price: float = 0.0,
         comment: str = ""
     ) -> Dict[str, Any]:
         symbol_info = mt5.symbol_info(self.symbol)
@@ -91,21 +93,25 @@ class OrderExecutor:
         # 1. Determinar precio de entrada según tipo de orden
         price = tick.ask if order_type.upper() == "BUY" else tick.bid
 
-        # 2. Calcular SL y TP absolutos usando el tamaño real de pip
-        sl_price = 0.0
-        tp_price = 0.0
+        # 2. Calcular SL y TP absolutos
+        final_sl_price = 0.0
+        final_tp_price = 0.0
 
-        if sl_pips > 0:
+        if sl_price > 0:
+            final_sl_price = round(sl_price, digits)
+        elif sl_pips > 0:
             if order_type.upper() == "BUY":
-                sl_price = round(price - (sl_pips * pip_size), digits)
+                final_sl_price = round(price - (sl_pips * pip_size), digits)
             else:
-                sl_price = round(price + (sl_pips * pip_size), digits)
+                final_sl_price = round(price + (sl_pips * pip_size), digits)
 
-        if tp_pips > 0:
+        if tp_price > 0:
+            final_tp_price = round(tp_price, digits)
+        elif tp_pips > 0:
             if order_type.upper() == "BUY":
-                tp_price = round(price + (tp_pips * pip_size), digits)
+                final_tp_price = round(price + (tp_pips * pip_size), digits)
             else:
-                tp_price = round(price - (tp_pips * pip_size), digits)
+                final_tp_price = round(price - (tp_pips * pip_size), digits)
 
         # 3. Armar Request
         request = {
@@ -114,8 +120,8 @@ class OrderExecutor:
             "volume": float(volume),
             "type": order_type_mt5,
             "price": price,
-            "sl": sl_price,
-            "tp": tp_price,
+            "sl": final_sl_price,
+            "tp": final_tp_price,
             "deviation": 10,
             "magic": 123456,
             "comment": comment or "Bot Order",
@@ -129,8 +135,8 @@ class OrderExecutor:
         print(f"   ├─ Tipo: {order_type} ({'BUY' if order_type_mt5 == 0 else 'SELL'})")
         print(f"   ├─ Volumen/Lote: {request['volume']}")
         print(f"   ├─ Precio Entrada: {request['price']}")
-        print(f"   ├─ SL Pips: {sl_pips} ➔ Precio SL: {request['sl']}")
-        print(f"   ├─ TP Pips: {tp_pips} ➔ Precio TP: {request['tp']}")
+        print(f"   ├─ Precio SL: {request['sl']}")
+        print(f"   ├─ Precio TP: {request['tp']}")
         print(f"   ├─ Point: {point} | Digits: {digits}")
         print(f"   └─ Filling Mode: {request['type_filling']}")
         print("=" * 60)
@@ -140,8 +146,8 @@ class OrderExecutor:
             f"   ├─ Tipo: {order_type}\n"
             f"   ├─ Volumen/Lote: {volume}\n"
             f"   ├─ Precio Entrada: {price}\n"
-            f"   ├─ SL Pips: {sl_pips:.1f} ➔ Precio SL: {request['sl']})\n"
-            f"   └─ TP Pips: {tp_pips:.1f} ➔ Precio TP: {request['tp']})"
+            f"   ├─ Precio SL: {request['sl']}\n"
+            f"   └─ Precio TP: {request['tp']}"
         )
         self._log(debug_msg, "INFO")
 

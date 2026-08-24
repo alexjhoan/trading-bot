@@ -1,17 +1,20 @@
 import threading
 import time
 import traceback
-from typing import Callable, Dict, Any, Optional
+from datetime import datetime, timedelta
+from typing import Callable, Dict, Any, Optional, Set
 
 import MetaTrader5 as mt5
 import pandas as pd
 
 from core.connector import check_account_safety, check_algo_trading_enabled
-from core.strategies import create_strategy_instance, get_strategy_class
+from strategies import create_strategy_instance, get_strategy_class
 from core.executor import OrderExecutor
 from core.risk_manager import RiskManager
 from core.data_loader import get_historical_data
 from core.config_manager import load_config
+from core.ai_advisor import evaluate_trade_setup
+from core.ai_memory import AIMemoryManager
 
 TIMEFRAME_SECONDS_MAP: Dict[int, int] = {
     mt5.TIMEFRAME_M1: 60,
@@ -37,6 +40,7 @@ class SymbolWorker(threading.Thread):
     - Si ya existe una posición abierta: omite análisis de nuevas entradas y ejecuta
       análisis de gestión activa (modificación de SL/TP, Trailing Stop y Cierre Prematuro).
     - Si no existe posición abierta: analiza el mercado buscando confluencias para nuevas entradas.
+    - Validación y Optimización de Riesgo por IA con Memoria Histórica Local (Few-Shot Context).
     """
 
     def __init__(
@@ -70,12 +74,54 @@ class SymbolWorker(threading.Thread):
             log_callback=self.log_callback
         )
         self.risk_manager = RiskManager()
+        self.ai_memory = AIMemoryManager()
+        self.tracked_tickets: Dict[int, Dict[str, Any]] = {}
+
+    def _check_closed_trades(self) -> None:
+        """Verifica si alguna de las operaciones rastreadas se cerró para registrar el feedback (WIN/LOSS) en trade_memory.json."""
+        if not self.tracked_tickets:
+            return
+
+        current_positions = mt5.positions_get(symbol=self.symbol)
+        open_tickets = {p.ticket for p in current_positions} if current_positions else set()
+
+        closed_tickets = [t for t in self.tracked_tickets.keys() if t not in open_tickets]
+        for ticket in closed_tickets:
+            trade_info = self.tracked_tickets.pop(ticket)
+            try:
+                # Consultar historial de deals de MT5 para este ticket
+                from_date = datetime.now() - timedelta(days=2)
+                deals = mt5.history_deals_get(position=ticket)
+                if deals and len(deals) > 1:
+                    close_deal = deals[-1]
+                    profit = float(close_deal.profit + close_deal.swap + close_deal.fee)
+                    result_str = "WIN" if profit > 0 else "LOSS"
+                    initial_risk = trade_info.get("risk_usd", 10.0) or 10.0
+                    pnl_r = profit / initial_risk if initial_risk > 0 else (1.0 if profit > 0 else -1.0)
+                    exit_reason = close_deal.comment or "SL_or_TP_Hit"
+
+                    self.ai_memory.update_trade_result(
+                        trade_id=ticket,
+                        result=result_str,
+                        pnl_r=pnl_r,
+                        exit_reason=exit_reason,
+                        pnl_usd=profit
+                    )
+                    self._log(
+                        f"📊 [MEMORIA IA ACTUALIZADA] Trade #{ticket} cerrado ({result_str} | PnL: ${profit:+.2f} | {pnl_r:+.2f}R). Registrado para aprendizaje futuro.",
+                        "SUCCESS" if profit > 0 else "WARNING"
+                    )
+            except Exception as e:
+                print(f"[DEBUG CLOSED TRADES] Error actualizando trade #{ticket}: {e}")
 
     def run(self) -> None:
         self._log(f"Iniciando monitoreo para {self.symbol} con estrategia '{self.strategy_name}'...", "INFO")
 
         while not self.stop_event.is_set():
             try:
+                # 0. Verificar si trades anteriores se han cerrado para actualizar la memoria
+                self._check_closed_trades()
+
                 # 1. Obtener datos según la temporalidad configurada para este símbolo
                 df = get_historical_data(
                     symbol=self.symbol,
@@ -94,6 +140,17 @@ class SymbolWorker(threading.Thread):
                 if open_positions and len(open_positions) > 0:
                     # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP Y CIERRE PREMATURO
                     for pos in open_positions:
+                        # Rastrear ticket para feedback loop cuando cierre
+                        if pos.ticket not in self.tracked_tickets:
+                            acc_info = mt5.account_info()
+                            balance = acc_info.balance if acc_info else 1000.0
+                            self.tracked_tickets[pos.ticket] = {
+                                "symbol": self.symbol,
+                                "type": "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL",
+                                "open_price": pos.price_open,
+                                "risk_usd": balance * self.risk_pct
+                            }
+
                         pos_type_str = "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL"
                         pnl_current = pos.profit + pos.swap
                         self._log(
@@ -116,7 +173,7 @@ class SymbolWorker(threading.Thread):
                     # 🟢 RAMA B: NO HAY POSICIONES ABIERTAS ➔ BUSCAR NUEVAS ENTRADAS
                     if self.test_mode:
                         signal = "BUY"
-                        signal_data = {"signal": "BUY", "reason": "Modo Test Activo"}
+                        signal_data = {"signal": "BUY", "reason": "Modo Test Activo", "score": 3}
                         self._log(f"🧪 [MODO TEST] Señal forzada BUY en {self.symbol}", "INFO")
                     else:
                         self._log(f"🧠 [ANALIZANDO] Sin órdenes abiertas en {self.symbol}. Evaluando confluencias para nueva entrada...", "INFO")
@@ -167,32 +224,173 @@ class SymbolWorker(threading.Thread):
                     if signal in ["BUY", "SELL"]:
                         acc_info = mt5.account_info()
                         balance = acc_info.balance if acc_info else 0.0
+                        equity = acc_info.equity if acc_info else balance
+                        free_margin = acc_info.margin_free if acc_info else balance
 
+                        tick = mt5.symbol_info_tick(self.symbol)
+                        current_price = tick.ask if signal == "BUY" else (tick.bid if tick else float(df['close'].iloc[-1]))
+
+                        # 1. Cálculo base de SL / TP por Estrategia / Gestión de Riesgo
                         sl_pips = self.risk_manager.calculate_sl_pips_from_risk(
                             balance=balance,
                             fixed_lot=self.lot,
                             risk_pct=self.risk_pct,
                             symbol=self.symbol
                         )
-
-                        # Take Profit = 2x Stop Loss (Ratio 1:2)
                         rr_ratio = getattr(self.strategy.config, "risk_reward_ratio", 2.0)
                         tp_pips = round(sl_pips * rr_ratio, 1)
 
-                        # Ejecutar orden con lote, SL y TP calculados
-                        resultado = self.executor.send_order(
-                            order_type=signal,
-                            volume=self.lot,
-                            sl_pips=sl_pips,
-                            tp_pips=tp_pips
-                        )
-                        if isinstance(resultado, dict) and not resultado.get("status", False):
-                            self._log(f"Error al ejecutar orden: {resultado.get('message', 'Desconocido')}", "ERROR")
-                        else:
-                            self._log(f"Resultado Orden: {resultado}", "SUCCESS")
+                        sym_info = mt5.symbol_info(self.symbol)
+                        pip_size = (sym_info.point * 10.0 if sym_info and sym_info.digits in (3, 5) else (sym_info.point if sym_info else 0.0001))
+                        default_sl_price = round(current_price - (sl_pips * pip_size) if signal == "BUY" else current_price + (sl_pips * pip_size), sym_info.digits if sym_info else 5)
+                        default_tp_price = round(current_price + (tp_pips * pip_size) if signal == "BUY" else current_price - (tp_pips * pip_size), sym_info.digits if sym_info else 5)
+
+                        # 2. Cargar configuración de IA
+                        cfg = load_config()
+                        ai_enabled = cfg.get("ai_enabled", True)
+                        api_key = cfg.get("ai_api_key", "")
+                        model_name = cfg.get("ai_model", "gemini-2.5-flash")
+                        base_url = cfg.get("ai_base_url", "")
+
+                        final_sl_price = default_sl_price
+                        final_tp_price = default_tp_price
+                        final_lot = self.lot
+                        trade_approved = True
+                        ai_opinion = ""
+
+                        if ai_enabled and api_key.strip():
+                            self._log(f"🧠 [CONSULTA IA] Validando setup y optimizando SL/TP con IA ({model_name})...", "INFO")
+
+                            # Recuperar memoria histórica de operaciones similares
+                            past_trades = self.ai_memory.get_relevant_past_trades(symbol=self.symbol, signal=signal, limit=3)
+
+                            candidate_setup = {
+                                "symbol": self.symbol,
+                                "signal": signal,
+                                "price": current_price,
+                                "default_sl": default_sl_price,
+                                "default_tp": default_tp_price,
+                                "default_lot": self.lot,
+                                "confluence_score": signal_data.get("score", 2) if isinstance(signal_data, dict) else 2,
+                                "details": signal_data if isinstance(signal_data, dict) else {"reason": str(signal_data)}
+                            }
+
+                            account_data = {
+                                "balance": balance,
+                                "equity": equity,
+                                "free_margin": free_margin
+                            }
+
+                            ai_eval = evaluate_trade_setup(
+                                account_info=account_data,
+                                candidate_setup=candidate_setup,
+                                past_trades=past_trades,
+                                api_key=api_key,
+                                model_name=model_name,
+                                base_url=base_url
+                            )
+
+                            if ai_eval.get("fallback", False):
+                                err_info = ai_eval.get('fallback_error', 'N/A')
+                                self._log(
+                                    f"⚠️ ────────── [RESPUESTA IA: {self.symbol} - FALLBACK ACTIVADO] ──────────\n"
+                                    f"   ├─ Estado: Fallback cuantitativo ejecutado sin detener la operativa\n"
+                                    f"   ├─ Motivo: {err_info[:90]}\n"
+                                    f"   ├─ Log Detalle: {ai_eval.get('log_file', 'ia-log/')}\n"
+                                    f"   └─ SL Estrategia: {default_sl_price} | TP Estrategia: {default_tp_price}\n"
+                                    f"───────────────────────────────────────────────────────────────────────",
+                                    "WARNING"
+                                )
+                                trade_approved = True
+                                ai_opinion = ai_eval.get("opinion", "Fallback")
+                            elif not ai_eval.get("approved", True):
+                                trade_approved = False
+                                rej_reason = ai_eval.get("rejection_reason") or ai_eval.get("opinion", "Rechazada por riesgo")
+                                conf_pct = int(ai_eval.get("confidence", 0.5) * 100)
+                                latency = ai_eval.get("latency_ms", 0.0)
+                                self._log(
+                                    f"🛑 ────────── [RESPUESTA IA: {self.symbol} - ENTRADA BLOQUEADA] ──────────\n"
+                                    f"   ├─ Decisión: RECHAZADA (Confianza: {conf_pct}% | Latencia: {latency}ms)\n"
+                                    f"   ├─ Modelo: {model_name}\n"
+                                    f"   ├─ Razón: \"{rej_reason}\"\n"
+                                    f"   └─ Log Completo: {ai_eval.get('log_file', 'ia-log/')}\n"
+                                    f"───────────────────────────────────────────────────────────────────────",
+                                    "WARNING"
+                                )
+                                # Registrar análisis rechazado en memoria
+                                self.ai_memory.save_analysis({
+                                    "trade_id": int(time.time()),
+                                    "symbol": self.symbol,
+                                    "signal": signal,
+                                    "score": candidate_setup.get("confluence_score", 0),
+                                    "ai_opinion": f"RECHAZADO: {rej_reason}",
+                                    "ai_confidence": ai_eval.get("confidence", 0.0),
+                                    "outcome": {"status": "REJECTED_BY_AI", "result": "BLOCKED"}
+                                })
+                            else:
+                                trade_approved = True
+                                final_sl_price = float(ai_eval.get("ai_sl", default_sl_price))
+                                final_tp_price = float(ai_eval.get("ai_tp", default_tp_price))
+                                ai_opinion = ai_eval.get("opinion", "Aprobado por IA")
+                                conf_pct = int(ai_eval.get("confidence", 0.8) * 100)
+                                latency = ai_eval.get("latency_ms", 0.0)
+                                rr_val = ai_eval.get('risk_reward_ratio', 2.0)
+                                self._log(
+                                    f"🧠 ────────── [RESPUESTA IA: {self.symbol} - ENTRADA APROBADA] ──────────\n"
+                                    f"   ├─ Decisión: APROBADA (Confianza: {conf_pct}% | Latencia: {latency}ms)\n"
+                                    f"   ├─ Modelo: {model_name}\n"
+                                    f"   ├─ SL Optimizado IA: {final_sl_price} | TP Optimizado IA: {final_tp_price} (R:R 1:{rr_val})\n"
+                                    f"   ├─ Análisis: \"{ai_opinion}\"\n"
+                                    f"   └─ Log Debug: {ai_eval.get('log_file', 'ia-log/')}\n"
+                                    f"───────────────────────────────────────────────────────────────────────",
+                                    "SUCCESS"
+                                )
+
+                        if trade_approved:
+                            # Ejecutar orden con lote, SL y TP calculados (optimizados por IA o por la estrategia)
+                            resultado = self.executor.send_order(
+                                order_type=signal,
+                                volume=final_lot,
+                                sl_price=final_sl_price,
+                                tp_price=final_tp_price,
+                                comment=f"AI_{self.strategy_name[:4]}"
+                            )
+                            if isinstance(resultado, dict) and not resultado.get("status", False):
+                                self._log(f"❌ Error al ejecutar orden: {resultado.get('message', 'Desconocido')}", "ERROR")
+                            else:
+                                ticket_num = resultado.get("ticket", 0)
+                                self._log(f"✅ [ORDEN EJECUTADA] Ticket #{ticket_num} {self.symbol} {signal} @ {resultado.get('price')} (SL: {final_sl_price} | TP: {final_tp_price})", "SUCCESS")
+
+                                # Registrar en memoria para el loop de aprendizaje
+                                self.ai_memory.save_analysis({
+                                    "trade_id": ticket_num,
+                                    "symbol": self.symbol,
+                                    "signal": signal,
+                                    "entry_price": resultado.get("price"),
+                                    "sl": final_sl_price,
+                                    "tp": final_tp_price,
+                                    "volume": final_lot,
+                                    "ai_opinion": ai_opinion,
+                                    "ai_confidence": ai_eval.get("confidence", 1.0) if 'ai_eval' in locals() else 1.0,
+                                    "context": {
+                                        "timeframe": self.timeframe,
+                                        "strategy": self.strategy_name,
+                                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    },
+                                    "outcome": {"status": "OPEN", "result": "PENDING"}
+                                })
+
+                                # Guardar en rastreo para detectar cuando cierre
+                                self.tracked_tickets[ticket_num] = {
+                                    "symbol": self.symbol,
+                                    "type": signal,
+                                    "open_price": resultado.get("price"),
+                                    "risk_usd": balance * self.risk_pct
+                                }
 
             except Exception as e:
                 self._log(f"Error en worker {self.symbol}: {e}", "ERROR")
+                traceback.print_exc()
 
             # Calcular segundos restantes para la siguiente vela
             seconds = TIMEFRAME_SECONDS_MAP.get(self.timeframe, 60)

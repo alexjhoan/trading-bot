@@ -17,7 +17,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "available_symbols": [],
     "symbol_lots": {},
     "symbol_risk_pcts": {},
-    "symbol_timeframes": {}
+    "symbol_timeframes": {},
+    "ai_enabled": True,
+    "ai_provider": "Google Gemini",
+    "ai_api_key": "",
+    "ai_model": "gemini-2.5-flash",
+    "ai_base_url": ""
 }
 
 def load_config() -> Dict[str, Any]:
