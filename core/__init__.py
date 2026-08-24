@@ -34,6 +34,8 @@ except ImportError:
 
 from .ai_logger import AILogger, ai_logger
 from .ai_advisor import evaluate_trade_setup, test_ai_connection, fetch_available_models
+from .news_manager import NewsManager, news_manager
+from .market_context import calculate_psychological_levels, analyze_macro_multitimeframe
 
 __all__ = [
     "initialize_mt5",
@@ -50,4 +52,8 @@ __all__ = [
     "evaluate_trade_setup",
     "test_ai_connection",
     "fetch_available_models",
+    "NewsManager",
+    "news_manager",
+    "calculate_psychological_levels",
+    "analyze_macro_multitimeframe",
 ]

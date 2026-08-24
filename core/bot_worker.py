@@ -264,6 +264,7 @@ class SymbolWorker(threading.Thread):
                             # Recuperar memoria histórica de operaciones similares
                             past_trades = self.ai_memory.get_relevant_past_trades(symbol=self.symbol, signal=signal, limit=3)
 
+                            atr_val = signal_data.get("atr", round(sl_pips * pip_size, 5)) if isinstance(signal_data, dict) else round(sl_pips * pip_size, 5)
                             candidate_setup = {
                                 "symbol": self.symbol,
                                 "signal": signal,
@@ -271,6 +272,8 @@ class SymbolWorker(threading.Thread):
                                 "default_sl": default_sl_price,
                                 "default_tp": default_tp_price,
                                 "default_lot": self.lot,
+                                "timeframe": "M15",
+                                "atr": atr_val,
                                 "confluence_score": signal_data.get("score", 2) if isinstance(signal_data, dict) else 2,
                                 "details": signal_data if isinstance(signal_data, dict) else {"reason": str(signal_data)}
                             }

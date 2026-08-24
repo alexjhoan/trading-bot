@@ -5,6 +5,9 @@ import urllib.request
 import urllib.error
 from typing import Dict, Any, List, Tuple, Optional
 from core.ai_logger import ai_logger
+from core.news_manager import news_manager
+from core.market_context import calculate_psychological_levels, analyze_macro_multitimeframe
+
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
@@ -333,54 +336,71 @@ def evaluate_trade_setup(
     custom_url = (base_url or "").strip()
     provider = _detect_provider(model, custom_url)
 
-    # 2. Formulación del Prompt con Aprendizaje por Contexto y Gestión de Riesgo
+    # 2. Formulación del Prompt Optimizado para Bajo Consumo de Tokens y Estricta Validación
     balance = float(account_info.get("balance", 0.0))
     equity = float(account_info.get("equity", 0.0))
     free_margin = float(account_info.get("free_margin", 0.0))
 
+    # Resumen de memoria histórica compacto (Few-Shot Context)
+    if not past_trades:
+        history_summary = "Sin trades pasados."
+    else:
+        hist_items = []
+        for t in past_trades[:3]:
+            out = t.get("outcome", {})
+            res = out.get("result", "N/A")
+            pnl = float(out.get("profit", 0.0))
+            hist_items.append(f"{t.get('signal', 'TRADE')} -> {res} (${pnl:+.2f})")
+        history_summary = ", ".join(hist_items)
+
+    # Filtros avanzados en vivo
+    timeframe = str(candidate_setup.get("timeframe", "M15"))
+    details = candidate_setup.get("details", {})
+    atr_val = candidate_setup.get("atr", details.get("atr", "0.00015"))
+    if isinstance(atr_val, (int, float)):
+        atr_str = f"{float(atr_val):.5f}"
+    else:
+        atr_str = str(atr_val)
+
+    news_summary = candidate_setup.get("news_summary") or news_manager.format_news_summary_for_ai(symbol)
+    macro_summary = candidate_setup.get("macro_summary") or analyze_macro_multitimeframe(symbol, current_price)
+    psych_summary = candidate_setup.get("psych_summary") or calculate_psychological_levels(symbol, current_price)
+
     system_instruction = (
-        "Eres un Gestor de Riesgo y Analista Cuantitativo Senior de Trading Algorítmico.\n"
-        "Tu misión es validar o rechazar una señal candidata y optimizar la gestión de riesgo (SL y TP) "
-        "en función del capital total de la cuenta, la volatilidad y los errores/aciertos pasados.\n\n"
-        "REGLAS OBLIGATORIAS:\n"
-        "1. Revisa el historial de trades recientes en este par. Si detectas el mismo patrón que causó una pérdida ('LOSS'), "
-        "o si el contexto macro/volatilidad es adverso, RECHAZA la operación ('approved': false).\n"
-        "2. Si la apruebas ('approved': true), calcula un SL (Stop Loss) y TP (Take Profit) precisos como precios absolutos. "
-        "El SL debe colocarse en una zona de protección estructural lógica y el TP debe garantizar un Ratio Riesgo/Beneficio mínimo de 1:1.8 a 1:3.\n"
-        "3. Debes responder ÚNICAMENTE en formato JSON válido, sin texto adicional fuera del JSON."
+        "Eres un Gestor de Riesgo Cuantitativo Senior de Trading Algorítmico.\n"
+        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia y riesgo.\n\n"
+        "REGLAS DE BLOQUEO ESTRICTAS:\n"
+        "1. Rechaza ('approved': false) si hay noticias de alto impacto (HIGH) en <30 min.\n"
+        "2. Rechaza o ajusta si la entrada/TP choca directamente contra un nivel psicológico institucional (ej. 0.XX00 / 0.XX50).\n"
+        "3. Rechaza si la señal en M15 contradice la estructura Macro (H4/D1).\n"
+        "4. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
     )
 
-    user_content = f"""
-INFORMACIÓN DE CUENTA:
-- Balance Total: ${balance:,.2f} USD
-- Equidad: ${equity:,.2f} USD
-- Margen Libre: ${free_margin:,.2f} USD
+    user_content = (
+        f"CUENTA: Eq ${equity:,.2f} USD | Historial {symbol}: {history_summary}\n\n"
+        f"SEÑAL EN EVALUACIÓN ({timeframe}):\n"
+        f"- Par: {symbol} | Dirección: {signal} | Precio: {current_price}\n"
+        f"- Sugerido: SL {strat_sl} | TP {strat_tp} | Lote {strat_lot} | ATR {atr_str}\n\n"
+        f"FILTROS AVANZADOS (CONTEXTO EN VIVO):\n"
+        f"- NOTICIAS: {news_summary}\n"
+        f"- MACRO (D1/H4): {macro_summary}\n"
+        f"- NIVELES INSTITUCIONALES: {psych_summary}"
+    )
 
-MEMORIA HISTÓRICA RECIENTE EN ESTE PAR (APRENDIZAJE PASADO):
-{json.dumps(past_trades, indent=2, ensure_ascii=False) if past_trades else "No hay operaciones cerradas registradas aún para este par."}
-
-SEÑAL CANDIDATA A EVALUAR:
-- Símbolo: {symbol}
-- Dirección: {signal}
-- Precio Actual: {current_price}
-- SL Sugerido por Estrategia: {strat_sl}
-- TP Sugerido por Estrategia: {strat_tp}
-- Lote Sugerido: {strat_lot}
-- Confluencias Técnicas: {candidate_setup.get('confluence_score', 'N/A')}
-- Detalles/Indicadores: {json.dumps(candidate_setup.get('details', {}), ensure_ascii=False)}
-
-RESPONDE ÚNICAMENTE CON ESTE OBJETO JSON:
-{{
-  "approved": true,
-  "confidence": 0.85,
-  "ai_sl": {strat_sl},
-  "ai_tp": {strat_tp},
-  "suggested_lot": {strat_lot},
-  "risk_reward_ratio": 2.0,
-  "opinion": "Explicación breve de la confirmación o rechazo",
-  "rejection_reason": ""
-}}
-"""
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "approved": {"type": "BOOLEAN"},
+            "confidence": {"type": "NUMBER"},
+            "ai_sl": {"type": "NUMBER"},
+            "ai_tp": {"type": "NUMBER"},
+            "suggested_lot": {"type": "NUMBER"},
+            "risk_reward_ratio": {"type": "NUMBER"},
+            "opinion": {"type": "STRING", "description": "Breve razón técnica de validación o bloqueo"},
+            "rejection_reason": {"type": "STRING", "description": "NEWS_HIGH_IMPACT, MACRO_DIVERGENCE, PSYCHOLOGICAL_LEVEL u OK"}
+        },
+        "required": ["approved", "confidence", "ai_sl", "ai_tp", "suggested_lot", "risk_reward_ratio", "opinion", "rejection_reason"]
+    }
 
     start_time = time.time()
     endpoint = ""
@@ -401,7 +421,8 @@ RESPONDE ÚNICAMENTE CON ESTE OBJETO JSON:
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": user_content}
                 ],
-                "temperature": 0.2,
+                "temperature": 0.1,
+                "max_tokens": 300,
                 "response_format": {"type": "json_object"}
             }
             payload_bytes = json.dumps(payload_obj).encode("utf-8")
@@ -427,8 +448,12 @@ RESPONDE ÚNICAMENTE CON ESTE OBJETO JSON:
                 ],
                 "generationConfig": {
                     "responseMimeType": "application/json",
-                    "temperature": 0.2,
-                    "maxOutputTokens": 1000
+                    "temperature": 0.1,
+                    "maxOutputTokens": 250,
+                    "thinkingConfig": {
+                        "thinkingBudget": 0
+                    },
+                    "responseSchema": response_schema
                 }
             }
             payload_bytes = json.dumps(payload_obj).encode("utf-8")
