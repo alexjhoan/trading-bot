@@ -6,6 +6,7 @@ import pandas_ta as ta
 import MetaTrader5 as mt5
 from config import StrategyConfig, STRATEGY_CONFIG
 from .base_strategy import BaseStrategy
+from core.candlestick_patterns import detect_candlestick_patterns, format_candlestick_summary_for_ai
 
 
 class SyntxStrategy(BaseStrategy):
@@ -150,21 +151,33 @@ class SyntxStrategy(BaseStrategy):
         current_sl = float(position.sl)
         current_tp = float(position.tp)
 
-        # A. Cierre prematuro por invalidación de tendencia macro con margen de tolerancia (Buffer 15% ATR)
+        # A. Cierre prematuro o Mantenimiento ('HOLD') según Acción del Precio y Patrones de Velas
+        pat_info = detect_candlestick_patterns(df)
+        pat_bias = pat_info.get("bias", "NEUTRAL")
+        pat_name = pat_info.get("primary_pattern", "Vela Estándar")
+        pat_strength = pat_info.get("strength", "MODERATE")
+
         ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
 
-        if is_buy and curr_close < (ema_trend - ema_buffer):
-            return {
-                "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) rompió la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f})",
-                "close_reason": "Invalidacion_EMA200"
-            }
-        elif not is_buy and curr_close > (ema_trend + ema_buffer):
-            return {
-                "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) superó la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f})",
-                "close_reason": "Invalidacion_EMA200"
-            }
+        # Regla de Oro SYNTX: Si hay patrón de confirmación alcista a favor de BUY o bajista a favor de SELL, MANTENER
+        if is_buy:
+            if pat_bias == "BULLISH" and pat_strength in ["STRONG", "MEDIUM"]:
+                pass
+            elif curr_close < (ema_trend - ema_buffer):
+                return {
+                    "action": "EARLY_CLOSE",
+                    "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) rompió la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f}) y sin patrón alcista protector",
+                    "close_reason": "Invalidacion_EMA200"
+                }
+        else:
+            if pat_bias == "BEARISH" and pat_strength in ["STRONG", "MEDIUM"]:
+                pass
+            elif curr_close > (ema_trend + ema_buffer):
+                return {
+                    "action": "EARLY_CLOSE",
+                    "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) superó la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f}) y sin patrón bajista protector",
+                    "close_reason": "Invalidacion_EMA200"
+                }
 
         # B. Trailing Stop inteligente por ATR y Mínimos/Máximos de Vela
         suggested_sl = current_sl
@@ -263,14 +276,18 @@ class SyntxStrategy(BaseStrategy):
         is_bull_hammer = bool(curr_candle.get("is_bullish_hammer", False))
         is_bear_hammer = bool(curr_candle.get("is_bearish_hammer", False))
 
-        if fibo_buy and (is_bull_hammer or body_ratio >= 0.50):
-            patron = "Hammer Alcista" if is_bull_hammer else f"Impulso Fuerte ({body_ratio * 100:.0f}%)"
+        candlestick_info = detect_candlestick_patterns(df)
+        candle_bias = candlestick_info.get("bias", "NEUTRAL")
+        candle_pattern_name = candlestick_info.get("primary_pattern", "Vela")
+
+        if fibo_buy and (candle_bias == "BULLISH" or is_bull_hammer or body_ratio >= 0.50):
+            patron_label = candle_pattern_name if candle_bias == "BULLISH" else ("Hammer Alcista" if is_bull_hammer else f"Impulso Fuerte ({body_ratio * 100:.0f}%)")
             score += 1
-            score_details.append(f"Patrón: {patron} (+1)")
-        elif fibo_sell and (is_bear_hammer or body_ratio >= 0.50):
-            patron = "Shooting Star" if is_bear_hammer else f"Impulso Bajista ({body_ratio * 100:.0f}%)"
+            score_details.append(f"Patrón: {patron_label} (+1)")
+        elif fibo_sell and (candle_bias == "BEARISH" or is_bear_hammer or body_ratio >= 0.50):
+            patron_label = candle_pattern_name if candle_bias == "BEARISH" else ("Shooting Star" if is_bear_hammer else f"Impulso Bajista ({body_ratio * 100:.0f}%)")
             score += 1
-            score_details.append(f"Patrón: {patron} (+1)")
+            score_details.append(f"Patrón: {patron_label} (+1)")
 
         if fibo_buy:
             signal_type = "BUY"

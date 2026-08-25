@@ -181,6 +181,131 @@
     "outcome": {
       "status": "OPEN",
       "result": "PENDING"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-25 11:54:00",
+        "action": "HOLD",
+        "opinion": "La posición en BUY mantiene flotante positivo con estructura neutral y sin señales opuestas. Se mantiene la orden abierta según las reglas cuantificadas.",
+        "close_reason": "",
+        "profit_pips": 4.0,
+        "profit_usd": 0.8
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-25 11:54:00",
+      "action": "HOLD",
+      "opinion": "La posición en BUY mantiene flotante positivo con estructura neutral y sin señales opuestas. Se mantiene la orden abierta según las reglas cuantificadas.",
+      "close_reason": "",
+      "profit_pips": 4.0,
+      "profit_usd": 0.8
+    }
+  },
+  {
+    "trade_id": 483575831,
+    "symbol": "GBPUSD",
+    "signal": "BUY",
+    "entry_price": 1.3633899999999999,
+    "sl": 1.36268,
+    "tp": 1.36487,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-25 11:40:05"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.07,
+      "pnl_usd": 0.1,
+      "exit_reason": "Bot_Invalidacion_EMA200"
+    }
+  },
+  {
+    "trade_id": 483585232,
+    "symbol": "GBPUSD",
+    "signal": "BUY",
+    "entry_price": 1.36359,
+    "sl": 1.3628,
+    "tp": 1.36499,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-25 11:50:05"
+    },
+    "outcome": {
+      "status": "OPEN",
+      "result": "PENDING"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-25 11:54:10",
+        "action": "HOLD",
+        "opinion": "Posicion BUY estable en punto de entrada justo sobre EMA 200. Sin patron de reversion en contra ni noticias de impacto, se mantiene operacion hacia el TP establecido.",
+        "close_reason": "",
+        "profit_pips": 1.0,
+        "profit_usd": 0.2
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-25 11:54:10",
+      "action": "HOLD",
+      "opinion": "Posicion BUY estable en punto de entrada justo sobre EMA 200. Sin patron de reversion en contra ni noticias de impacto, se mantiene operacion hacia el TP establecido.",
+      "close_reason": "",
+      "profit_pips": 1.0,
+      "profit_usd": 0.2
+    }
+  },
+  {
+    "trade_id": 483590771,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.63091,
+    "sl": 1.63192,
+    "tp": 1.62886,
+    "volume": 0.02,
+    "ai_opinion": "Operación aprobada. Spread muy bajo (0.3 pips), sin noticias de alto impacto cercanas y la relación riesgo-beneficio es favorable (1:2.0). El TP a 1.62886 sobrepasa de forma segura el nivel psicológico de 1.63000 con espacio suficiente.",
+    "ai_confidence": 0.82,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-25 11:55:04"
+    },
+    "outcome": {
+      "status": "OPEN",
+      "result": "PENDING"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-25 12:00:22",
+        "action": "HOLD",
+        "opinion": "La posición de venta mantiene un flotante positivo de +4.5 pips. El patrón de velas actual es neutral y la estructura macro está alineada con el precio en la EMA 200 sin señales de reversión alcista fuerte, por lo que se mantiene la orden abierta según las reglas.",
+        "close_reason": "",
+        "profit_pips": 4.5,
+        "profit_usd": 0.64
+      },
+      {
+        "time": "2026-08-25 12:02:15",
+        "action": "HOLD",
+        "opinion": "La posición SELL se encuentra en flotante positivo (+5.2 pips) y la estructura de mercado se mantiene neutral sobre la EMA 200 sin patrones de reversión alcista que amenacen la operación. Corresponde MANTENER la orden activa hacia el TP objetivo.",
+        "close_reason": "",
+        "profit_pips": 5.2,
+        "profit_usd": 0.74
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-25 12:02:15",
+      "action": "HOLD",
+      "opinion": "La posición SELL se encuentra en flotante positivo (+5.2 pips) y la estructura de mercado se mantiene neutral sobre la EMA 200 sin patrones de reversión alcista que amenacen la operación. Corresponde MANTENER la orden activa hacia el TP objetivo.",
+      "close_reason": "",
+      "profit_pips": 5.2,
+      "profit_usd": 0.74
     }
   }
 ]

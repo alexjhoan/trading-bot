@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from core.ai_logger import ai_logger
 from core.news_manager import news_manager
 from core.market_context import calculate_psychological_levels, analyze_macro_multitimeframe
+from core.candlestick_patterns import format_candlestick_summary_for_ai, detect_candlestick_patterns
 
 
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
@@ -532,16 +533,22 @@ def evaluate_trade_setup(
     macro_summary = candidate_setup.get("macro_summary") or analyze_macro_multitimeframe(clean_symbol, current_price)
     psych_summary = candidate_setup.get("psych_summary") or calculate_psychological_levels(clean_symbol, current_price)
     spread_info = candidate_setup.get("spread_info", "Spread normal")
+    candlestick_summary = candidate_setup.get("candlestick_summary")
+    if not candlestick_summary and "df" in candidate_setup:
+        candlestick_summary = format_candlestick_summary_for_ai(candidate_setup["df"])
+    if not candlestick_summary:
+        candlestick_summary = "Patrón de Vela: Acción de precio estándar [NEUTRAL]"
 
     system_instruction = (
         "Eres un Gestor de Riesgo Cuantitativo Senior de Trading Algorítmico.\n"
-        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez y riesgo.\n\n"
-        "REGLAS DE BLOQUEO ESTRICTAS:\n"
+        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez, patrones de velas y riesgo.\n\n"
+        "REGLAS DE BLOQUEO Y APROBACIÓN ESTRICTAS:\n"
         "1. Rechaza ('approved': false) si hay noticias de alto impacto (HIGH) en <30 min.\n"
         "2. Rechaza ('approved': false) si el spread actual es anómalo/alto (>3.0 pips) o coincide con cierre de sesión/rollover.\n"
         "3. Rechaza o ajusta si la entrada/TP choca directamente contra un nivel psicológico institucional (ej. 0.XX00 / 0.XX50).\n"
         "4. Rechaza si la señal en M15 contradice la estructura Macro (H4/D1).\n"
-        "5. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
+        "5. CONFLUENCIA DE VELAS: Prioriza ('approved': true) compras BUY respaldadas por patrones alcistas (Morning Star, Hammer, Bullish Engulfing, Three White Soldiers, Rising Three, Piercing Line, Bullish Harami); y ventas SELL respaldadas por patrones bajistas (Evening Star, Shooting Star, Bearish Engulfing, Three Black Crows, Falling Three, Dark Cloud Cover, Bearish Harami).\n"
+        "6. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
     )
 
     user_content = (
@@ -551,6 +558,7 @@ def evaluate_trade_setup(
         f"- Sugerido: SL {strat_sl} | TP {strat_tp} | Lote {strat_lot} | ATR {atr_str}\n\n"
         f"FILTROS AVANZADOS (CONTEXTO EN VIVO):\n"
         f"- SPREAD & LIQUIDEZ: {spread_info}\n"
+        f"- PATRÓN DE VELAS: {candlestick_summary}\n"
         f"- NOTICIAS: {news_summary}\n"
         f"- MACRO (D1/H4): {macro_summary}\n"
         f"- NIVELES INSTITUCIONALES: {psych_summary}"
@@ -849,14 +857,20 @@ def evaluate_open_position_ai(
     spread_pips = float(market_context.get("spread_pips", 1.0))
     macro_info = market_context.get("macro_summary", "Estructura estable")
     news_info = market_context.get("news_summary", "Sin noticias críticas")
+    candlestick_summary = market_context.get("candlestick_summary")
+    if not candlestick_summary and "df" in market_context:
+        candlestick_summary = format_candlestick_summary_for_ai(market_context["df"])
+    if not candlestick_summary:
+        candlestick_summary = "Patrón de Vela: Estructura normal [NEUTRAL]"
 
     system_instruction = (
         "Eres un Gestor Cuantitativo de Posiciones Abiertas y Salidas de Emergencia en Forex.\n"
         "Tu misión es decidir si una operación activa debe MANTENERSE ('HOLD'), AJUSTAR SL/TP ('MODIFY_SLTP') o CERRARSE INMEDIATAMENTE ('EARLY_CLOSE').\n\n"
-        "REGLAS DE GESTIÓN Y CIERRE PREMATURO:\n"
-        "1. 'EARLY_CLOSE' (Cierre Inmediato): Si se confirma un cambio de tendencia macro (ej. quiebre sostenido de EMA200), una divergencia violenta, o impacto inminente de noticias críticas.\n"
-        "2. 'MODIFY_SLTP' (Ajuste): Si la posición está en beneficio (>10 pips) y se recomienda mover SL a Break-Even o asegurar ganancias con un Trailing Stop por debajo/encima de la estructura reciente.\n"
-        "3. 'HOLD' (Mantener): Si la posición sigue la dirección correcta y el retroceso actual es una respiración normal dentro de la tolerancia.\n"
+        "REGLAS ESTRICTAS DE MANTENIMIENTO ('HOLD') Y SALIDA ('EARLY_CLOSE'):\n"
+        "1. 'HOLD' (MANTENER POSICIÓN ALCISTA - OBLIGATORIO): Si la posición es BUY y el patrón de velas reciente es de reversión alcista o continuación (ej. Morning Star, Hammer, Inverted Hammer, Bullish Engulfing, Three White Soldiers, Rising Three Methods, Piercing Line, Bullish Harami, Matching Low), DEBES MANTENER la orden abierta ('HOLD'). ¡NUNCA apruebes un cierre prematuro cuando el gráfico confirma soporte o rebote alcista institucional a favor de la operación!\n"
+        "2. 'HOLD' (MANTENER POSICIÓN BAJISTA - OBLIGATORIO): Si la posición es SELL y el patrón de velas es bajista (ej. Evening Star, Shooting Star, Hanging Man, Bearish Engulfing, Three Black Crows, Falling Three Methods, Dark Cloud Cover, Bearish Harami, Matching High), DEBES MANTENER la orden abierta ('HOLD'). ¡NUNCA cierres antes de tiempo cuando el gráfico confirma la presión vendedora a favor de la orden!\n"
+        "3. 'EARLY_CLOSE' (Cierre Prematuro Justificado): SOLO emitir 'EARLY_CLOSE' si se confirma un patrón de reversión FUERTE DIRECTAMENTE OPUESTO a la posición (ej. Evening Star o Shooting Star contra una compra BUY; o Morning Star o Hammer contra una venta SELL) sumado a quiebre de estructura o noticias críticas inminentes.\n"
+        "4. 'MODIFY_SLTP' (Asegurar Ganancias): Si la posición está en beneficio (>10 pips) y el patrón confirma continuación, sugiere mover SL a Break-Even o asegurar ganancias protegiendo detrás del patrón de velas.\n"
         "Responde ESTRICTAMENTE con el esquema JSON indicado."
     )
 
@@ -867,6 +881,7 @@ def evaluate_open_position_ai(
         f"- SL Actual: {current_sl} | TP Actual: {current_tp}\n\n"
         f"MÉTRICAS DE MERCADO Y ESTRUCTURA:\n"
         f"- EMA 200 Macro: {ema_trend:.5f} | ATR: {current_atr:.5f} | Spread: {spread_pips:.1f} pips\n"
+        f"- PATRÓN DE VELAS RECIENTE: {candlestick_summary}\n"
         f"- Contexto Macro: {macro_info}\n"
         f"- Noticias: {news_info}"
     )
