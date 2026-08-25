@@ -17,6 +17,7 @@ from gui.components import TopbarComponent, SymbolSelectorComponent, ConsoleTabv
 from core.bot_worker import SymbolWorker
 from core.config_manager import load_config, save_config
 from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs, check_user_credentials_exist
+from core.licensing import verify_license_token, get_hardware_id
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -54,6 +55,22 @@ class QuantBotApp(ctk.CTk):
         self.workers: Dict[str, SymbolWorker] = {}
 
         self._build_ui()
+
+        # -----------------------------------------------------------------
+        # 0. Validar Licencia y Hardware ID de la Máquina al iniciar el Bot
+        # -----------------------------------------------------------------
+        license_key = self.config_data.get("license_key", "")
+        current_login = int(self.config_data.get("login", 0))
+        lic_ok, lic_msg, self.license_payload = verify_license_token(
+            token=license_key,
+            current_account_login=current_login
+        )
+        if not lic_ok:
+            self.console.log("General", f"🔒 [VALIDACIÓN DE LICENCIA AL INICIO] {lic_msg}", "ERROR")
+            self.console.log("General", f"💻 Machine ID de este equipo: {get_hardware_id()}", "INFO")
+            self.console.log("General", "👉 Para activar el bot, proporcione este Machine ID al desarrollador y pegue su llave en Configuración.", "WARNING")
+        else:
+            self.console.log("General", f"🔒 [LICENCIA AUTORIZADA] {lic_msg}", "SUCCESS")
 
         # -----------------------------------------------------------------
         # 1. Validar credenciales de usuario antes de inicializar MT5
@@ -169,6 +186,24 @@ class QuantBotApp(ctk.CTk):
     def _handle_symbol_toggle(self, symbol: str, is_active: bool) -> None:
         """Maneja el encendido / apagado del monitoreo de un símbolo específico."""
         if is_active:
+            # -------------------------------------------------------------
+            # Validación 2: Verificar Licencia cuando el usuario pasa a ON
+            # -------------------------------------------------------------
+            license_key = self.config_data.get("license_key", "")
+            current_login = int(self.config_data.get("login", 0))
+            lic_ok, lic_msg, _ = verify_license_token(
+                token=license_key,
+                current_account_login=current_login
+            )
+
+            if not lic_ok:
+                # Mostrar en la consola de console_tabview que la llave no es correcta o está vencida
+                self.console.log("General", f"❌ [ERROR DE LICENCIA AL ACTIVAR {symbol}] {lic_msg}", "ERROR")
+                self.console.log(symbol, f"❌ [BLOQUEO POR LICENCIA] No se puede iniciar el bot en {symbol}: {lic_msg}", "ERROR")
+                # Revertir estado visual del switch a apagado
+                self.symbol_selector.set_symbol_active(symbol, False)
+                return
+
             # Obtener configuración propia de este par desde symbol_selector
             sym_config = self.symbol_selector.get_symbol_config(symbol)
             topbar_vals = self.topbar.get_topbar_values()

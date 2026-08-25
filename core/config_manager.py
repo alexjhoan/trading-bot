@@ -27,7 +27,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "close_before_rollover": True,
     "rollover_start_utc": "21:30",
     "rollover_end_utc": "22:30",
-    "weekend_close_minutes_before": 15
+    "weekend_close_minutes_before": 15,
+    "license_key": ""
 }
 
 def load_config() -> Dict[str, Any]:

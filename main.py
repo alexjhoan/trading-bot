@@ -10,6 +10,8 @@ import core.connector as connector
 from core.executor import OrderExecutor
 from core.risk_manager import RiskManager
 from core.strategy import PriceActionStrategy
+from core.config_manager import load_config
+from core.licensing import verify_license_token, get_hardware_id
 
 
 
@@ -77,6 +79,26 @@ def run_bot():
         # Inicializar conexión MT5
         if not connector.initialize_mt5():
             return
+
+        # -------------------------------------------------------------
+        # Validación de Licencia Criptográfica y Hardware ID
+        # -------------------------------------------------------------
+        cfg = load_config()
+        acc_info = mt5.account_info()
+        current_login = acc_info.login if acc_info else cfg.get("login", 0)
+        lic_ok, lic_msg, _ = verify_license_token(
+            token=cfg.get("license_key", ""),
+            current_account_login=current_login
+        )
+        if not lic_ok:
+            print("\n" + "🔒" * 30)
+            print(f"❌ ERROR DE LICENCIA: {lic_msg}")
+            print(f"💻 Machine ID de este equipo: {get_hardware_id()}")
+            print("👉 Contacte al desarrollador para obtener una clave válida.")
+            print("🔒" * 30 + "\n")
+            return
+        else:
+            print(f"🔒 [LICENCIA ACTIVA] {lic_msg}")
 
         # Verificar tipo de cuenta (Demo / Real)
         if not connector.check_account_safety(require_demo=True):

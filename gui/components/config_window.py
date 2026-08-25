@@ -7,6 +7,13 @@ from typing import Callable, Optional, Dict, Any, Tuple, List
 from core.config_manager import load_config, save_config
 from core.connector import get_all_available_symbols, get_all_symbol_specs
 from core.ai_advisor import test_ai_connection, fetch_available_models, PROVIDER_PRESETS
+from core.licensing import (
+    get_hardware_id,
+    generate_client_key_id,
+    parse_client_key_id,
+    verify_license_token,
+    MASTER_LICENSE_SECRET,
+)
 
 
 class ConfigWindow(ctk.CTkToplevel):
@@ -188,11 +195,72 @@ class ConfigWindow(ctk.CTkToplevel):
             self.entries[key] = entry
             current_row += 1
 
+        # ----------------------------------------------------
+        # SECCIÓN 3: SEGURIDAD & LICENCIA DEL BOT
+        # ----------------------------------------------------
+        lic_separator = ctk.CTkFrame(self.scroll_frame, height=2, fg_color="#374151")
+        lic_separator.grid(row=current_row, column=0, columnspan=2, pady=(15, 10), sticky="ew")
+        current_row += 1
+
+        lic_header = ctk.CTkLabel(
+            self.scroll_frame,
+            text="🔐 Licencia & Hardware Binding (Seguridad)",
+            font=("Arial", 15, "bold"),
+            anchor="w"
+        )
+        lic_header.grid(row=current_row, column=0, columnspan=2, pady=(0, 10), sticky="w")
+        current_row += 1
+
+        # 1. KEY ID (Hardware ID + Cuenta MT5 empaquetados) con botón de copiar
+        mid_lbl = ctk.CTkLabel(self.scroll_frame, text="KEY ID:", anchor="w")
+        mid_lbl.grid(row=current_row, column=0, padx=(5, 10), pady=4, sticky="w")
+
+        mid_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
+        mid_frame.grid(row=current_row, column=1, padx=(0, 5), pady=4, sticky="ew")
+        mid_frame.grid_columnconfigure(0, weight=1)
+
+        saved_login = int(self.config_data.get("login", 0))
+        self.key_id_val = generate_client_key_id(saved_login)
+        self.machine_id_val, _ = parse_client_key_id(self.key_id_val)
+        self.mid_entry = ctk.CTkEntry(mid_frame, fg_color="#181b22", text_color="#38BDF8", font=("Arial", 11))
+        self.mid_entry.insert(0, self.key_id_val)
+        self.mid_entry.configure(state="readonly")
+        self.mid_entry.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+
+        self.btn_copy_mid = ctk.CTkButton(
+            mid_frame,
+            text="📋 Copiar",
+            width=75,
+            command=self._copy_machine_id,
+            fg_color="#0284C7",
+            hover_color="#0369A1"
+        )
+        self.btn_copy_mid.grid(row=0, column=1, sticky="e")
+        current_row += 1
+
+        # 2. Clave de Licencia Token
+        lic_lbl = ctk.CTkLabel(self.scroll_frame, text="Clave de Licencia (Token):", anchor="w")
+        lic_lbl.grid(row=current_row, column=0, padx=(5, 10), pady=4, sticky="w")
+
+        lic_entry = ctk.CTkEntry(self.scroll_frame, placeholder_text="Pega aquí tu llave de validación...")
+        lic_entry.grid(row=current_row, column=1, padx=(0, 5), pady=4, sticky="ew")
+        self.entries["license_key_entry"] = lic_entry
+        current_row += 1
+
         # Botones de Prueba en la sección inferior
         test_buttons_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
         test_buttons_frame.grid(row=current_row, column=0, columnspan=2, pady=(10, 5), sticky="ew")
-        test_buttons_frame.grid_columnconfigure((0, 1), weight=1)
+        test_buttons_frame.grid_columnconfigure((0, 1, 2), weight=1)
         current_row += 1
+
+        self.btn_test_lic = ctk.CTkButton(
+            test_buttons_frame,
+            text="🔑 Validar Licencia",
+            command=self._test_license_validation,
+            fg_color="#059669",
+            hover_color="#047857"
+        )
+        self.btn_test_lic.grid(row=0, column=0, padx=3, sticky="ew")
 
         self.btn_test_mt5 = ctk.CTkButton(
             test_buttons_frame,
@@ -200,15 +268,15 @@ class ConfigWindow(ctk.CTkToplevel):
             command=self._test_connection,
             fg_color="#3B82F6"
         )
-        self.btn_test_mt5.grid(row=0, column=0, padx=4, sticky="ew")
+        self.btn_test_mt5.grid(row=0, column=1, padx=3, sticky="ew")
 
         self.btn_test_ai = ctk.CTkButton(
             test_buttons_frame,
-            text="🧠 Probar Conexión IA",
+            text="🧠 Probar IA",
             command=self._test_ai_connection_async,
             fg_color="#8B5CF6"
         )
-        self.btn_test_ai.grid(row=0, column=1, padx=4, sticky="ew")
+        self.btn_test_ai.grid(row=0, column=2, padx=3, sticky="ew")
 
         # Label de Estado
         self.status_label = ctk.CTkLabel(self.scroll_frame, text="", font=("Arial", 11), wraplength=480)
@@ -229,6 +297,57 @@ class ConfigWindow(ctk.CTkToplevel):
             fg_color="#10B981"
         )
         self.btn_save.grid(row=0, column=0, sticky="ew")
+
+    def _copy_machine_id(self) -> None:
+        """Copia el key ID al portapapeles del sistema."""
+        try:
+            raw_login = self.entries["login_entry"].get().strip()
+            try:
+                cur_acc = int(raw_login) if raw_login else 0
+            except ValueError:
+                cur_acc = 0
+            self.key_id_val = generate_client_key_id(cur_acc)
+            self.mid_entry.configure(state="normal")
+            self.mid_entry.delete(0, "end")
+            self.mid_entry.insert(0, self.key_id_val)
+            self.mid_entry.configure(state="readonly")
+
+            self.clipboard_clear()
+            self.clipboard_append(self.key_id_val)
+            self.update()
+            self.status_label.configure(
+                text=f"📋 KEY ID copiado al portapapeles (Hardware + Cuenta #{cur_acc}). Pégalo y envíaselo al desarrollador.",
+                text_color="#38BDF8"
+            )
+        except Exception as e:
+            self.status_label.configure(text=f"Error copiando al portapapeles: {e}", text_color="#EF4444")
+
+    def _test_license_validation(self) -> None:
+        """Prueba en vivo la clave de licencia introducida."""
+        token = self.entries.get("license_key_entry", ctk.CTkEntry(self)).get().strip()
+        if not token:
+            self.status_label.configure(
+                text="❌ Ingrese una clave de licencia (Token) para validar.",
+                text_color="#EF4444"
+            )
+            return
+
+        raw_login = self.entries["login_entry"].get().strip()
+        try:
+            current_login = int(raw_login) if raw_login else 0
+        except ValueError:
+            current_login = 0
+
+        is_valid, msg, payload = verify_license_token(
+            token=token,
+            current_account_login=current_login,
+            current_machine_id=self.machine_id_val
+        )
+
+        self.status_label.configure(
+            text=msg,
+            text_color="#10B981" if is_valid else "#EF4444"
+        )
 
     def _on_provider_change(self, choice: str) -> None:
         """Actualiza los modelos disponibles y valores por defecto al cambiar de proveedor."""
@@ -292,6 +411,10 @@ class ConfigWindow(ctk.CTkToplevel):
         self.entries["ai_api_key_entry"].insert(0, str(self.config_data.get("ai_api_key", "")))
         self.entries["ai_base_url_entry"].insert(0, str(self.config_data.get("ai_base_url", "")))
 
+        # Valor de Licencia
+        if "license_key_entry" in self.entries:
+            self.entries["license_key_entry"].insert(0, str(self.config_data.get("license_key", "")))
+
     def _get_form_data(self) -> Dict[str, Any]:
         data = self.config_data.copy()
         raw_login = self.entries["login_entry"].get().strip()
@@ -314,6 +437,8 @@ class ConfigWindow(ctk.CTkToplevel):
             "ai_api_key": self.entries["ai_api_key_entry"].get().strip(),
             "ai_model": self.selected_model.get().strip() or "gemini-2.5-flash",
             "ai_base_url": self.entries["ai_base_url_entry"].get().strip(),
+            # Campo de Licencia
+            "license_key": self.entries["license_key_entry"].get().strip() if "license_key_entry" in self.entries else "",
         })
         return data
 
