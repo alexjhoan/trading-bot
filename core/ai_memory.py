@@ -1,11 +1,26 @@
 import json
 import os
+import re
 import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 MEMORY_FILE = Path(__file__).resolve().parent.parent / "trade_memory.json"
 _LOCK = threading.Lock()
+
+
+def _normalize_sym(symbol: str) -> str:
+    """Normaliza el símbolo para que coincida independientemente de sufijos como _r, .pro, etc."""
+    if not symbol:
+        return ""
+    sym = symbol.strip().upper()
+    sym = sym.replace("/", "").replace("\\", "")
+    sym_cleaned = re.sub(r"([._-])?(RAW|PRO|ECN|STP|CASH|PLUS|MINI|MICRO|STD|ZERO|VIP|[A-Z])$", "", sym, flags=re.IGNORECASE)
+    match_forex = re.match(r"^([A-Z]{6})", sym)
+    if match_forex:
+        return match_forex.group(1)
+    generic = re.split(r"[._-]", sym)[0]
+    return generic if len(generic) >= 3 else sym
 
 
 class AIMemoryManager:
@@ -90,11 +105,12 @@ class AIMemoryManager:
                 print(f"❌ [AI_MEMORY] Error actualizando resultado de trade #{trade_id}: {e}")
                 return False
 
-    def get_relevant_past_trades(self, symbol: str, signal: str = "", limit: int = 3) -> List[Dict[str, Any]]:
+    def get_relevant_past_trades(self, symbol: str, signal: str = "", limit: int = 4) -> List[Dict[str, Any]]:
         """
         Recupera los casos históricos cerrados más relevantes para inyectar como memoria a la IA.
-        Prioriza operaciones cerradas del mismo par y dirección de señal.
+        Prioriza operaciones cerradas del mismo par (normalizado) y dirección de señal.
         """
+        clean_target = _normalize_sym(symbol)
         with _LOCK:
             try:
                 if not os.path.exists(self.filepath):
@@ -103,14 +119,20 @@ class AIMemoryManager:
                 with open(self.filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                # Filtrar trades cerrados del mismo par
+                # Filtrar trades cerrados del mismo par (limpio)
                 closed_same_sym = [
                     t for t in data
                     if t.get("outcome", {}).get("status") == "CLOSED"
-                    and str(t.get("symbol", "")).upper() == symbol.upper()
+                    and _normalize_sym(str(t.get("symbol", ""))) == clean_target
                 ]
 
-                # Si hay pocos del mismo par, traer también los últimos generales
+                # Si hay operaciones con la misma señal (ej. BUY), priorizarlas
+                if signal:
+                    same_signal = [t for t in closed_same_sym if str(t.get("signal", "")).upper() == signal.upper()]
+                    if len(same_signal) >= limit:
+                        return same_signal[-limit:]
+
+                # Si hay pocos del mismo par, traer también los últimos generales cerrados
                 if len(closed_same_sym) < limit:
                     closed_all = [
                         t for t in data
@@ -135,3 +157,4 @@ class AIMemoryManager:
                     return json.load(f)
             except Exception:
                 return []
+

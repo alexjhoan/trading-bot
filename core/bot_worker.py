@@ -13,7 +13,7 @@ from core.executor import OrderExecutor
 from core.risk_manager import RiskManager
 from core.data_loader import get_historical_data
 from core.config_manager import load_config
-from core.ai_advisor import evaluate_trade_setup
+from core.ai_advisor import evaluate_trade_setup, evaluate_open_position_ai
 from core.ai_memory import AIMemoryManager
 
 TIMEFRAME_SECONDS_MAP: Dict[int, int] = {
@@ -76,6 +76,8 @@ class SymbolWorker(threading.Thread):
         self.risk_manager = RiskManager()
         self.ai_memory = AIMemoryManager()
         self.tracked_tickets: Dict[int, Dict[str, Any]] = {}
+        self.last_ai_pos_eval_time: Dict[int, float] = {}  # {ticket: timestamp_epoch}
+        self.last_ai_pos_eval_bar_time: Dict[int, Any] = {}  # {ticket: candle_time}
 
     def _check_closed_trades(self) -> None:
         """Verifica si alguna de las operaciones rastreadas se cerró para registrar el feedback (WIN/LOSS) en trade_memory.json."""
@@ -87,6 +89,8 @@ class SymbolWorker(threading.Thread):
 
         closed_tickets = [t for t in self.tracked_tickets.keys() if t not in open_tickets]
         for ticket in closed_tickets:
+            self.last_ai_pos_eval_time.pop(ticket, None)
+            self.last_ai_pos_eval_bar_time.pop(ticket, None)
             trade_info = self.tracked_tickets.pop(ticket)
             try:
                 # Consultar historial de deals de MT5 para este ticket
@@ -141,7 +145,7 @@ class SymbolWorker(threading.Thread):
                 cfg = load_config()
                 max_spread_allowed = float(cfg.get("max_spread_pips", 3.5))
                 close_on_rollover = bool(cfg.get("close_before_rollover", True))
-                rollover_start = str(cfg.get("rollover_start_utc", "21:30"))
+                rollover_start = str(cfg.get("rollover_start_utc", "21:15"))
                 rollover_end = str(cfg.get("rollover_end_utc", "22:30"))
                 min_before_close = int(cfg.get("weekend_close_minutes_before", 15))
 
@@ -152,7 +156,13 @@ class SymbolWorker(threading.Thread):
                 )
 
                 if open_positions and len(open_positions) > 0:
-                    # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP Y CIERRE PREMATURO / ROLLOVER
+                    # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP, CIERRE PREMATURO E EVALUACIÓN DE REENTRADAS
+                    ai_enabled = bool(cfg.get("ai_enabled", True))
+                    api_key = str(cfg.get("ai_api_key", ""))
+                    model_name = str(cfg.get("ai_model", "gemini-3.6-flash"))
+                    base_url = str(cfg.get("ai_base_url", ""))
+                    max_reentries = int(cfg.get("max_reentries", 0))
+
                     for pos in open_positions:
                         # Si estamos en ventana de peligro (Rollover / Cierre de mercado) y está configurado cerrar
                         if is_danger_zone and danger_action == "BLOCK_AND_CLOSE" and close_on_rollover:
@@ -178,21 +188,160 @@ class SymbolWorker(threading.Thread):
                         pos_type_str = "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL"
                         pnl_current = pos.profit + pos.swap
                         curr_spread = self.risk_manager.get_current_spread_pips(self.symbol)
+                        sym_info = mt5.symbol_info(self.symbol)
+                        pip_size = (sym_info.point * 10.0 if sym_info and sym_info.digits in (3, 5) else (sym_info.point if sym_info else 0.0001))
+                        profit_pips = ((sym_info.bid - pos.price_open) / pip_size) if (sym_info and pos.type == mt5.POSITION_TYPE_BUY) else (((pos.price_open - sym_info.ask) / pip_size) if sym_info else 0.0)
+
                         self._log(
-                            f"🛡️ [POSICIÓN ACTIVA DETECTADA] {self.symbol} #{pos.ticket} ({pos_type_str} {pos.volume} lotes | PnL: ${pnl_current:+.2f} | Spread: {curr_spread:.1f} pips). "
-                            f"Omitiendo búsqueda de nuevas entradas. Analizando SL/TP y posibles cierres prematuros...",
+                            f"🛡️ [POSICIÓN ACTIVA DETECTADA] {self.symbol} #{pos.ticket} ({pos_type_str} {pos.volume} lotes | PnL: ${pnl_current:+.2f} ({profit_pips:+.1f}p) | Spread: {curr_spread:.1f} pips). "
+                            f"Analizando gestión activa y validación con IA...",
                             "INFO"
                         )
 
-                        # Análisis de la posición abierta con la estrategia cuantitativa
-                        mgmt_result = self.strategy.analyze_open_position(df=df, position=pos)
-                        action = mgmt_result.get("action", "MONITOR")
-                        reason = mgmt_result.get("reason", "")
+                        # 1. EVALUACIÓN CON IA PARA CIERRE PREMATURO / AJUSTE SL-TP (CON THROTTLING: MÍNIMO 10 MIN O CIERRE DE VELA)
+                        ai_managed = False
+                        if ai_enabled and api_key.strip():
+                            curr_candle = df.iloc[-2] if len(df) >= 2 else df.iloc[-1]
+                            curr_bar_time = curr_candle.get("time", None) if isinstance(curr_candle, dict) or hasattr(curr_candle, "get") else getattr(curr_candle, "name", None)
 
-                        self._log(f"🔎 [ANÁLISIS GESTIÓN POSICIÓN] #{pos.ticket} ➔ Acción: {action} | Razón: {reason}", "INFO")
+                            tf_seconds = TIMEFRAME_SECONDS_MAP.get(self.timeframe, 60)
+                            # Intervalo mínimo: 10 minutos (600s) o el timeframe si es mayor (ej. M15: 900s, H1: 3600s)
+                            min_interval_sec = max(600, tf_seconds)
 
-                        # Ejecutar acción recomendada (Cierre prematuro, modificación de SL/TP, Break-Even)
-                        self.executor.manage_position_with_strategy(position=pos, management_result=mgmt_result)
+                            now_ts = time.time()
+                            last_eval_ts = self.last_ai_pos_eval_time.get(pos.ticket, 0.0)
+                            last_bar = self.last_ai_pos_eval_bar_time.get(pos.ticket, None)
+
+                            time_passed_sec = now_ts - last_eval_ts
+                            is_new_bar = (curr_bar_time is not None and curr_bar_time != last_bar)
+
+                            # Condición para consultar a la IA:
+                            # 1) Nunca se ha evaluado con IA (last_eval_ts == 0)
+                            # 2) Han pasado mínimo 10 minutos (600s) Y hubo cierre de vela (o si pasaron más de min_interval_sec)
+                            should_query_ai = (last_eval_ts == 0.0) or (time_passed_sec >= min_interval_sec and (is_new_bar or tf_seconds < 600))
+
+                            if should_query_ai:
+                                self._log(f"🧠 [GESTIÓN IA] Evaluando posición #{pos.ticket} con IA (Intervalo cumplido: {int(time_passed_sec/60)} min / nueva vela)...", "INFO")
+                                ema_trend_val = float(curr_candle.get("ema_trend", pos.price_current if hasattr(pos, "price_current") else pos.price_open))
+                                atr_val = float(curr_candle.get("atr", 0.0010))
+
+                                pos_data = {
+                                    "ticket": pos.ticket,
+                                    "symbol": self.symbol,
+                                    "type": pos_type_str,
+                                    "price_open": pos.price_open,
+                                    "price_current": sym_info.bid if pos_type_str == "BUY" else sym_info.ask if sym_info else pos.price_open,
+                                    "sl": pos.sl,
+                                    "tp": pos.tp,
+                                    "volume": pos.volume,
+                                    "profit_pips": profit_pips,
+                                    "profit_usd": pnl_current
+                                }
+                                mkt_context = {
+                                    "ema_trend": ema_trend_val,
+                                    "atr": atr_val,
+                                    "spread_pips": curr_spread,
+                                    "macro_summary": f"EMA 200: {ema_trend_val:.5f} | ATR: {atr_val:.5f}",
+                                    "news_summary": "Sin impacto inmediato"
+                                }
+
+                                acc_info = mt5.account_info()
+                                account_data = {
+                                    "balance": acc_info.balance if acc_info else 0.0,
+                                    "equity": acc_info.equity if acc_info else 0.0,
+                                    "free_margin": acc_info.margin_free if acc_info else 0.0
+                                }
+
+                                thinking_budget = int(cfg.get("ai_thinking_budget", 128))
+                                ai_res = evaluate_open_position_ai(
+                                    account_info=account_data,
+                                    position_info=pos_data,
+                                    market_context=mkt_context,
+                                    api_key=api_key,
+                                    model_name=model_name,
+                                    base_url=base_url,
+                                    thinking_budget=thinking_budget
+                                )
+
+                                # Actualizar timestamp y barra de última consulta IA para este ticket
+                                self.last_ai_pos_eval_time[pos.ticket] = now_ts
+                                self.last_ai_pos_eval_bar_time[pos.ticket] = curr_bar_time
+
+                                if not ai_res.get("fallback", False):
+                                    ai_action = ai_res.get("action", "HOLD")
+                                    ai_opinion = ai_res.get("opinion", "")
+                                    ai_close_reason = ai_res.get("close_reason", "AI_Trend_Reversal")
+
+                                    if ai_action == "EARLY_CLOSE":
+                                        self._log(
+                                            f"🛑 ────────── [GESTIÓN IA: CIERRE PREMATURO INMEDIATO] ──────────\n"
+                                            f"   ├─ Posición: #{pos.ticket} {self.symbol} ({pos_type_str})\n"
+                                            f"   ├─ Motivo IA: {ai_close_reason}\n"
+                                            f"   ├─ Diagnóstico: \"{ai_opinion}\"\n"
+                                            f"   └─ Acción: Cerrando orden en mercado inmediatamente\n"
+                                            f"───────────────────────────────────────────────────────────────────────",
+                                            "WARNING"
+                                        )
+                                        self.executor.close_position(pos, reason=f"AI_{ai_close_reason}")
+                                        ai_managed = True
+                                        continue
+                                    elif ai_action == "MODIFY_SLTP":
+                                        new_sl = float(ai_res.get("suggested_sl", pos.sl))
+                                        new_tp = float(ai_res.get("suggested_tp", pos.tp))
+                                        self._log(
+                                            f"🛡️ [GESTIÓN IA: AJUSTE SL/TP] #{pos.ticket} ➔ SL: {new_sl} | TP: {new_tp} ({ai_opinion})",
+                                            "SUCCESS"
+                                        )
+                                        self.executor.modify_sltp(pos, new_sl=new_sl, new_tp=new_tp, reason="AI_Adjustment")
+                                        ai_managed = True
+                                    else:
+                                        self._log(
+                                            f"🟢 [GESTIÓN IA: MANTENER ENTRADA] #{pos.ticket} ➔ Posición válida ({ai_opinion})",
+                                            "INFO"
+                                        )
+                                        ai_managed = True
+                            else:
+                                remaining_min = max(0.0, (min_interval_sec - time_passed_sec) / 60.0)
+                                self._log(
+                                    f"⏳ [GESTIÓN IA EN ESPERA] Posición #{pos.ticket} ({pos_type_str}) protegida. Próxima consulta IA en {remaining_min:.1f} min o cierre de vela.",
+                                    "INFO"
+                                )
+
+                        # 2. FALLBACK A ESTRATEGIA CUANTITATIVA LOCAL SI IA NO APLICA O FALLA
+                        if not ai_managed:
+                            mgmt_result = self.strategy.analyze_open_position(df=df, position=pos)
+                            action = mgmt_result.get("action", "MONITOR")
+                            reason = mgmt_result.get("reason", "")
+                            self._log(f"🔎 [GESTIÓN ESTRATEGIA LOCAL] #{pos.ticket} ➔ Acción: {action} | Razón: {reason}", "INFO")
+                            self.executor.manage_position_with_strategy(position=pos, management_result=mgmt_result)
+
+                    # 3. ⚡ EVALUACIÓN DE REENTRADAS POR CONSOLIDACIÓN Y SIGUIENTE NIVEL FIBO (78.6%)
+                    if (len(open_positions) < (max_reentries + 1)) and (max_reentries > 0) and not is_danger_zone:
+                        if hasattr(self.strategy, "evaluate_reentry_signal"):
+                            reentry_eval = self.strategy.evaluate_reentry_signal(
+                                df=df,
+                                open_positions=open_positions,
+                                max_reentries=max_reentries
+                            )
+                            reentry_sig = reentry_eval.get("signal", "HOLD")
+
+                            if reentry_sig in ["BUY", "SELL"]:
+                                is_spread_ok, _, sp_msg = self.risk_manager.validate_spread(self.symbol, max_allowed_pips=max_spread_allowed)
+                                if is_spread_ok:
+                                    self._log(f"⚡ [OPORTUNIDAD DE REENTRADA DETECTADA] {reentry_eval.get('reason')}", "SUCCESS")
+                                    # Ejecutar la reentrada
+                                    reentry_sl = reentry_eval.get("sl", 0.0)
+                                    reentry_tp = reentry_eval.get("tp", 0.0)
+                                    reentry_num = reentry_eval.get("reentry_number", len(open_positions))
+
+                                    self.executor.send_order(
+                                        order_type=reentry_sig,
+                                        volume=self.lot,
+                                        sl_price=reentry_sl,
+                                        tp_price=reentry_tp,
+                                        comment=f"Reentry #{reentry_num}"
+                                    )
+                                    self._log(f"🚀 [REENTRADA #{reentry_num}/{max_reentries} ENVIADA] {self.symbol} {reentry_sig} | Lote: {self.lot} | SL: {reentry_sl} | TP: {reentry_tp}", "SUCCESS")
 
                 else:
                     # 🟢 RAMA B: NO HAY POSICIONES ABIERTAS ➔ BUSCAR NUEVAS ENTRADAS
@@ -287,7 +436,7 @@ class SymbolWorker(threading.Thread):
                         cfg = load_config()
                         ai_enabled = cfg.get("ai_enabled", True)
                         api_key = cfg.get("ai_api_key", "")
-                        model_name = cfg.get("ai_model", "gemini-2.5-flash")
+                        model_name = cfg.get("ai_model", "gemini-3.6-flash")
                         base_url = cfg.get("ai_base_url", "")
 
                         final_sl_price = default_sl_price
@@ -324,13 +473,15 @@ class SymbolWorker(threading.Thread):
                                 "free_margin": free_margin
                             }
 
+                            thinking_budget = int(cfg.get("ai_thinking_budget", 128))
                             ai_eval = evaluate_trade_setup(
                                 account_info=account_data,
                                 candidate_setup=candidate_setup,
                                 past_trades=past_trades,
                                 api_key=api_key,
                                 model_name=model_name,
-                                base_url=base_url
+                                base_url=base_url,
+                                thinking_budget=thinking_budget
                             )
 
                             if ai_eval.get("fallback", False):

@@ -32,7 +32,7 @@ class ConfigWindow(ctk.CTkToplevel):
         self.entries: Dict[str, ctk.CTkEntry] = {}
 
         self.selected_provider = ctk.StringVar(value=self.config_data.get("ai_provider", "Google Gemini"))
-        self.selected_model = ctk.StringVar(value=self.config_data.get("ai_model", "gemini-2.5-flash"))
+        self.selected_model = ctk.StringVar(value=self.config_data.get("ai_model", "gemini-3.6-flash"))
 
         self._build_ui()
         self._load_values()
@@ -75,6 +75,7 @@ class ConfigWindow(ctk.CTkToplevel):
             ("Ruta terminal64.exe (Opcional):", "path_entry"),
             ("Magic Number (ID Bot):", "magic_entry"),
             ("Max Slippage (puntos):", "slippage_entry"),
+            ("Reentradas Máx. por Par (0 a 5):", "max_reentries_entry"),
         ]
 
         current_row = 1
@@ -158,7 +159,7 @@ class ConfigWindow(ctk.CTkToplevel):
         model_select_frame.grid_columnconfigure(0, weight=1)
 
         initial_provider = self.selected_provider.get()
-        initial_models = PROVIDER_PRESETS.get(initial_provider, {}).get("models", ["gemini-2.5-flash"])
+        initial_models = PROVIDER_PRESETS.get(initial_provider, {}).get("models", ["gemini-3.6-flash"])
 
         self.model_menu = ctk.CTkOptionMenu(
             model_select_frame,
@@ -180,10 +181,11 @@ class ConfigWindow(ctk.CTkToplevel):
         self.btn_fetch_models.grid(row=0, column=1, sticky="e")
         current_row += 1
 
-        # 3. API KEY Y URL BASE
+        # 3. API KEY, URL BASE Y THINKING BUDGET
         labels_ai_inputs = [
             ("API Key (Secret Token):", "ai_api_key_entry"),
             ("URL Base / Proxy (Opcional):", "ai_base_url_entry"),
+            ("Thinking Budget (Tokens, 0=off):", "ai_thinking_budget_entry"),
         ]
 
         for label_text, key in labels_ai_inputs:
@@ -397,6 +399,8 @@ class ConfigWindow(ctk.CTkToplevel):
         self.entries["path_entry"].insert(0, str(self.config_data.get("path", "")))
         self.entries["magic_entry"].insert(0, str(self.config_data.get("magic_number", 999111)))
         self.entries["slippage_entry"].insert(0, str(self.config_data.get("max_slippage", 10)))
+        if "max_reentries_entry" in self.entries:
+            self.entries["max_reentries_entry"].insert(0, str(self.config_data.get("max_reentries", 0)))
 
         # Valores de IA
         self.ai_enabled_var.set(self.config_data.get("ai_enabled", True))
@@ -405,11 +409,13 @@ class ConfigWindow(ctk.CTkToplevel):
             self.selected_provider.set(provider)
             self._on_provider_change(provider)
 
-        saved_model = self.config_data.get("ai_model", "gemini-2.5-flash")
+        saved_model = self.config_data.get("ai_model", "gemini-3.6-flash")
         self.selected_model.set(saved_model)
 
         self.entries["ai_api_key_entry"].insert(0, str(self.config_data.get("ai_api_key", "")))
         self.entries["ai_base_url_entry"].insert(0, str(self.config_data.get("ai_base_url", "")))
+        if "ai_thinking_budget_entry" in self.entries:
+            self.entries["ai_thinking_budget_entry"].insert(0, str(self.config_data.get("ai_thinking_budget", 128)))
 
         # Valor de Licencia
         if "license_key_entry" in self.entries:
@@ -423,6 +429,12 @@ class ConfigWindow(ctk.CTkToplevel):
         except ValueError:
             login_val = 0
 
+        try:
+            raw_tb = self.entries["ai_thinking_budget_entry"].get().strip() if "ai_thinking_budget_entry" in self.entries else "128"
+            thinking_val = int(raw_tb) if raw_tb else 128
+        except ValueError:
+            thinking_val = 128
+
         data.update({
             "login": login_val,
             "password": self.entries["password_entry"].get().strip(),
@@ -431,12 +443,14 @@ class ConfigWindow(ctk.CTkToplevel):
             "path": self.entries["path_entry"].get().strip(),
             "magic_number": int(self.entries["magic_entry"].get().strip() or 999111),
             "max_slippage": int(self.entries["slippage_entry"].get().strip() or 10),
+            "max_reentries": max(0, min(5, int(self.entries["max_reentries_entry"].get().strip() or 0))) if "max_reentries_entry" in self.entries else 0,
             # Campos de IA
             "ai_enabled": self.ai_enabled_var.get(),
             "ai_provider": self.selected_provider.get(),
             "ai_api_key": self.entries["ai_api_key_entry"].get().strip(),
-            "ai_model": self.selected_model.get().strip() or "gemini-2.5-flash",
+            "ai_model": self.selected_model.get().strip() or "gemini-3.6-flash",
             "ai_base_url": self.entries["ai_base_url_entry"].get().strip(),
+            "ai_thinking_budget": max(0, thinking_val),
             # Campo de Licencia
             "license_key": self.entries["license_key_entry"].get().strip() if "license_key_entry" in self.entries else "",
         })
@@ -488,7 +502,7 @@ class ConfigWindow(ctk.CTkToplevel):
     def _test_ai_connection_async(self) -> None:
         """Prueba la API Key y conexión con el modelo de IA en un hilo secundario para no congelar la UI."""
         api_key = self.entries["ai_api_key_entry"].get().strip()
-        model = self.selected_model.get().strip() or "gemini-2.5-flash"
+        model = self.selected_model.get().strip() or "gemini-3.6-flash"
         base_url = self.entries["ai_base_url_entry"].get().strip()
 
         if not api_key:

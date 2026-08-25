@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from typing import Callable, Dict, Any, Optional, List
 from .config_window import ConfigWindow
-from core.strategies import get_available_strategies
+from strategies import get_available_strategies
 
 
 class TopbarComponent(ctk.CTkFrame):
@@ -11,6 +11,7 @@ class TopbarComponent(ctk.CTkFrame):
         selected_strategy: str = "forex",
         on_strategy_changed_callback: Optional[Callable[[str], None]] = None,
         on_config_saved_callback: Optional[Callable[[], None]] = None,
+        on_test_ai_callback: Optional[Callable[[], None]] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(master, height=60, fg_color="#1f1f1f", corner_radius=8, **kwargs)
@@ -18,6 +19,7 @@ class TopbarComponent(ctk.CTkFrame):
         self.selected_strategy = selected_strategy
         self.on_strategy_changed_callback = on_strategy_changed_callback
         self.on_config_saved_callback = on_config_saved_callback
+        self.on_test_ai_callback = on_test_ai_callback
 
         self._build_ui()
 
@@ -48,13 +50,17 @@ class TopbarComponent(ctk.CTkFrame):
         )
         self.lbl_equity.pack(side="left", padx=(0, 10), pady=5)
 
-        # Switch Modo Test
-        self.switch_test_mode = ctk.CTkSwitch(
+        # Botón Test API IA (Reemplazo del switch modo test)
+        self.btn_test_ai = ctk.CTkButton(
             self,
-            text="🧪 Modo Test (Forzar BUY)",
-            font=ctk.CTkFont(size=12, weight="bold")
+            text="🧠 Test API IA",
+            fg_color="#059669",
+            hover_color="#047857",
+            width=120,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._on_test_ai_click
         )
-        self.switch_test_mode.pack(side="left", padx=15, pady=10)
+        self.btn_test_ai.pack(side="left", padx=15, pady=10)
 
         # Botón Configuración MT5 (A la derecha)
         self.btn_config = ctk.CTkButton(
@@ -104,6 +110,10 @@ class TopbarComponent(ctk.CTkFrame):
     def _open_config_modal(self) -> None:
         ConfigWindow(parent=self, on_save_callback=self._reload_config)
 
+    def _on_test_ai_click(self) -> None:
+        if self.on_test_ai_callback:
+            self.on_test_ai_callback()
+
     def _reload_config(self) -> None:
         if self.on_config_saved_callback:
             self.on_config_saved_callback()
@@ -130,6 +140,6 @@ class TopbarComponent(ctk.CTkFrame):
     def get_topbar_values(self) -> Dict[str, Any]:
         """Retorna los parámetros configurados en el Topbar."""
         return {
-            "test_mode": self.switch_test_mode.get() == 1,
+            "test_mode": False,
             "strategy": self.opt_strategy.get()
         }

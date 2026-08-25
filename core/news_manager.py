@@ -14,16 +14,49 @@ STANDARD_CURRENCIES = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "NZD", "
 
 
 def extract_currencies_from_symbol(symbol: str) -> List[str]:
-    """Extrae las divisas base y cotizada de un símbolo de trading (ej. NZDUSD_r -> ['NZD', 'USD'])."""
-    clean_sym = symbol.upper().replace("_R", "").replace("_RAW", "").replace("_PRO", "").replace(".PRO", "").replace("/", "")
+    """
+    Extrae las divisas relevantes de un símbolo de trading usando Regex.
+    Soporta Forex (EURUSD, EURJPY_r), Índices (US30_r, GER40, UK100, JP225), Metales y Criptos.
+    """
+    if not symbol:
+        return ["USD"]
+
+    clean_sym = symbol.upper()
+    # Remover sufijos de broker comunes
+    clean_sym = re.sub(r"([._-])?(RAW|PRO|ECN|STP|CASH|PLUS|MINI|MICRO|STD|ZERO|VIP|[A-Z])$", "", clean_sym, flags=re.IGNORECASE)
+    clean_sym = clean_sym.replace("/", "").replace("\\", "").strip()
+
     currencies = []
 
-    # Manejo especial para comodities y criptos
-    if "XAU" in clean_sym or "GOLD" in clean_sym:
+    # 1. Índices bursátiles mundiales
+    if any(k in clean_sym for k in ["US30", "US500", "US100", "NAS100", "SPX", "DJ30", "DOW", "NDX"]):
         currencies.append("USD")
-    if "BTC" in clean_sym or "ETH" in clean_sym:
-        currencies.append("USD")
+    elif any(k in clean_sym for k in ["GER40", "GER30", "DE40", "DE30", "DAX", "EU50", "FRA40"]):
+        currencies.append("EUR")
+    elif any(k in clean_sym for k in ["UK100", "FTSE"]):
+        currencies.append("GBP")
+    elif any(k in clean_sym for k in ["JP225", "NIKKEI", "JPN225"]):
+        currencies.append("JPY")
+    elif any(k in clean_sym for k in ["AUS200", "ASX200"]):
+        currencies.append("AUD")
+    elif any(k in clean_sym for k in ["HK50", "HSI", "CHINA50"]):
+        currencies.extend(["USD", "CNY"])
 
+    # 2. Metales, Energías y Cripto
+    if any(k in clean_sym for k in ["XAU", "GOLD", "XAG", "SILVER", "OIL", "WTI", "BRENT", "BTC", "ETH", "SOL", "XRP"]):
+        if "USD" not in currencies:
+            currencies.append("USD")
+
+    # 3. Pares Forex estándar de 6 letras (ej. EURUSD, AUDNZD, EURJPY)
+    match_forex = re.match(r"^([A-Z]{3})([A-Z]{3})", clean_sym)
+    if match_forex:
+        c1, c2 = match_forex.group(1), match_forex.group(2)
+        if c1 in STANDARD_CURRENCIES and c1 not in currencies:
+            currencies.append(c1)
+        if c2 in STANDARD_CURRENCIES and c2 not in currencies:
+            currencies.append(c2)
+
+    # 4. Chequeo general de divisas estándar
     for c in STANDARD_CURRENCIES:
         if c in clean_sym and c not in currencies:
             currencies.append(c)

@@ -134,12 +134,18 @@ class RiskManager:
     def is_rollover_or_market_close_window(
         self,
         minutes_before_close: int = 15,
-        rollover_start: str = "21:30",
+        rollover_start: str = "21:15",
         rollover_end: str = "22:30"
     ) -> Tuple[bool, str, str]:
         """
-        Detecta si estamos en la ventana de Rollover interbancario (21:30 - 22:30 UTC)
-        o en los últimos minutos antes del cierre semanal del mercado de Forex (Viernes ~21:45 UTC).
+        Detecta si estamos en la ventana de Rollover interbancario diario (~17:00 EST / 21:15 - 22:30 UTC)
+        o en el cierre semanal de fin de semana (Viernes noche).
+
+        Para estrategias de Scalping, es OBLIGATORIO cerrar todas las operaciones diariamente
+        antes del Rollover para evitar:
+        1. Ensanchamiento extremo del Spread (que revienta el SL).
+        2. Cobro de comisiones de Swap nocturno.
+        3. Falta de liquidez en la apertura de la sesión asiática temprana.
 
         Retorna: (is_danger_zone, reason, action_needed: 'BLOCK_AND_CLOSE' | 'OK')
         """
@@ -148,31 +154,46 @@ class RiskManager:
         now_utc = datetime.now(timezone.utc)
         weekday = now_utc.weekday()  # 0=Lunes, 4=Viernes, 5=Sábado, 6=Domingo
         current_hour_min = now_utc.strftime("%H:%M")
+        total_now_minutes = now_utc.hour * 60 + now_utc.minute
 
-        # 1. Cierre de Mercado de Fin de Semana (Viernes noche)
-        # Forex cierra los viernes a las 22:00 UTC (17:00 EST). Si estamos dentro de los minutos_before_close (ej. 21:45 UTC)
-        if weekday == 4:  # Viernes
-            total_minutes = now_utc.hour * 60 + now_utc.minute
-            close_minutes = 22 * 60  # 22:00 UTC
-            if (close_minutes - minutes_before_close) <= total_minutes <= (close_minutes + 60):
-                return (
-                    True,
-                    f"Cierre semanal de mercado en {max(0, close_minutes - total_minutes)} min (Viernes {current_hour_min} UTC). Bloqueo y cierre por seguridad.",
-                    "BLOCK_AND_CLOSE"
-                )
-
-        # 2. Ventana Diaria de Rollover Interbancario (Alto Spread / Spread Widening)
-        # Generalmente entre 21:30 UTC y 22:30 UTC (17:00 - 18:00 EST)
-        if rollover_start <= current_hour_min <= rollover_end:
+        # 1. Fin de semana (Sábado y Domingo: Mercado cerrado)
+        if weekday in (5, 6):
             return (
                 True,
-                f"Ventana de Rollover diario/Cierre de sesión ({current_hour_min} UTC entre {rollover_start}-{rollover_end}). Spreads bancarios elevados.",
+                f"Mercado cerrado por Fin de Semana ({now_utc.strftime('%A')} {current_hour_min} UTC).",
                 "BLOCK_AND_CLOSE"
             )
 
-        # 3. Fin de semana (Sábado y Domingo mercado cerrado)
-        if weekday in (5, 6):
-            return True, f"Mercado cerrado por Fin de Semana (Día {weekday}).", "BLOCK"
+        # 2. Cierre de Mercado de Fin de Semana (Viernes noche - Previo a cierre semanal)
+        # Forex cierra los viernes a las 22:00 UTC (17:00 EST).
+        if weekday == 4:  # Viernes
+            close_minutes = 22 * 60  # 22:00 UTC
+            if total_now_minutes >= (close_minutes - minutes_before_close):
+                return (
+                    True,
+                    f"Cierre semanal de mercado en curso (Viernes {current_hour_min} UTC). Bloqueo total y liquidación por seguridad.",
+                    "BLOCK_AND_CLOSE"
+                )
+
+        # 3. Ventana Diaria Universal de Rollover (Lunes a Viernes)
+        # Se calcula en minutos desde medianoche UTC para máxima precisión
+        def _to_minutes(t_str: str, default_val: int) -> int:
+            try:
+                parts = t_str.strip().split(":")
+                return int(parts[0]) * 60 + int(parts[1])
+            except Exception:
+                return default_val
+
+        start_rollover_min = _to_minutes(rollover_start, 21 * 60 + 15)  # Default 21:15 UTC (16:15 EST)
+        end_rollover_min = _to_minutes(rollover_end, 22 * 60 + 30)      # Default 22:30 UTC (17:30 EST)
+
+        if start_rollover_min <= total_now_minutes <= end_rollover_min:
+            return (
+                True,
+                f"Ventana de Rollover Diario / Cambio de Sesión ({current_hour_min} UTC entre {rollover_start}-{rollover_end}). "
+                f"Spreads bancarios elevados y Swap nocturno.",
+                "BLOCK_AND_CLOSE"
+            )
 
         return False, "Horario regular de mercado y liquidez adecuada.", "OK"
 

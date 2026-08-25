@@ -9,14 +9,14 @@ from core.news_manager import news_manager
 from core.market_context import calculate_psychological_levels, analyze_macro_multitimeframe
 
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 
 # Proveedores soportados con sus configuraciones por defecto
 PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
     "Google Gemini": {
-        "default_model": "gemini-2.5-flash",
+        "default_model": "gemini-3.6-flash",
         "models": [
-            "gemini-2.5-flash",
+            "gemini-3.6-flash",
             "gemini-2.5-pro",
             "gemini-2.0-flash",
             "gemini-1.5-flash",
@@ -47,9 +47,9 @@ PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
         "default_url": "https://api.groq.com/openai/v1"
     },
     "OpenRouter (Multi-Proveedor)": {
-        "default_model": "google/gemini-2.5-flash",
+        "default_model": "google/gemini-3.6-flash",
         "models": [
-            "google/gemini-2.5-flash",
+            "google/gemini-3.6-flash",
             "anthropic/claude-3.5-sonnet",
             "openai/gpt-4o-mini",
             "deepseek/deepseek-chat"
@@ -148,17 +148,107 @@ def fetch_available_models(provider: str, api_key: str = "", base_url: str = "")
 
 
 
-def _clean_json_text(raw_text: str) -> str:
-    """Limpia bloques de código markdown ```json ... ``` para parsear JSON de forma limpia."""
-    text = raw_text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    return text
+def clean_symbol_name(symbol: str) -> str:
+    """
+    Limpia sufijos y prefijos de brokers en símbolos de Forex, Criptos e Índices usando Regex.
+    Ejemplos:
+      - EURUSD_r, EURUSD.pro, EURUSD_RAW, EURUSDm -> EURUSD
+      - US30_r, US30.cash, US500.pro, USTEC_i -> US30, US500, USTEC
+      - XAUUSD_r, XAUUSD.a -> XAUUSD
+      - BTCUSD_r, ETHUSD.ecn -> BTCUSD, ETHUSD
+      - GER40.cash, DE40_r, UK100_r -> GER40, DE40, UK100
+      - NAS100_r, SPX500_r -> NAS100, SPX500
+    """
+    if not symbol:
+        return ""
+    sym = symbol.strip().upper()
+
+    # 1. Quitar separadores como slashes o guiones
+    sym = sym.replace("/", "").replace("\\", "")
+
+    # 2. Expresión regular para remover sufijos típicos de brokers (.r, _r, _pro, .cash, _ecn, .raw, _i, etc.)
+    # Detecta punto, guión bajo o final de string con sufijos conocidos
+    sym_cleaned = re.sub(r"([._-])?(RAW|PRO|ECN|STP|CASH|PLUS|MINI|MICRO|STD|ZERO|VIP|[A-Z])$", "", sym, flags=re.IGNORECASE)
+
+    # Si la limpieza anterior dejó el símbolo intacto o vacío, aplicar regex de divisas e índices
+    # Para pares Forex estándar de 6 letras (ej. EURUSD, AUDNZD)
+    match_forex = re.match(r"^([A-Z]{6})", sym)
+    if match_forex:
+        return match_forex.group(1)
+
+    # Para Commodities / Metales (XAUUSD, XAGUSD, GOLD, SILVER)
+    match_metals = re.match(r"^(XAUUSD|XAGUSD|GOLD|SILVER|USOIL|UKOIL|BRENT|WTI)", sym)
+    if match_metals:
+        return match_metals.group(1)
+
+    # Para Criptomonedas (BTCUSD, ETHUSD, SOLUSD, XRPUSD, etc.)
+    match_crypto = re.match(r"^(BTCUSD|ETHUSD|SOLUSD|XRPUSD|BNBUSD|DOGEUSD|LTCUSD|ADAUSD)", sym)
+    if match_crypto:
+        return match_crypto.group(1)
+
+    # Para Índices sintéticos y bursátiles (US30, US500, US100, NAS100, SPX500, GER40, DE40, UK100, JP225, HK50, EU50, AUS200, VOLATILITY 75, etc.)
+    match_index = re.match(r"^([A-Z]{2,6}\d{2,4}|[A-Z]+\d+)", sym)
+    if match_index:
+        return match_index.group(1)
+
+    # Si no hubo match específico, remover cualquier sufijo posterior a '.', '_' o '-'
+    generic_clean = re.split(r"[._-]", sym)[0]
+    return generic_clean if len(generic_clean) >= 3 else sym
+
+
+def _clean_json_text(raw_text: str) -> Dict[str, Any]:
+    """
+    Limpia y extrae un bloque JSON de la respuesta de la IA.
+    Soporta bloques de código markdown ```json ... ``` y respuestas con prefijos explicativos.
+    """
+    if not raw_text:
+        return {}
+    cleaned = raw_text.strip()
+
+    # 1. Intentar decodificar directo si ya viene como JSON válido
+    try:
+        res = json.loads(cleaned)
+        if isinstance(res, dict):
+            return res
+    except Exception:
+        pass
+
+    # 2. Intentar extraer de bloques ```json ... ``` o ``` ... ```
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+    if match:
+        block = match.group(1).strip()
+        try:
+            res = json.loads(block)
+            if isinstance(res, dict):
+                return res
+        except Exception:
+            cleaned = block
+
+    # 3. Buscar el primer '{' y el último '}' para extraer el objeto JSON puro
+    start_idx = cleaned.find("{")
+    end_idx = cleaned.rfind("}")
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        sub_str = cleaned[start_idx:end_idx + 1].strip()
+        try:
+            res = json.loads(sub_str)
+            if isinstance(res, dict):
+                return res
+        except Exception:
+            pass
+
+    # 4. Si el JSON fue cortado por límite de tokens (MAX_TOKENS), intentar repararlo cerrando llaves
+    if start_idx != -1 and (end_idx == -1 or end_idx <= start_idx):
+        sub_str = cleaned[start_idx:].strip()
+        for closure in ["}", '"}', '" }', '0 }', 'false }', '"" }']:
+            try:
+                res = json.loads(sub_str + closure)
+                if isinstance(res, dict):
+                    return res
+            except Exception:
+                pass
+
+    # Si todo falla, intentar json.loads estándar para que arroje la excepción controlada
+    return json.loads(cleaned)
 
 
 def test_ai_connection(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, base_url: str = "") -> Tuple[bool, str]:
@@ -300,7 +390,8 @@ def evaluate_trade_setup(
     past_trades: List[Dict[str, Any]],
     api_key: str,
     model_name: str = DEFAULT_GEMINI_MODEL,
-    base_url: str = ""
+    base_url: str = "",
+    thinking_budget: Optional[int] = 128
 ) -> Dict[str, Any]:
     """
     Evalúa una señal candidata mediante la IA con inyección de memoria histórica (Few-Shot Context).
@@ -310,6 +401,7 @@ def evaluate_trade_setup(
     Si la IA falla o no tiene tokens, aplica fallback transparente para no bloquear la operativa.
     """
     symbol = candidate_setup.get("symbol", "UNKNOWN")
+    clean_symbol = clean_symbol_name(symbol)
     signal = candidate_setup.get("signal", "HOLD")
     current_price = float(candidate_setup.get("price", 0.0))
     strat_sl = float(candidate_setup.get("default_sl", 0.0))
@@ -343,15 +435,17 @@ def evaluate_trade_setup(
 
     # Resumen de memoria histórica compacto (Few-Shot Context)
     if not past_trades:
-        history_summary = "Sin trades pasados."
+        history_summary = "Sin operaciones previas registradas."
     else:
         hist_items = []
-        for t in past_trades[:3]:
+        for t in past_trades[:4]:
             out = t.get("outcome", {})
             res = out.get("result", "N/A")
-            pnl = float(out.get("profit", 0.0))
-            hist_items.append(f"{t.get('signal', 'TRADE')} -> {res} (${pnl:+.2f})")
-        history_summary = ", ".join(hist_items)
+            pnl_usd = float(out.get("pnl_usd", out.get("profit", 0.0)))
+            pnl_r = float(out.get("pnl_r", 0.0))
+            exit_r = out.get("exit_reason", "")
+            hist_items.append(f"[{t.get('signal', 'ORD')} -> {res} ({pnl_r:+.1f}R / ${pnl_usd:+.2f}, Salida: {exit_r})]")
+        history_summary = " | ".join(hist_items)
 
     # Filtros avanzados en vivo
     timeframe = str(candidate_setup.get("timeframe", "M15"))
@@ -362,9 +456,9 @@ def evaluate_trade_setup(
     else:
         atr_str = str(atr_val)
 
-    news_summary = candidate_setup.get("news_summary") or news_manager.format_news_summary_for_ai(symbol)
-    macro_summary = candidate_setup.get("macro_summary") or analyze_macro_multitimeframe(symbol, current_price)
-    psych_summary = candidate_setup.get("psych_summary") or calculate_psychological_levels(symbol, current_price)
+    news_summary = candidate_setup.get("news_summary") or news_manager.format_news_summary_for_ai(clean_symbol)
+    macro_summary = candidate_setup.get("macro_summary") or analyze_macro_multitimeframe(clean_symbol, current_price)
+    psych_summary = candidate_setup.get("psych_summary") or calculate_psychological_levels(clean_symbol, current_price)
     spread_info = candidate_setup.get("spread_info", "Spread normal")
 
     system_instruction = (
@@ -379,9 +473,9 @@ def evaluate_trade_setup(
     )
 
     user_content = (
-        f"CUENTA: Eq ${equity:,.2f} USD | Historial {symbol}: {history_summary}\n\n"
+        f"CUENTA: Eq ${equity:,.2f} USD | Historial {clean_symbol}: {history_summary}\n\n"
         f"SEÑAL EN EVALUACIÓN ({timeframe}):\n"
-        f"- Par: {symbol} | Dirección: {signal} | Precio: {current_price}\n"
+        f"- Par: {clean_symbol} | Dirección: {signal} | Precio: {current_price}\n"
         f"- Sugerido: SL {strat_sl} | TP {strat_tp} | Lote {strat_lot} | ATR {atr_str}\n\n"
         f"FILTROS AVANZADOS (CONTEXTO EN VIVO):\n"
         f"- SPREAD & LIQUIDEZ: {spread_info}\n"
@@ -425,7 +519,7 @@ def evaluate_trade_setup(
                     {"role": "user", "content": user_content}
                 ],
                 "temperature": 0.1,
-                "max_tokens": 300,
+                "max_tokens": 1024,
                 "response_format": {"type": "json_object"}
             }
             payload_bytes = json.dumps(payload_obj).encode("utf-8")
@@ -442,6 +536,17 @@ def evaluate_trade_setup(
             )
         else:
             endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
+            gen_cfg: Dict[str, Any] = {
+                "responseMimeType": "application/json",
+                "temperature": 0.1,
+                "maxOutputTokens": 2048,
+                "responseSchema": response_schema
+            }
+            if thinking_budget is not None and thinking_budget >= 0:
+                gen_cfg["thinkingConfig"] = {
+                    "thinkingBudget": int(thinking_budget)
+                }
+
             payload_obj = {
                 "systemInstruction": {
                     "parts": [{"text": system_instruction}]
@@ -449,15 +554,7 @@ def evaluate_trade_setup(
                 "contents": [
                     {"parts": [{"text": user_content}]}
                 ],
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "temperature": 0.1,
-                    "maxOutputTokens": 250,
-                    "thinkingConfig": {
-                        "thinkingBudget": 0
-                    },
-                    "responseSchema": response_schema
-                }
+                "generationConfig": gen_cfg
             }
             payload_bytes = json.dumps(payload_obj).encode("utf-8")
             req_headers = {"Content-Type": "application/json"}
@@ -478,14 +575,17 @@ def evaluate_trade_setup(
             # Extraer contenido de la respuesta según el proveedor
             ai_text = ""
             if "candidates" in raw_json and raw_json["candidates"]:
-                parts = raw_json["candidates"][0].get("content", {}).get("parts", [])
+                first_cand = raw_json["candidates"][0]
+                parts = first_cand.get("content", {}).get("parts", [])
                 if parts:
-                    ai_text = parts[0].get("text", "")
+                    texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
+                    ai_text = "\n".join(texts)
             elif "choices" in raw_json and raw_json["choices"]:
                 ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
 
-            cleaned_text = _clean_json_text(ai_text)
-            parsed_result: Dict[str, Any] = json.loads(cleaned_text)
+            parsed_result = _clean_json_text(ai_text)
+            if not isinstance(parsed_result, dict):
+                parsed_result = json.loads(str(parsed_result))
 
             # Validar y asegurar campos de respuesta
             approved = bool(parsed_result.get("approved", True))
@@ -547,8 +647,47 @@ def evaluate_trade_setup(
             output_dict["log_file"] = log_file
             return output_dict
 
+    except urllib.error.HTTPError as he:
+        duration_ms = (time.time() - start_time) * 1000.0
+        err_body = he.read().decode("utf-8", errors="ignore")
+        err_str = f"HTTP Error {he.code}: {err_body}"
+
+        fallback_output = {
+            "approved": True,
+            "confidence": 1.0,
+            "ai_sl": strat_sl,
+            "ai_tp": strat_tp,
+            "suggested_lot": strat_lot,
+            "risk_reward_ratio": 2.0,
+            "opinion": f"Ejecución según estrategia cuantitativa (Fallback IA HTTP {he.code})",
+            "rejection_reason": "",
+            "fallback": True,
+            "fallback_error": err_str,
+            "latency_ms": round(duration_ms, 1),
+            "provider": provider,
+            "model": model
+        }
+
+        log_file = ai_logger.log_interaction(
+            event_type="EVALUATE_TRADE_SETUP_FALLBACK",
+            symbol=symbol,
+            provider=provider,
+            model=model,
+            endpoint=endpoint,
+            request_headers=req_headers,
+            request_payload=payload_obj,
+            response_status=he.code,
+            duration_ms=duration_ms,
+            raw_response=err_body,
+            parsed_response=fallback_output,
+            error=err_str,
+            extra_meta={"signal": signal, "current_price": current_price}
+        )
+        fallback_output["log_file"] = log_file
+        return fallback_output
+
     except Exception as e:
-        # 🟢 Fallback ante errores de cuota (429), límites de tokens o errores de red
+        # Fallback ante errores de cuota (429), límites de tokens o errores de red
         duration_ms = (time.time() - start_time) * 1000.0
         err_str = str(e)
 
@@ -585,3 +724,312 @@ def evaluate_trade_setup(
         )
         fallback_output["log_file"] = log_file
         return fallback_output
+
+
+def evaluate_open_position_ai(
+    account_info: Dict[str, Any],
+    position_info: Dict[str, Any],
+    market_context: Dict[str, Any],
+    api_key: str,
+    model_name: str = DEFAULT_GEMINI_MODEL,
+    base_url: str = "",
+    thinking_budget: Optional[int] = 128
+) -> Dict[str, Any]:
+    """
+    Evalúa una posición abierta en tiempo real mediante IA para:
+    1. Confirmar si se MANTIENE la entrada (HOLD).
+    2. Modificar dinámicamente SL / TP para asegurar ganancias o trailing (MODIFY_SLTP).
+    3. CIERRE PREMATURO INMEDIATO por confirmación de cambio de estructura / tendencia o alto riesgo (EARLY_CLOSE).
+
+    Prioridad: Si la IA responde válidamente, se ejecuta su recomendación.
+    Si la IA falla o está deshabilitada, se retorna fallback: True para que el bot use la estrategia local.
+    """
+    ticket = position_info.get("ticket", 0)
+    symbol = position_info.get("symbol", "UNKNOWN")
+    clean_symbol = clean_symbol_name(symbol)
+    pos_type = position_info.get("type", "BUY")
+    open_price = float(position_info.get("price_open", 0.0))
+    current_price = float(position_info.get("price_current", open_price))
+    current_sl = float(position_info.get("sl", 0.0))
+    current_tp = float(position_info.get("tp", 0.0))
+    volume = float(position_info.get("volume", 0.01))
+    profit_pips = float(position_info.get("profit_pips", 0.0))
+    profit_usd = float(position_info.get("profit_usd", 0.0))
+
+    # Fallback inmediato si no hay API Key
+    if not api_key or not api_key.strip():
+        return {
+            "action": "HOLD",
+            "suggested_sl": current_sl,
+            "suggested_tp": current_tp,
+            "close_reason": "",
+            "confidence": 1.0,
+            "opinion": "Estrategia local activa (IA no configurada)",
+            "fallback": True
+        }
+
+    clean_key = api_key.strip()
+    model = (model_name or DEFAULT_GEMINI_MODEL).strip()
+    custom_url = (base_url or "").strip()
+    provider = _detect_provider(model, custom_url)
+
+    ema_trend = float(market_context.get("ema_trend", current_price))
+    current_atr = float(market_context.get("atr", 0.0))
+    spread_pips = float(market_context.get("spread_pips", 1.0))
+    macro_info = market_context.get("macro_summary", "Estructura estable")
+    news_info = market_context.get("news_summary", "Sin noticias críticas")
+
+    system_instruction = (
+        "Eres un Gestor Cuantitativo de Posiciones Abiertas y Salidas de Emergencia en Forex.\n"
+        "Tu misión es decidir si una operación activa debe MANTENERSE ('HOLD'), AJUSTAR SL/TP ('MODIFY_SLTP') o CERRARSE INMEDIATAMENTE ('EARLY_CLOSE').\n\n"
+        "REGLAS DE GESTIÓN Y CIERRE PREMATURO:\n"
+        "1. 'EARLY_CLOSE' (Cierre Inmediato): Si se confirma un cambio de tendencia macro (ej. quiebre sostenido de EMA200), una divergencia violenta, o impacto inminente de noticias críticas.\n"
+        "2. 'MODIFY_SLTP' (Ajuste): Si la posición está en beneficio (>10 pips) y se recomienda mover SL a Break-Even o asegurar ganancias con un Trailing Stop por debajo/encima de la estructura reciente.\n"
+        "3. 'HOLD' (Mantener): Si la posición sigue la dirección correcta y el retroceso actual es una respiración normal dentro de la tolerancia.\n"
+        "Responde ESTRICTAMENTE con el esquema JSON indicado."
+    )
+
+    user_content = (
+        f"ESTADO DE POSICIÓN ACTIVA #{ticket} ({clean_symbol}):\n"
+        f"- Tipo: {pos_type} | Volumen: {volume} lotes | Precio Entrada: {open_price}\n"
+        f"- Precio Actual: {current_price} | Flotante: ${profit_usd:+.2f} USD ({profit_pips:+.1f} pips)\n"
+        f"- SL Actual: {current_sl} | TP Actual: {current_tp}\n\n"
+        f"MÉTRICAS DE MERCADO Y ESTRUCTURA:\n"
+        f"- EMA 200 Macro: {ema_trend:.5f} | ATR: {current_atr:.5f} | Spread: {spread_pips:.1f} pips\n"
+        f"- Contexto Macro: {macro_info}\n"
+        f"- Noticias: {news_info}"
+    )
+
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "action": {
+                "type": "STRING",
+                "enum": ["HOLD", "MODIFY_SLTP", "EARLY_CLOSE"]
+            },
+            "suggested_sl": {"type": "NUMBER"},
+            "suggested_tp": {"type": "NUMBER"},
+            "close_reason": {"type": "STRING", "description": "Razón en caso de EARLY_CLOSE (ej. 'Invalidacion_Tendencia_Macro')"},
+            "confidence": {"type": "NUMBER"},
+            "opinion": {"type": "STRING", "description": "Resumen técnico de la decisión de gestión"}
+        },
+        "required": ["action", "suggested_sl", "suggested_tp", "close_reason", "confidence", "opinion"]
+    }
+
+    start_time = time.time()
+    endpoint = ""
+    req_headers: Dict[str, str] = {}
+    payload_obj: Any = None
+    status_code = 0
+    raw_res_text = ""
+
+    try:
+        if custom_url and "googleapis.com" not in custom_url:
+            endpoint = custom_url.rstrip("/")
+            if not endpoint.endswith("/chat/completions"):
+                endpoint = f"{endpoint}/chat/completions"
+
+            payload_obj = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_content}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 1024,
+                "response_format": {"type": "json_object"}
+            }
+            payload_bytes = json.dumps(payload_obj).encode("utf-8")
+            req_headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {clean_key}"
+            }
+            req = urllib.request.Request(endpoint, data=payload_bytes, headers=req_headers, method="POST")
+        else:
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
+            gen_cfg: Dict[str, Any] = {
+                "responseMimeType": "application/json",
+                "temperature": 0.1,
+                "maxOutputTokens": 2048,
+                "responseSchema": response_schema
+            }
+            if thinking_budget is not None and thinking_budget >= 0:
+                gen_cfg["thinkingConfig"] = {
+                    "thinkingBudget": int(thinking_budget)
+                }
+
+            payload_obj = {
+                "systemInstruction": {"parts": [{"text": system_instruction}]},
+                "contents": [{"parts": [{"text": user_content}]}],
+                "generationConfig": gen_cfg
+            }
+            payload_bytes = json.dumps(payload_obj).encode("utf-8")
+            req_headers = {"Content-Type": "application/json"}
+            req = urllib.request.Request(endpoint, data=payload_bytes, headers=req_headers, method="POST")
+
+        with urllib.request.urlopen(req, timeout=15) as response:
+            status_code = response.getcode()
+            raw_res_text = response.read().decode("utf-8")
+            duration_ms = (time.time() - start_time) * 1000.0
+            raw_json = json.loads(raw_res_text)
+
+            ai_text = ""
+            if "candidates" in raw_json and raw_json["candidates"]:
+                first_cand = raw_json["candidates"][0]
+                parts = first_cand.get("content", {}).get("parts", [])
+                if parts:
+                    texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
+                    ai_text = "\n".join(texts)
+            elif "choices" in raw_json and raw_json["choices"]:
+                ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
+
+            parsed = _clean_json_text(ai_text)
+            if not isinstance(parsed, dict):
+                parsed = json.loads(str(parsed))
+
+            action = parsed.get("action", "HOLD").upper()
+            if action not in ("HOLD", "MODIFY_SLTP", "EARLY_CLOSE"):
+                action = "HOLD"
+
+            suggested_sl = float(parsed.get("suggested_sl", current_sl))
+            suggested_tp = float(parsed.get("suggested_tp", current_tp))
+            close_reason = str(parsed.get("close_reason", "AI_Early_Close"))
+            confidence = float(parsed.get("confidence", 0.9))
+            opinion = str(parsed.get("opinion", "Posición evaluada por IA"))
+
+            output = {
+                "action": action,
+                "suggested_sl": suggested_sl,
+                "suggested_tp": suggested_tp,
+                "close_reason": close_reason,
+                "confidence": round(confidence, 2),
+                "opinion": opinion,
+                "fallback": False,
+                "latency_ms": round(duration_ms, 1),
+                "provider": provider,
+                "model": model
+            }
+
+            ai_logger.log_interaction(
+                event_type="EVALUATE_OPEN_POSITION_AI",
+                symbol=symbol,
+                provider=provider,
+                model=model,
+                endpoint=endpoint,
+                request_headers=req_headers,
+                request_payload=payload_obj,
+                response_status=status_code,
+                duration_ms=duration_ms,
+                raw_response=raw_res_text,
+                parsed_response=output,
+                extra_meta={"ticket": ticket, "action": action, "profit_pips": profit_pips}
+            )
+            return output
+
+    except urllib.error.HTTPError as he:
+        duration_ms = (time.time() - start_time) * 1000.0
+        err_body = he.read().decode("utf-8", errors="ignore")
+        err_str = f"HTTP Error {he.code}: {err_body}"
+        ai_logger.log_interaction(
+            event_type="EVALUATE_OPEN_POSITION_AI_FALLBACK",
+            symbol=symbol,
+            provider=provider,
+            model=model,
+            endpoint=endpoint,
+            request_headers=req_headers,
+            request_payload=payload_obj,
+            response_status=he.code,
+            duration_ms=duration_ms,
+            raw_response=err_body,
+            error=err_str
+        )
+        return {
+            "action": "HOLD",
+            "suggested_sl": current_sl,
+            "suggested_tp": current_tp,
+            "close_reason": "",
+            "confidence": 1.0,
+            "opinion": f"Fallback estrategia local (Error HTTP {he.code})",
+            "fallback": True
+        }
+
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000.0
+        err_str = str(e)
+        ai_logger.log_interaction(
+            event_type="EVALUATE_OPEN_POSITION_AI_FALLBACK",
+            symbol=symbol,
+            provider=provider,
+            model=model,
+            endpoint=endpoint,
+            request_headers=req_headers,
+            request_payload=payload_obj,
+            response_status=500,
+            duration_ms=duration_ms,
+            error=err_str
+        )
+        return {
+            "action": "HOLD",
+            "suggested_sl": current_sl,
+            "suggested_tp": current_tp,
+            "close_reason": "",
+            "confidence": 1.0,
+            "opinion": f"Fallback estrategia local (Error IA: {err_str[:60]})",
+            "fallback": True
+        }
+
+
+def test_ai_payload_terminal(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, base_url: str = "") -> Dict[str, Any]:
+    """
+    Ejecuta un test completo con un Payload Genérico de Trading Setup y muestra la respuesta detallada
+    directamente en la consola PowerShell / Terminal para depuración inmediata.
+    """
+    print("\n" + "=" * 70)
+    print("🧠 [DEBUG TERMINAL] INICIANDO TEST DE LLAMADA AL API DE IA...")
+    print("=" * 70)
+
+    sample_account = {
+        "balance": 10000.0,
+        "equity": 10150.0,
+        "free_margin": 9800.0
+    }
+    sample_candidate = {
+        "symbol": "EURUSD",
+        "signal": "BUY",
+        "price": 1.08500,
+        "default_sl": 1.08200,
+        "default_tp": 1.09100,
+        "default_lot": 0.10,
+        "timeframe": "M15",
+        "atr": 0.00120,
+        "confluence_score": 3,
+        "spread_info": "Spread normal (0.8 pips)",
+        "news_summary": "Sin noticias de alto impacto en próximas 4 horas",
+        "macro_summary": "H4 Alcista por encima de EMA 200, D1 en zona de soporte",
+        "psych_summary": "Nivel psicológico cercano: 1.08000 (Soporte)"
+    }
+    sample_past_trades = [
+        {"signal": "BUY", "outcome": {"result": "TP_HIT", "profit": 150.0}},
+        {"signal": "SELL", "outcome": {"result": "BE_HIT", "profit": 0.0}}
+    ]
+
+    print(f"📡 Proveedor / Modelo: {model_name}")
+    print(f"🔑 API Key: {api_key[:6]}...{api_key[-4:] if len(api_key) > 10 else ''}")
+    if base_url:
+        print(f"🌐 Base URL: {base_url}")
+    print(f"📦 Setup Genérico Enviado: {sample_candidate['symbol']} {sample_candidate['signal']} @ {sample_candidate['price']}")
+    print("-" * 70)
+
+    result = evaluate_trade_setup(
+        account_info=sample_account,
+        candidate_setup=sample_candidate,
+        past_trades=sample_past_trades,
+        api_key=api_key,
+        model_name=model_name,
+        base_url=base_url
+    )
+
+    print("📥 [RESPUESTA OBTENIDA DE LA IA]:")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    print("=" * 70 + "\n")
+    return result

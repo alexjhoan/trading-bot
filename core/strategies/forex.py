@@ -11,22 +11,23 @@ from .base_strategy import BaseStrategy
 class ForexStrategy(BaseStrategy):
     """
     Estrategia Cuantitativa Forex de Acción del Precio con Puntuación de Confluencia:
-    - 1. Filtro Previo de Tendencia Macro: EMA 200 con Buffer Flexible de Tolerancia (15% ATR).
+    - 1. Filtro Previo de Tendencia Macro: EMA 200 con Buffer Flexible de Tolerancia (20% ATR).
     - 2. Trigger Obligatorio: Retroceso de Fibonacci igual o mayor al 61.8% (Zona dorada / descuento profundo >= 61.8%).
-    - 3. Puntuación de Confluencia (Score):
-        a. Tendencia Macro (Filtro EMA 200 con buffer de respiración).
+    - 3. Reentradas por Siguiente Nivel Fibo (78.6%) y Mayor Confluencia / Consolidación.
+    - 4. Puntuación de Confluencia (Score):
+        a. Tendencia Macro (Filtro EMA 200 con 20% buffer de respiración).
         b. Volumen Institucional (Tick Volume > Media Móvil de Volumen).
         c. Patrón de Vela / Fuerza de Reacción (Hammer, Shooting Star o Vela con cuerpo >= 50%).
-    - 4. Módulo de Gestión Activa de Posiciones Abiertas:
+    - 5. Módulo de Gestión Activa de Posiciones Abiertas:
         - Trailing Stop dinámico por ATR + Estructura de vela previa.
-        - Cierre Prematuro por invalidación de tendencia (quiebre EMA 200 más allá del buffer).
+        - Cierre Prematuro por invalidación de tendencia (quiebre EMA 200 más allá del buffer 20%).
         - Modificación dinámica de SL / TP con margen de respiración previo (1.0x ATR).
-    - 5. Filtro Dinámico de Horarios de Sesión (Londres / NY / Asia).
-    - 6. Filtro de Correlación de Pares de Pearson (r >= 0.70).
+    - 6. Filtro Dinámico de Horarios de Sesión (Londres / NY / Asia).
+    - 7. Filtro de Correlación de Pares de Pearson (r >= 0.70).
     """
 
     name: str = "forex"
-    description: str = "Forex Price Action + Fibonacci 61.8% + Confluence Scoring + EMA 200 Buffer"
+    description: str = "Forex Price Action + Fibonacci 61.8%/78.6% + Confluence Scoring + EMA 200 Buffer 20%"
 
     def __init__(
         self,
@@ -56,7 +57,8 @@ class ForexStrategy(BaseStrategy):
         self.static_sl_pips: float = kwargs.get("static_sl_pips", 20.0)
         self.static_tp_pips: float = kwargs.get("static_tp_pips", 40.0)
         self.lookback_swing: int = kwargs.get("lookback_swing", 50)
-        self.ema_buffer_pct: float = getattr(self.config, "ema_buffer_pct", kwargs.get("ema_buffer_pct", 0.15))
+        self.ema_buffer_pct: float = getattr(self.config, "ema_buffer_pct", kwargs.get("ema_buffer_pct", 0.20))
+        self.max_reentries: int = getattr(self.config, "max_reentries", kwargs.get("max_reentries", 0))
 
         # Parámetros de correlación
         self.use_correlation_filter: bool = getattr(self.config, "use_correlation_filter", kwargs.get("use_correlation_filter", True))
@@ -106,7 +108,7 @@ class ForexStrategy(BaseStrategy):
         df["resistance"] = df["resistance"].bfill().ffill()
         df["support"] = df["support"].bfill().ffill()
 
-        # 2. Niveles de Fibonacci 61.8%
+        # 2. Niveles de Fibonacci 61.8% y 78.6% (Siguiente nivel para Reentradas y Consolidación)
         swing_range = (df["resistance"] - df["support"]).abs()
         zero_range_mask = (swing_range <= 1e-6) | swing_range.isna()
         if zero_range_mask.any():
@@ -117,6 +119,8 @@ class ForexStrategy(BaseStrategy):
 
         df["fibo_618_buy"] = df["resistance"] - (swing_range * 0.618)
         df["fibo_618_sell"] = df["support"] + (swing_range * 0.618)
+        df["fibo_786_buy"] = df["resistance"] - (swing_range * 0.786)
+        df["fibo_786_sell"] = df["support"] + (swing_range * 0.786)
 
         # 3. Indicadores Estándar
         df["atr"] = ta.atr(high=df["high"], low=df["low"], close=df["close"], length=self.atr_period)
@@ -163,19 +167,19 @@ class ForexStrategy(BaseStrategy):
         current_sl = float(position.sl)
         current_tp = float(position.tp)
 
-        # A. Cierre prematuro por invalidación REAL de tendencia macro con margen de tolerancia (Buffer 15% ATR)
-        ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
+        # A. Cierre prematuro por invalidación REAL de tendencia macro con margen de tolerancia (Buffer 20% ATR)
+        ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.002)
 
         if is_buy and curr_close < (ema_trend - ema_buffer):
             return {
                 "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) rompió la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f})",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) rompió la EMA200 ({ema_trend:.5f}) superando el respiro del 20% ({ema_buffer:.5f})",
                 "close_reason": "Invalidacion_EMA200"
             }
         elif not is_buy and curr_close > (ema_trend + ema_buffer):
             return {
                 "action": "EARLY_CLOSE",
-                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) superó la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f})",
+                "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) superó la EMA200 ({ema_trend:.5f}) superando el respiro del 20% ({ema_buffer:.5f})",
                 "close_reason": "Invalidacion_EMA200"
             }
 
@@ -371,6 +375,106 @@ class ForexStrategy(BaseStrategy):
             "sl": sl_price,
             "tp": tp_price,
             "reason": reason
+        }
+
+    def evaluate_reentry_signal(self, df: pd.DataFrame, open_positions: List[Any], max_reentries: int = 0) -> Dict[str, Any]:
+        """
+        Evalúa si el mercado ofrece una REENTRADA de alta probabilidad:
+        - Requiere que las posiciones abiertas actuales del par sean < (max_reentries + 1).
+        - Verifica que el precio haya alcanzado el siguiente nivel de Fibonacci más consolidado (78.6% / Zona Dorada Profunda).
+        - Exige alineación estricta con la EMA 200 (respiro 20%) y confirmación de volumen o patrón de vela fuerte.
+        """
+        if max_reentries <= 0 or not open_positions:
+            return {"signal": "HOLD", "reason": "Reentradas deshabilitadas o sin posición base"}
+
+        current_count = len(open_positions)
+        if current_count >= (max_reentries + 1):
+            return {"signal": "HOLD", "reason": f"Límite de reentradas alcanzado ({current_count - 1}/{max_reentries})"}
+
+        # Determinar la dirección de las órdenes existentes
+        base_pos = open_positions[0]
+        is_buy = base_pos.type == mt5.POSITION_TYPE_BUY
+        expected_signal = "BUY" if is_buy else "SELL"
+
+        min_bars = max(self.pivot_window * 2, self.atr_period, self.volume_ma_period, self.ema_trend_period) + 10
+        if df is None or len(df) < min_bars:
+            return {"signal": "HOLD", "reason": "Insuficiente historial para evaluar reentrada"}
+
+        df_analyzed = self.calculate_indicators(df)
+        curr_candle = df_analyzed.iloc[-2]
+        curr_close = float(curr_candle["close"])
+
+        support = float(curr_candle.get("support", curr_close * 0.999))
+        resistance = float(curr_candle.get("resistance", curr_close * 1.001))
+        current_atr = float(curr_candle.get("atr", 0.0))
+        ema_trend = float(curr_candle.get("ema_trend", curr_close))
+
+        fibo_786_buy = float(curr_candle.get("fibo_786_buy", 0.0))
+        fibo_786_sell = float(curr_candle.get("fibo_786_sell", 0.0))
+
+        ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.002)
+
+        # Validación en Fibo 78.6% (Siguiente nivel consolidado)
+        score = 0
+        score_details = []
+
+        if is_buy:
+            # Reentrada BUY: Precio dentro de la zona profunda Fibo 78.6% y respetando la EMA200 con 20% buffer
+            in_deep_fibo = (fibo_786_buy > 0) and (curr_close <= fibo_786_buy) and (curr_close >= support)
+            trend_ok = curr_close >= (ema_trend - ema_buffer)
+            if in_deep_fibo and trend_ok:
+                score += 1
+                score_details.append("Zona Fibo 78.6% Profunda respetada (+1)")
+        else:
+            # Reentrada SELL: Precio dentro de la zona profunda Fibo 78.6% y por debajo de EMA200 + buffer
+            in_deep_fibo = (fibo_786_sell > 0) and (curr_close >= fibo_786_sell) and (curr_close <= resistance)
+            trend_ok = curr_close <= (ema_trend + ema_buffer)
+            if in_deep_fibo and trend_ok:
+                score += 1
+                score_details.append("Zona Fibo 78.6% Profunda respetada (+1)")
+
+        if score == 0:
+            return {"signal": "HOLD", "reason": "Precio no se encuentra en el siguiente nivel de Fibonacci (78.6%)"}
+
+        # Confluencia de Volumen y Vela
+        if bool(curr_candle.get("high_volume", False)):
+            score += 1
+            score_details.append("Volumen Institucional Confirmado (+1)")
+
+        body_ratio = float(curr_candle.get("body_ratio", 0.0))
+        is_bull_hammer = bool(curr_candle.get("is_bullish_hammer", False))
+        is_bear_hammer = bool(curr_candle.get("is_bearish_hammer", False))
+
+        if is_buy and (is_bull_hammer or body_ratio >= 0.50):
+            score += 1
+            score_details.append("Reacción Vela Alcista (+1)")
+        elif not is_buy and (is_bear_hammer or body_ratio >= 0.50):
+            score += 1
+            score_details.append("Reacción Vela Bajista (+1)")
+
+        if score < self.min_confluence_score:
+            return {"signal": "HOLD", "reason": f"Reentrada rechazada por baja confluencia ({score}/{self.min_confluence_score})"}
+
+        # Cálculo de SL/TP para la reentrada
+        point = 0.0001 if "JPY" not in self.symbol else 0.01
+        sl_dist = (current_atr * self.atr_sl_mult) if current_atr > 0 else (self.static_sl_pips * point)
+        tp_dist = (current_atr * self.atr_tp_mult) if current_atr > 0 else (self.static_tp_pips * point)
+
+        sl_price = (curr_close - sl_dist) if is_buy else (curr_close + sl_dist)
+        tp_price = (curr_close + tp_dist) if is_buy else (curr_close - tp_dist)
+
+        return {
+            "signal": expected_signal,
+            "is_reentry": True,
+            "reentry_number": current_count,
+            "max_reentries": max_reentries,
+            "support": support,
+            "resistance": resistance,
+            "atr": current_atr,
+            "score": score,
+            "sl": sl_price,
+            "tp": tp_price,
+            "reason": f"⚡ [REENTRADA #{current_count}/{max_reentries}] Fibo 78.6% {expected_signal} con Score {score}/3: {', '.join(score_details)}"
         }
 
 

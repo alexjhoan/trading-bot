@@ -21,7 +21,7 @@ class SymbolConfig:
 
     symbol: str = "AUDNZD"
     suffix: Optional[str] = "_r"
-    timeframe: int = mt5.TIMEFRAME_M1  # ⏱️ ÚNICO LUGAR para cambiar la temporalidad del bot
+    timeframe: int = mt5.TIMEFRAME_M5  # ⏱️ ÚNICO LUGAR para cambiar la temporalidad del bot
     rates_count: int = 100
 
     @property
@@ -68,7 +68,8 @@ class StrategyConfig:
 
     # 🟢 NUEVAS CONFIGURACIONES DE SESIÓN Y FILTRO
     use_session_filter: bool = True
-    ema_buffer_pct: float = 0.15  # Tolerancia de respiración para la EMA 200 (15% del ATR)
+    ema_buffer_pct: float = 0.20  # Tolerancia de respiración para la EMA 200 (20% del ATR)
+    max_reentries: int = 0  # Reentradas máximas permitidas por par (0 a 5, default: 0)
 
     # 🟢 FILTRO DE CORRELACIÓN DE PARES (PEARSON)
     use_correlation_filter: bool = True
