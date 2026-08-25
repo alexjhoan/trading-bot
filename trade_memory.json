@@ -190,15 +190,23 @@
         "close_reason": "",
         "profit_pips": 4.0,
         "profit_usd": 0.8
+      },
+      {
+        "time": "2026-08-25 12:05:04",
+        "action": "HOLD",
+        "opinion": "La posición en BUY mantiene un flotante positivo (+4.6 pips). No se detectan patrones de reversión bajista ni eventos de alto impacto que invaliden la estructura. Se mantiene la posición sin cambios según las reglas.",
+        "close_reason": "",
+        "profit_pips": 4.6,
+        "profit_usd": 0.92
       }
     ],
     "last_ai_management": {
-      "time": "2026-08-25 11:54:00",
+      "time": "2026-08-25 12:05:04",
       "action": "HOLD",
-      "opinion": "La posición en BUY mantiene flotante positivo con estructura neutral y sin señales opuestas. Se mantiene la orden abierta según las reglas cuantificadas.",
+      "opinion": "La posición en BUY mantiene un flotante positivo (+4.6 pips). No se detectan patrones de reversión bajista ni eventos de alto impacto que invaliden la estructura. Se mantiene la posición sin cambios según las reglas.",
       "close_reason": "",
-      "profit_pips": 4.0,
-      "profit_usd": 0.8
+      "profit_pips": 4.6,
+      "profit_usd": 0.92
     }
   },
   {
@@ -251,15 +259,23 @@
         "close_reason": "",
         "profit_pips": 1.0,
         "profit_usd": 0.2
+      },
+      {
+        "time": "2026-08-25 12:05:14",
+        "action": "HOLD",
+        "opinion": "La posición en compra (BUY) se mantiene en terreno positivo (+1.7 pips) con una estructura neutral. No existe ningún patrón de reversión bajista opuesto que justifique una salida anticipada, y el beneficio actual no alcanza el umbral de >10 pips para un ajuste de SL/TP. Se mantiene la orden según el plan operativo.",
+        "close_reason": "",
+        "profit_pips": 1.7,
+        "profit_usd": 0.34
       }
     ],
     "last_ai_management": {
-      "time": "2026-08-25 11:54:10",
+      "time": "2026-08-25 12:05:14",
       "action": "HOLD",
-      "opinion": "Posicion BUY estable en punto de entrada justo sobre EMA 200. Sin patron de reversion en contra ni noticias de impacto, se mantiene operacion hacia el TP establecido.",
+      "opinion": "La posición en compra (BUY) se mantiene en terreno positivo (+1.7 pips) con una estructura neutral. No existe ningún patrón de reversión bajista opuesto que justifique una salida anticipada, y el beneficio actual no alcanza el umbral de >10 pips para un ajuste de SL/TP. Se mantiene la orden según el plan operativo.",
       "close_reason": "",
-      "profit_pips": 1.0,
-      "profit_usd": 0.2
+      "profit_pips": 1.7,
+      "profit_usd": 0.34
     }
   },
   {
