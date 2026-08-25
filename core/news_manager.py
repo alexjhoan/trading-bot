@@ -5,6 +5,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
+import re
 
 NEWS_CACHE_FILE = "calendar_news.json"
 FOREX_FACTORY_CALENDAR_URL = "https://nss.forexfactory.com/website/v1/weekly-calendar.json"
@@ -23,7 +24,12 @@ def extract_currencies_from_symbol(symbol: str) -> List[str]:
 
     clean_sym = symbol.upper()
     # Remover sufijos de broker comunes
-    clean_sym = re.sub(r"([._-])?(RAW|PRO|ECN|STP|CASH|PLUS|MINI|MICRO|STD|ZERO|VIP|[A-Z])$", "", clean_sym, flags=re.IGNORECASE)
+    clean_sym = re.sub(
+        r"([._-])?(RAW|PRO|ECN|STP|CASH|PLUS|MINI|MICRO|STD|ZERO|VIP|[a-z])$",
+        "",
+        clean_sym,
+        flags=re.IGNORECASE,
+    )
     clean_sym = clean_sym.replace("/", "").replace("\\", "").strip()
 
     currencies = []

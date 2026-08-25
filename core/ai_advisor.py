@@ -1,6 +1,7 @@
 import json
 import re
 import time
+import socket
 import urllib.request
 import urllib.error
 from typing import Dict, Any, List, Tuple, Optional
@@ -16,11 +17,7 @@ PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
     "Google Gemini": {
         "default_model": "gemini-3.6-flash",
         "models": [
-            "gemini-3.6-flash",
-            "gemini-2.5-pro",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro"
+            "gemini-3.6-flash"
         ],
         "default_url": "https://generativelanguage.googleapis.com"
     },
@@ -47,9 +44,9 @@ PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
         "default_url": "https://api.groq.com/openai/v1"
     },
     "OpenRouter (Multi-Proveedor)": {
-        "default_model": "google/gemini-3.6-flash",
+        "default_model": "google/gemini-2.5-flash",
         "models": [
-            "google/gemini-3.6-flash",
+            "google/gemini-2.5-flash",
             "anthropic/claude-3.5-sonnet",
             "openai/gpt-4o-mini",
             "deepseek/deepseek-chat"
@@ -251,6 +248,90 @@ def _clean_json_text(raw_text: str) -> Dict[str, Any]:
     return json.loads(cleaned)
 
 
+def send_ai_http_with_retry(
+    endpoint: str,
+    payload_bytes: bytes,
+    headers: Dict[str, str],
+    max_retries: int = 3,
+    timeout_seconds: float = 8.0,
+    action_label: str = "IA_CALL"
+) -> Tuple[int, str, float]:
+    """
+    Envía peticiones HTTP a la API de IA (Gemini / OpenAI / Groq) con reintento automático
+    ante timeouts o errores transitorios del servidor (500, 502, 503, 504, 429).
+
+    Retorna: (status_code, raw_response_text, total_duration_ms)
+    Lanza: HTTPError o Exception si todos los reintentos fallan o si es un error fatal de cliente (400, 401, 403, 404).
+    """
+    start_total_time = time.time()
+    last_exception: Optional[Exception] = None
+
+    for intento in range(max_retries):
+        try:
+            req = urllib.request.Request(
+                endpoint,
+                data=payload_bytes,
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=timeout_seconds) as response:
+                status_code = response.getcode()
+                raw_text = response.read().decode("utf-8", errors="replace")
+                total_duration_ms = (time.time() - start_total_time) * 1000.0
+                return status_code, raw_text, total_duration_ms
+
+        except urllib.error.HTTPError as he:
+            last_exception = he
+            err_body = he.read().decode("utf-8", errors="ignore")
+            # Errores transitorios del servidor o Rate limit (429, 500, 502, 503, 504): Reintentar
+            if he.code in (500, 502, 503, 504, 429) and intento < max_retries - 1:
+                wait_time = 1.0 + (intento * 0.5)
+                print(f"⚠️ [{action_label}] Error HTTP {he.code} en servidor de IA. Reintentando ({intento + 1}/{max_retries}) en {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+
+            # Error no recuperable (400, 401, 403, 404) o se agotaron los reintentos
+            he.msg = f"{he.msg} | {err_body}"
+            raise he
+
+        except (socket.timeout, TimeoutError) as te:
+            last_exception = te
+            if intento < max_retries - 1:
+                wait_time = 0.8 + (intento * 0.4)
+                print(f"⏳ [{action_label}] Timeout ({timeout_seconds}s) en intento {intento + 1}/{max_retries}. Reintentando petición en {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+            else:
+                print(f"❌ [{action_label}] Timeout definitivo tras {max_retries} intentos ({timeout_seconds}s c/u). Activando fallback...")
+                raise te
+
+        except urllib.error.URLError as ue:
+            last_exception = ue
+            reason_str = str(ue.reason).lower()
+            is_timeout = "timed out" in reason_str or isinstance(ue.reason, (socket.timeout, TimeoutError))
+            if intento < max_retries - 1:
+                wait_time = 1.0
+                tag = "Timeout" if is_timeout else "Error de red"
+                print(f"⏳ [{action_label}] {tag} ({ue.reason}) en intento {intento + 1}/{max_retries}. Reintentando en {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+            else:
+                raise ue
+
+        except Exception as e:
+            last_exception = e
+            if intento < max_retries - 1 and any(k in str(e).lower() for k in ["timeout", "connection", "disconnected", "reset"]):
+                wait_time = 1.0
+                print(f"⚠️ [{action_label}] Error de conexión ({e}). Reintentando ({intento + 1}/{max_retries}) en {wait_time:.1f}s...")
+                time.sleep(wait_time)
+                continue
+            raise e
+
+    if last_exception:
+        raise last_exception
+    raise RuntimeError(f"[{action_label}] Fallo desconocido tras {max_retries} reintentos.")
+
+
 def test_ai_connection(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, base_url: str = "") -> Tuple[bool, str]:
     """
     Prueba la conexión con la API de IA (Google Gemini por defecto o endpoint personalizado).
@@ -289,13 +370,6 @@ def test_ai_connection(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, bas
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {clean_key}"
             }
-
-            req = urllib.request.Request(
-                endpoint,
-                data=payload_bytes,
-                headers=req_headers,
-                method="POST"
-            )
         else:
             # Modo Oficial Google Gemini API
             endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
@@ -311,40 +385,38 @@ def test_ai_connection(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, bas
             payload_bytes = json.dumps(payload_obj).encode("utf-8")
             req_headers = {"Content-Type": "application/json"}
 
-            req = urllib.request.Request(
-                endpoint,
-                data=payload_bytes,
-                headers=req_headers,
-                method="POST"
-            )
+        # Petición con reintento automático y timeout controlado
+        status_code, raw_res_text, duration_ms = send_ai_http_with_retry(
+            endpoint=endpoint,
+            payload_bytes=payload_bytes,
+            headers=req_headers,
+            max_retries=2,
+            timeout_seconds=8.0,
+            action_label="TEST_IA"
+        )
 
-        with urllib.request.urlopen(req, timeout=12) as response:
-            status_code = response.getcode()
-            raw_res_text = response.read().decode("utf-8")
-            duration_ms = (time.time() - start_time) * 1000.0
+        ai_logger.log_interaction(
+            event_type="TEST_CONNECTION",
+            symbol="SYSTEM",
+            provider=provider,
+            model=model,
+            endpoint=endpoint,
+            request_headers=req_headers,
+            request_payload=payload_obj,
+            response_status=status_code,
+            duration_ms=duration_ms,
+            raw_response=raw_res_text,
+            parsed_response={"status": "OK" if status_code in (200, 201) else "ERROR"}
+        )
 
-            ai_logger.log_interaction(
-                event_type="TEST_CONNECTION",
-                symbol="SYSTEM",
-                provider=provider,
-                model=model,
-                endpoint=endpoint,
-                request_headers=req_headers,
-                request_payload=payload_obj,
-                response_status=status_code,
-                duration_ms=duration_ms,
-                raw_response=raw_res_text,
-                parsed_response={"status": "OK" if status_code in (200, 201) else "ERROR"}
-            )
-
-            if status_code in (200, 201):
-                return True, f"✅ Conexión con IA exitosa (Modelo: {model} | {duration_ms:.0f}ms)"
-            else:
-                return False, f"❌ Respuesta inesperada ({status_code}): {raw_res_text[:100]}"
+        if status_code in (200, 201):
+            return True, f"✅ Conexión con IA exitosa (Modelo: {model} | {duration_ms:.0f}ms)"
+        else:
+            return False, f"❌ Respuesta inesperada ({status_code}): {raw_res_text[:100]}"
 
     except urllib.error.HTTPError as he:
         duration_ms = (time.time() - start_time) * 1000.0
-        err_msg = he.read().decode("utf-8", errors="ignore")
+        err_msg = str(he.msg)
         ai_logger.log_interaction(
             event_type="TEST_CONNECTION_FAILED",
             symbol="SYSTEM",
@@ -559,93 +631,92 @@ def evaluate_trade_setup(
             payload_bytes = json.dumps(payload_obj).encode("utf-8")
             req_headers = {"Content-Type": "application/json"}
 
-            req = urllib.request.Request(
-                endpoint,
-                data=payload_bytes,
-                headers=req_headers,
-                method="POST"
-            )
+        # Enviar petición a IA con reintento automático ante timeouts o saturación
+        status_code, raw_res_text, duration_ms = send_ai_http_with_retry(
+            endpoint=endpoint,
+            payload_bytes=payload_bytes,
+            headers=req_headers,
+            max_retries=3,
+            timeout_seconds=8.0,
+            action_label=f"EVAL_{clean_symbol}"
+        )
 
-        with urllib.request.urlopen(req, timeout=15) as response:
-            status_code = response.getcode()
-            raw_res_text = response.read().decode("utf-8")
-            duration_ms = (time.time() - start_time) * 1000.0
-            raw_json = json.loads(raw_res_text)
+        raw_json = json.loads(raw_res_text)
 
-            # Extraer contenido de la respuesta según el proveedor
-            ai_text = ""
-            if "candidates" in raw_json and raw_json["candidates"]:
-                first_cand = raw_json["candidates"][0]
-                parts = first_cand.get("content", {}).get("parts", [])
-                if parts:
-                    texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
-                    ai_text = "\n".join(texts)
-            elif "choices" in raw_json and raw_json["choices"]:
-                ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
+        # Extraer contenido de la respuesta según el proveedor
+        ai_text = ""
+        if "candidates" in raw_json and raw_json["candidates"]:
+            first_cand = raw_json["candidates"][0]
+            parts = first_cand.get("content", {}).get("parts", [])
+            if parts:
+                texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
+                ai_text = "\n".join(texts)
+        elif "choices" in raw_json and raw_json["choices"]:
+            ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
 
-            parsed_result = _clean_json_text(ai_text)
-            if not isinstance(parsed_result, dict):
-                parsed_result = json.loads(str(parsed_result))
+        parsed_result = _clean_json_text(ai_text)
+        if not isinstance(parsed_result, dict):
+            parsed_result = json.loads(str(parsed_result))
 
-            # Validar y asegurar campos de respuesta
-            approved = bool(parsed_result.get("approved", True))
-            confidence = float(parsed_result.get("confidence", 0.8))
-            ai_sl = float(parsed_result.get("ai_sl", strat_sl))
-            ai_tp = float(parsed_result.get("ai_tp", strat_tp))
-            suggested_lot = float(parsed_result.get("suggested_lot", strat_lot))
-            rr = float(parsed_result.get("risk_reward_ratio", 2.0))
-            opinion = str(parsed_result.get("opinion", "Validado por IA"))
-            rejection_reason = str(parsed_result.get("rejection_reason", ""))
+        # Validar y asegurar campos de respuesta
+        approved = bool(parsed_result.get("approved", True))
+        confidence = float(parsed_result.get("confidence", 0.8))
+        ai_sl = float(parsed_result.get("ai_sl", strat_sl))
+        ai_tp = float(parsed_result.get("ai_tp", strat_tp))
+        suggested_lot = float(parsed_result.get("suggested_lot", strat_lot))
+        rr = float(parsed_result.get("risk_reward_ratio", 2.0))
+        opinion = str(parsed_result.get("opinion", "Validado por IA"))
+        rejection_reason = str(parsed_result.get("rejection_reason", ""))
 
-            # Protección de seguridad básica de SL/TP
-            if signal == "BUY":
-                if ai_sl <= 0 or (current_price > 0 and ai_sl >= current_price):
-                    ai_sl = strat_sl
-                if ai_tp <= 0 or (current_price > 0 and ai_tp <= current_price):
-                    ai_tp = strat_tp
-            elif signal == "SELL":
-                if ai_sl <= 0 or (current_price > 0 and ai_sl <= current_price):
-                    ai_sl = strat_sl
-                if ai_tp <= 0 or (current_price > 0 and ai_tp >= current_price):
-                    ai_tp = strat_tp
+        # Protección de seguridad básica de SL/TP
+        if signal == "BUY":
+            if ai_sl <= 0 or (current_price > 0 and ai_sl >= current_price):
+                ai_sl = strat_sl
+            if ai_tp <= 0 or (current_price > 0 and ai_tp <= current_price):
+                ai_tp = strat_tp
+        elif signal == "SELL":
+            if ai_sl <= 0 or (current_price > 0 and ai_sl <= current_price):
+                ai_sl = strat_sl
+            if ai_tp <= 0 or (current_price > 0 and ai_tp >= current_price):
+                ai_tp = strat_tp
 
-            output_dict = {
-                "approved": approved,
-                "confidence": round(confidence, 2),
-                "ai_sl": ai_sl,
-                "ai_tp": ai_tp,
-                "suggested_lot": suggested_lot,
-                "risk_reward_ratio": round(rr, 2),
-                "opinion": opinion,
-                "rejection_reason": rejection_reason,
-                "fallback": False,
-                "latency_ms": round(duration_ms, 1),
-                "provider": provider,
-                "model": model
+        output_dict = {
+            "approved": approved,
+            "confidence": round(confidence, 2),
+            "ai_sl": ai_sl,
+            "ai_tp": ai_tp,
+            "suggested_lot": suggested_lot,
+            "risk_reward_ratio": round(rr, 2),
+            "opinion": opinion,
+            "rejection_reason": rejection_reason,
+            "fallback": False,
+            "latency_ms": round(duration_ms, 1),
+            "provider": provider,
+            "model": model
+        }
+
+        # Guardar log completo de la interacción
+        log_file = ai_logger.log_interaction(
+            event_type="EVALUATE_TRADE_SETUP",
+            symbol=symbol,
+            provider=provider,
+            model=model,
+            endpoint=endpoint,
+            request_headers=req_headers,
+            request_payload=payload_obj,
+            response_status=status_code,
+            duration_ms=duration_ms,
+            raw_response=raw_res_text,
+            parsed_response=output_dict,
+            extra_meta={
+                "signal": signal,
+                "current_price": current_price,
+                "balance": balance,
+                "score": candidate_setup.get('confluence_score')
             }
-
-            # Guardar log completo de la interacción
-            log_file = ai_logger.log_interaction(
-                event_type="EVALUATE_TRADE_SETUP",
-                symbol=symbol,
-                provider=provider,
-                model=model,
-                endpoint=endpoint,
-                request_headers=req_headers,
-                request_payload=payload_obj,
-                response_status=status_code,
-                duration_ms=duration_ms,
-                raw_response=raw_res_text,
-                parsed_response=output_dict,
-                extra_meta={
-                    "signal": signal,
-                    "current_price": current_price,
-                    "balance": balance,
-                    "score": candidate_setup.get('confluence_score')
-                }
-            )
-            output_dict["log_file"] = log_file
-            return output_dict
+        )
+        output_dict["log_file"] = log_file
+        return output_dict
 
     except urllib.error.HTTPError as he:
         duration_ms = (time.time() - start_time) * 1000.0
@@ -844,7 +915,6 @@ def evaluate_open_position_ai(
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {clean_key}"
             }
-            req = urllib.request.Request(endpoint, data=payload_bytes, headers=req_headers, method="POST")
         else:
             endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
             gen_cfg: Dict[str, Any] = {
@@ -865,66 +935,71 @@ def evaluate_open_position_ai(
             }
             payload_bytes = json.dumps(payload_obj).encode("utf-8")
             req_headers = {"Content-Type": "application/json"}
-            req = urllib.request.Request(endpoint, data=payload_bytes, headers=req_headers, method="POST")
 
-        with urllib.request.urlopen(req, timeout=15) as response:
-            status_code = response.getcode()
-            raw_res_text = response.read().decode("utf-8")
-            duration_ms = (time.time() - start_time) * 1000.0
-            raw_json = json.loads(raw_res_text)
+        # Enviar petición a IA con reintento automático ante timeouts o saturación
+        status_code, raw_res_text, duration_ms = send_ai_http_with_retry(
+            endpoint=endpoint,
+            payload_bytes=payload_bytes,
+            headers=req_headers,
+            max_retries=3,
+            timeout_seconds=8.0,
+            action_label=f"POS_{clean_symbol}"
+        )
 
-            ai_text = ""
-            if "candidates" in raw_json and raw_json["candidates"]:
-                first_cand = raw_json["candidates"][0]
-                parts = first_cand.get("content", {}).get("parts", [])
-                if parts:
-                    texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
-                    ai_text = "\n".join(texts)
-            elif "choices" in raw_json and raw_json["choices"]:
-                ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
+        raw_json = json.loads(raw_res_text)
 
-            parsed = _clean_json_text(ai_text)
-            if not isinstance(parsed, dict):
-                parsed = json.loads(str(parsed))
+        ai_text = ""
+        if "candidates" in raw_json and raw_json["candidates"]:
+            first_cand = raw_json["candidates"][0]
+            parts = first_cand.get("content", {}).get("parts", [])
+            if parts:
+                texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
+                ai_text = "\n".join(texts)
+        elif "choices" in raw_json and raw_json["choices"]:
+            ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
 
-            action = parsed.get("action", "HOLD").upper()
-            if action not in ("HOLD", "MODIFY_SLTP", "EARLY_CLOSE"):
-                action = "HOLD"
+        parsed = _clean_json_text(ai_text)
+        if not isinstance(parsed, dict):
+            parsed = json.loads(str(parsed))
 
-            suggested_sl = float(parsed.get("suggested_sl", current_sl))
-            suggested_tp = float(parsed.get("suggested_tp", current_tp))
-            close_reason = str(parsed.get("close_reason", "AI_Early_Close"))
-            confidence = float(parsed.get("confidence", 0.9))
-            opinion = str(parsed.get("opinion", "Posición evaluada por IA"))
+        action = parsed.get("action", "HOLD").upper()
+        if action not in ("HOLD", "MODIFY_SLTP", "EARLY_CLOSE"):
+            action = "HOLD"
 
-            output = {
-                "action": action,
-                "suggested_sl": suggested_sl,
-                "suggested_tp": suggested_tp,
-                "close_reason": close_reason,
-                "confidence": round(confidence, 2),
-                "opinion": opinion,
-                "fallback": False,
-                "latency_ms": round(duration_ms, 1),
-                "provider": provider,
-                "model": model
-            }
+        suggested_sl = float(parsed.get("suggested_sl", current_sl))
+        suggested_tp = float(parsed.get("suggested_tp", current_tp))
+        close_reason = str(parsed.get("close_reason", "AI_Early_Close"))
+        confidence = float(parsed.get("confidence", 0.9))
+        opinion = str(parsed.get("opinion", "Posición evaluada por IA"))
 
-            ai_logger.log_interaction(
-                event_type="EVALUATE_OPEN_POSITION_AI",
-                symbol=symbol,
-                provider=provider,
-                model=model,
-                endpoint=endpoint,
-                request_headers=req_headers,
-                request_payload=payload_obj,
-                response_status=status_code,
-                duration_ms=duration_ms,
-                raw_response=raw_res_text,
-                parsed_response=output,
-                extra_meta={"ticket": ticket, "action": action, "profit_pips": profit_pips}
-            )
-            return output
+        output = {
+            "action": action,
+            "suggested_sl": suggested_sl,
+            "suggested_tp": suggested_tp,
+            "close_reason": close_reason,
+            "confidence": round(confidence, 2),
+            "opinion": opinion,
+            "fallback": False,
+            "latency_ms": round(duration_ms, 1),
+            "provider": provider,
+            "model": model
+        }
+
+        ai_logger.log_interaction(
+            event_type="EVALUATE_OPEN_POSITION_AI",
+            symbol=symbol,
+            provider=provider,
+            model=model,
+            endpoint=endpoint,
+            request_headers=req_headers,
+            request_payload=payload_obj,
+            response_status=status_code,
+            duration_ms=duration_ms,
+            raw_response=raw_res_text,
+            parsed_response=output,
+            extra_meta={"ticket": ticket, "action": action, "profit_pips": profit_pips}
+        )
+        return output
 
     except urllib.error.HTTPError as he:
         duration_ms = (time.time() - start_time) * 1000.0

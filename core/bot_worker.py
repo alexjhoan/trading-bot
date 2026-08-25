@@ -159,7 +159,7 @@ class SymbolWorker(threading.Thread):
                     # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP, CIERRE PREMATURO E EVALUACIÓN DE REENTRADAS
                     ai_enabled = bool(cfg.get("ai_enabled", True))
                     api_key = str(cfg.get("ai_api_key", ""))
-                    model_name = str(cfg.get("ai_model", "gemini-3.6-flash"))
+                    model_name = str(cfg.get("ai_model", "gemini-2.5-flash"))
                     base_url = str(cfg.get("ai_base_url", ""))
                     max_reentries = int(cfg.get("max_reentries", 0))
 
@@ -271,6 +271,17 @@ class SymbolWorker(threading.Thread):
                                     ai_action = ai_res.get("action", "HOLD")
                                     ai_opinion = ai_res.get("opinion", "")
                                     ai_close_reason = ai_res.get("close_reason", "AI_Trend_Reversal")
+
+                                    # Registrar en memoria histórica el análisis de posición
+                                    self.ai_memory.log_position_evaluation(
+                                        ticket=pos.ticket,
+                                        symbol=self.symbol,
+                                        ai_action=ai_action,
+                                        ai_opinion=ai_opinion,
+                                        close_reason=ai_close_reason if ai_action == "EARLY_CLOSE" else "",
+                                        profit_pips=profit_pips,
+                                        profit_usd=pnl_current
+                                    )
 
                                     if ai_action == "EARLY_CLOSE":
                                         self._log(
@@ -436,7 +447,7 @@ class SymbolWorker(threading.Thread):
                         cfg = load_config()
                         ai_enabled = cfg.get("ai_enabled", True)
                         api_key = cfg.get("ai_api_key", "")
-                        model_name = cfg.get("ai_model", "gemini-3.6-flash")
+                        model_name = cfg.get("ai_model", "gemini-2.5-flash")
                         base_url = cfg.get("ai_base_url", "")
 
                         final_sl_price = default_sl_price

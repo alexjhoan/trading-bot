@@ -51,16 +51,16 @@ class TopbarComponent(ctk.CTkFrame):
         self.lbl_equity.pack(side="left", padx=(0, 10), pady=5)
 
         # Botón Test API IA (Reemplazo del switch modo test)
-        self.btn_test_ai = ctk.CTkButton(
-            self,
-            text="🧠 Test API IA",
-            fg_color="#059669",
-            hover_color="#047857",
-            width=120,
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._on_test_ai_click
-        )
-        self.btn_test_ai.pack(side="left", padx=15, pady=10)
+        # self.btn_test_ai = ctk.CTkButton(
+        #     self,
+        #     text="🧠 Test API IA",
+        #     fg_color="#059669",
+        #     hover_color="#047857",
+        #     width=120,
+        #     font=ctk.CTkFont(size=12, weight="bold"),
+        #     command=self._on_test_ai_click
+        # )
+        # self.btn_test_ai.pack(side="left", padx=15, pady=10)
 
         # Botón Configuración MT5 (A la derecha)
         self.btn_config = ctk.CTkButton(

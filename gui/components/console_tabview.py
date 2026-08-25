@@ -1,5 +1,7 @@
 import customtkinter as ctk
 import time
+import queue
+import threading
 from typing import List, Dict, Any, Optional
 from .tooltip import ToolTip
 
@@ -46,7 +48,42 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
         # Tooltips por pestaña
         self.tab_tooltips: Dict[str, ToolTip] = {}
 
+        # Cola thread-safe para recibir llamadas de workers en hilos secundarios
+        self._gui_queue: queue.Queue = queue.Queue()
+        self._main_thread_ident = threading.main_thread().ident
+
         self._build_tabs()
+        # Iniciar despachador periódico seguro en el hilo principal
+        self._start_queue_consumer()
+
+    def _start_queue_consumer(self):
+        """Consume periódicamente las acciones GUI encoladas desde hilos secundarios (Thread-safe)."""
+        try:
+            while True:
+                fn = self._gui_queue.get_nowait()
+                try:
+                    fn()
+                except Exception as e:
+                    print(f"[GUI QUEUE ERROR] {e}")
+        except queue.Empty:
+            pass
+        except Exception:
+            pass
+
+        try:
+            self.after(35, self._start_queue_consumer)
+        except Exception:
+            pass
+
+    def run_on_gui_thread(self, fn):
+        """Ejecuta una función en el hilo de la GUI de forma 100% segura entre hilos."""
+        if threading.get_ident() == self._main_thread_ident:
+            try:
+                fn()
+            except Exception as e:
+                print(f"[GUI DIRECT CALL ERROR] {e}")
+        else:
+            self._gui_queue.put(fn)
 
     def _build_tabs(self):
         """Inicializa la pestaña General y las pestañas para todos los símbolos disponibles."""
@@ -183,7 +220,7 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
             except Exception:
                 pass
 
-        self.after(0, _do_update)
+        self.run_on_gui_thread(_do_update)
 
     def remove_symbol_tab(self, symbol: str):
         """Elimina una pestaña de símbolo de la interfaz de forma segura."""
@@ -279,5 +316,5 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
                     if self.symbol_status.get(target) != "OPEN_ORDER":
                         self.set_symbol_status(target, "ERROR", f"[{target}] Error reportado en el procesamiento")
 
-        # Delegar la ejecución al hilo de la GUI
-        self.after(0, _update_gui)
+        # Delegar la ejecución al hilo de la GUI mediante la cola thread-safe
+        self.run_on_gui_thread(_update_gui)
