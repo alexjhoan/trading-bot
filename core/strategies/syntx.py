@@ -409,17 +409,20 @@ class SyntxStrategy(BaseStrategy):
 
     def evaluate_reentry_signal(self, df: pd.DataFrame, open_positions: List[Any], max_reentries: int = 0) -> Dict[str, Any]:
         """
-        Evalúa si el mercado ofrece una REENTRADA de alta probabilidad según la Escalera Progresiva de Fibonacci:
-        - Entrada Base (0 posiciones): Fibo 61.8%
-        - Reentrada #1 (1 posición abierta): Fibo 78.6% (0.786)
-        - Reentrada #2 (2 posiciones abiertas): Fibo 92.0% (0.920)
-        - Reentrada #3 (3 posiciones abiertas): Fibo 100.0% (1.000 / Origen del Swing)
-        - Reentrada #4 (4 posiciones abiertas): Fibo 132.0% (1.320 / Extensión)
-        - Reentrada #5 (5 posiciones abiertas): Fibo 161.8% (1.618 / Extensión)
+        Evalúa si el mercado ofrece una REENTRADA de alta probabilidad mediante DOS RUTAS:
 
-        Requiere además:
-        1. Que el precio alcance el nivel objetivo de Fibo y supere el precio de apertura de las posiciones previas.
-        2. Confluencia con la estrategia principal (EMA200 con respiro institucional, volumen y patrón de vela de rechazo).
+        1. RUTA A (Escalera Fibo Progresiva - Descuento Profundo):
+           - Reentrada #1: Fibo 78.6% (0.786)
+           - Reentrada #2: Fibo 92.0% (0.920)
+           - Reentrada #3: Fibo 100.0% (1.000 / Origen del Swing)
+           - Reentrada #4: Fibo 132.0% (1.320 / Extensión)
+           - Reentrada #5: Fibo 161.8% (1.618 / Extensión)
+           Requiere que el precio alcance el nivel objetivo de Fibo y supere/mejore el precio de las órdenes previas.
+
+        2. RUTA B (Retroceso / Pullback Dinámico a EMA 200 a Favor de Tendencia):
+           - El precio realiza un pullback testeando la EMA 200 (dentro del ema_buffer).
+           - Confirmación con patrón de vela de rechazo/fuerza (Hammer, bias alcista/bajista o cuerpo >= 40%).
+           - Filtro Anti-Spam: Mínimo 3 velas desde la apertura de la última orden O distancia >= 1.0 * ATR respecto al precio de la última orden.
         """
         if max_reentries <= 0 or not open_positions:
             return {"signal": "HOLD", "reason": "Reentradas deshabilitadas o sin posición base"}
@@ -440,6 +443,7 @@ class SyntxStrategy(BaseStrategy):
         df_analyzed = self.calculate_indicators(df)
         curr_candle = df_analyzed.iloc[-2]
         curr_close = float(curr_candle["close"])
+        curr_open = float(curr_candle.get("open", curr_close))
         curr_low = float(curr_candle.get("low", curr_close))
         curr_high = float(curr_candle.get("high", curr_close))
 
@@ -453,7 +457,54 @@ class SyntxStrategy(BaseStrategy):
         ema_trend = float(curr_candle.get("ema_trend", curr_close))
         ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.002)
 
-        # Escalera Progresiva de Fibonacci por Reentrada:
+        # -------------------------------------------------------------
+        # Confluencias compartidas: Patrones de Vela y Actividad
+        # -------------------------------------------------------------
+        vol_ok = bool(curr_candle.get("high_volume", False))
+        body_ratio = float(curr_candle.get("body_ratio", 0.0))
+        is_bull_hammer = bool(curr_candle.get("is_bullish_hammer", False))
+        is_bear_hammer = bool(curr_candle.get("is_bearish_hammer", False))
+
+        candlestick_info = detect_candlestick_patterns(df)
+        candle_bias = candlestick_info.get("bias", "NEUTRAL")
+        candle_pattern_name = candlestick_info.get("primary_pattern", "Vela")
+
+        if is_buy:
+            candle_confirmed = (candle_bias == "BULLISH") or is_bull_hammer or (body_ratio >= 0.40 and curr_close >= curr_open)
+            patron_label = candle_pattern_name if candle_bias == "BULLISH" else ("Hammer Alcista" if is_bull_hammer else f"Rebote Vela Fuerte ({body_ratio * 100:.0f}%)")
+        else:
+            candle_confirmed = (candle_bias == "BEARISH") or is_bear_hammer or (body_ratio >= 0.40 and curr_close <= curr_open)
+            patron_label = candle_pattern_name if candle_bias == "BEARISH" else ("Shooting Star" if is_bear_hammer else f"Rechazo Vela Fuerte ({body_ratio * 100:.0f}%)")
+
+        # -------------------------------------------------------------
+        # Control Anti-Spam: Tiempo y Distancia respecto a la última orden abierta
+        # -------------------------------------------------------------
+        latest_pos = max(open_positions, key=lambda p: getattr(p, "time", 0))
+        last_open_price = float(getattr(latest_pos, "price_open", 0.0))
+        last_open_time = int(getattr(latest_pos, "time", 0))
+
+        bars_since_last_pos = 0
+        if "time" in df.columns and last_open_time > 0:
+            try:
+                first_val = df["time"].iloc[0]
+                if isinstance(first_val, (int, float, np.integer)):
+                    bars_since_last_pos = int((df["time"] > last_open_time).sum())
+                else:
+                    last_dt = pd.to_datetime(last_open_time, unit="s")
+                    bars_since_last_pos = int((pd.to_datetime(df["time"]) > last_dt).sum())
+            except Exception:
+                bars_since_last_pos = 99
+        else:
+            bars_since_last_pos = 99
+
+        price_dist_atr = (abs(curr_close - last_open_price) / current_atr) if current_atr > 0 else 999.0
+        min_bars_anti_spam = 3
+        min_atr_dist_anti_spam = 1.0
+        anti_spam_passed = (bars_since_last_pos >= min_bars_anti_spam) or (price_dist_atr >= min_atr_dist_anti_spam)
+
+        # -------------------------------------------------------------
+        # RUTA A: Escalera Progresiva de Fibonacci
+        # -------------------------------------------------------------
         fibo_ladder = [0.786, 0.920, 1.000, 1.320, 1.618, 2.000, 2.618]
         reentry_idx = current_count - 1
         if reentry_idx < len(fibo_ladder):
@@ -463,96 +514,140 @@ class SyntxStrategy(BaseStrategy):
 
         target_fibo_pct = round(target_fibo_ratio * 100, 1)
 
-        # 1. Validación de Nivel de Fibonacci y Separación respecto a posiciones previas
-        score = 0
-        score_details = []
+        route_a_valid = False
+        route_a_score = 0
+        route_a_details = []
+        route_a_reject = ""
 
         if is_buy:
-            # Reentrada BUY: Nivel Fibo proyectado hacia abajo desde la resistencia
             target_fibo_price = float(resistance - (swing_range * target_fibo_ratio))
             lowest_open_price = min(float(p.price_open) for p in open_positions)
-
-            # El precio debe haber alcanzado/profundizado hasta el nivel Fibo objetivo
             level_reached = (curr_close <= target_fibo_price) or (curr_low <= target_fibo_price)
-            # Y debe estar estrictamente a un precio inferior al de las compras anteriores (mejor precio / no repetir en cada vela)
             better_price = curr_close < lowest_open_price
 
             if not level_reached:
-                return {
-                    "signal": "HOLD",
-                    "reason": f"Precio actual ({curr_close:.5f}) aún no alcanza el nivel Fibo {target_fibo_pct}% ({target_fibo_price:.5f}) para Reentrada #{current_count}"
-                }
-            if not better_price:
-                return {
-                    "signal": "HOLD",
-                    "reason": f"Precio ({curr_close:.5f}) no mejora el precio de compra previo ({lowest_open_price:.5f}) para Reentrada #{current_count}"
-                }
+                route_a_reject = f"Precio ({curr_close:.5f}) aún no alcanza Fibo {target_fibo_pct}% ({target_fibo_price:.5f})"
+            elif not better_price:
+                route_a_reject = f"Precio ({curr_close:.5f}) no mejora precio previo ({lowest_open_price:.5f})"
+            else:
+                trend_ok = curr_close >= (ema_trend - ema_buffer)
+                if trend_ok:
+                    route_a_score += 1
+                    route_a_details.append(f"Zona Fibo {target_fibo_pct}% sobre EMA{self.ema_trend_period} (+1)")
+                elif curr_close >= (target_fibo_price - ema_buffer):
+                    route_a_score += 1
+                    route_a_details.append(f"Zona Fibo {target_fibo_pct}% Institucional (+1)")
 
-            # Validación de tendencia con respiro institucional o soporte profundo
-            trend_ok = curr_close >= (ema_trend - ema_buffer)
-            if trend_ok:
-                score += 1
-                score_details.append(f"Zona Fibo {target_fibo_pct}% sobre EMA{self.ema_trend_period} (+1)")
-            elif curr_close >= (target_fibo_price - ema_buffer):
-                score += 1
-                score_details.append(f"Zona Fibo {target_fibo_pct}% Institucional (+1)")
+                if vol_ok:
+                    route_a_score += 1
+                    route_a_details.append("Actividad de Volumen (+1)")
 
+                if candle_confirmed:
+                    route_a_score += 1
+                    route_a_details.append(f"Patrón: {patron_label} (+1)")
+
+                if route_a_score >= self.min_confluence_score:
+                    route_a_valid = True
+                else:
+                    route_a_reject = f"Score insuficiente ({route_a_score}/{self.min_confluence_score})"
         else:
-            # Reentrada SELL: Nivel Fibo proyectado hacia arriba desde el soporte
             target_fibo_price = float(support + (swing_range * target_fibo_ratio))
             highest_open_price = max(float(p.price_open) for p in open_positions)
-
             level_reached = (curr_close >= target_fibo_price) or (curr_high >= target_fibo_price)
             better_price = curr_close > highest_open_price
 
             if not level_reached:
-                return {
-                    "signal": "HOLD",
-                    "reason": f"Precio actual ({curr_close:.5f}) aún no alcanza el nivel Fibo {target_fibo_pct}% ({target_fibo_price:.5f}) para Reentrada #{current_count}"
-                }
-            if not better_price:
-                return {
-                    "signal": "HOLD",
-                    "reason": f"Precio ({curr_close:.5f}) no mejora el precio de venta previo ({highest_open_price:.5f}) para Reentrada #{current_count}"
-                }
+                route_a_reject = f"Precio ({curr_close:.5f}) aún no alcanza Fibo {target_fibo_pct}% ({target_fibo_price:.5f})"
+            elif not better_price:
+                route_a_reject = f"Precio ({curr_close:.5f}) no mejora precio previo ({highest_open_price:.5f})"
+            else:
+                trend_ok = curr_close <= (ema_trend + ema_buffer)
+                if trend_ok:
+                    route_a_score += 1
+                    route_a_details.append(f"Zona Fibo {target_fibo_pct}% bajo EMA{self.ema_trend_period} (+1)")
+                elif curr_close <= (target_fibo_price + ema_buffer):
+                    route_a_score += 1
+                    route_a_details.append(f"Zona Fibo {target_fibo_pct}% Institucional (+1)")
 
-            trend_ok = curr_close <= (ema_trend + ema_buffer)
-            if trend_ok:
-                score += 1
-                score_details.append(f"Zona Fibo {target_fibo_pct}% bajo EMA{self.ema_trend_period} (+1)")
-            elif curr_close <= (target_fibo_price + ema_buffer):
-                score += 1
-                score_details.append(f"Zona Fibo {target_fibo_pct}% Institucional (+1)")
+                if vol_ok:
+                    route_a_score += 1
+                    route_a_details.append("Actividad de Volumen (+1)")
 
-        # 2. Confluencia de Volumen / Actividad
-        if bool(curr_candle.get("high_volume", False)):
-            score += 1
-            score_details.append("Actividad de Volumen Confirmada (+1)")
+                if candle_confirmed:
+                    route_a_score += 1
+                    route_a_details.append(f"Patrón: {patron_label} (+1)")
 
-        # 3. Confluencia de Patrones de Vela (Hammer, Shooting Star, Impulso de Rechazo)
-        candlestick_info = detect_candlestick_patterns(df)
-        candle_bias = candlestick_info.get("bias", "NEUTRAL")
-        candle_pattern_name = candlestick_info.get("primary_pattern", "Vela")
-        body_ratio = float(curr_candle.get("body_ratio", 0.0))
-        is_bull_hammer = bool(curr_candle.get("is_bullish_hammer", False))
-        is_bear_hammer = bool(curr_candle.get("is_bearish_hammer", False))
+                if route_a_score >= self.min_confluence_score:
+                    route_a_valid = True
+                else:
+                    route_a_reject = f"Score insuficiente ({route_a_score}/{self.min_confluence_score})"
 
-        if is_buy and (candle_bias == "BULLISH" or is_bull_hammer or body_ratio >= 0.40):
-            patron_label = candle_pattern_name if candle_bias == "BULLISH" else ("Hammer Alcista" if is_bull_hammer else f"Rebote Vela Fuerte ({body_ratio * 100:.0f}%)")
-            score += 1
-            score_details.append(f"Patrón: {patron_label} (+1)")
-        elif not is_buy and (candle_bias == "BEARISH" or is_bear_hammer or body_ratio >= 0.40):
-            patron_label = candle_pattern_name if candle_bias == "BEARISH" else ("Shooting Star" if is_bear_hammer else f"Rechazo Vela Fuerte ({body_ratio * 100:.0f}%)")
-            score += 1
-            score_details.append(f"Patrón: {patron_label} (+1)")
+        # -------------------------------------------------------------
+        # RUTA B: Retroceso / Pullback Dinámico a EMA 200
+        # -------------------------------------------------------------
+        route_b_valid = False
+        route_b_score = 0
+        route_b_details = []
+        route_b_reject = ""
 
-        if score < self.min_confluence_score:
-            return {
-                "signal": "HOLD",
-                "reason": f"Reentrada #{current_count} (Fibo {target_fibo_pct}%) rechazada por baja confluencia ({score}/{self.min_confluence_score} requerido)"
-            }
+        if is_buy:
+            is_macro_bullish = curr_close >= (ema_trend - ema_buffer)
+            touches_ema = (curr_low <= (ema_trend + ema_buffer)) and (curr_close >= (ema_trend - ema_buffer))
 
-        # Cálculo de SL/TP para la reentrada
+            if not is_macro_bullish:
+                route_b_reject = f"Precio ({curr_close:.5f}) bajo zona EMA{self.ema_trend_period}"
+            elif not touches_ema:
+                route_b_reject = f"Precio fuera de zona de pullback EMA{self.ema_trend_period} (EMA: {ema_trend:.5f} ± {ema_buffer:.5f})"
+            elif not anti_spam_passed:
+                route_b_reject = f"Anti-spam bloqueado ({bars_since_last_pos}/{min_bars_anti_spam} velas y {price_dist_atr:.2f}/{min_atr_dist_anti_spam:.1f} ATR de última orden)"
+            elif not candle_confirmed:
+                route_b_reject = f"Sin vela de rebote alcista en EMA{self.ema_trend_period}"
+            else:
+                route_b_score += 1
+                route_b_details.append(f"Pullback Dinámico a EMA{self.ema_trend_period} (+1)")
+
+                if vol_ok:
+                    route_b_score += 1
+                    route_b_details.append("Actividad de Volumen (+1)")
+
+                route_b_score += 1
+                route_b_details.append(f"Patrón de Rebote: {patron_label} (+1)")
+
+                if route_b_score >= self.min_confluence_score:
+                    route_b_valid = True
+                else:
+                    route_b_reject = f"Score insuficiente ({route_b_score}/{self.min_confluence_score})"
+        else:
+            is_macro_bearish = curr_close <= (ema_trend + ema_buffer)
+            touches_ema = (curr_high >= (ema_trend - ema_buffer)) and (curr_close <= (ema_trend + ema_buffer))
+
+            if not is_macro_bearish:
+                route_b_reject = f"Precio ({curr_close:.5f}) sobre zona EMA{self.ema_trend_period}"
+            elif not touches_ema:
+                route_b_reject = f"Precio fuera de zona de pullback EMA{self.ema_trend_period} (EMA: {ema_trend:.5f} ± {ema_buffer:.5f})"
+            elif not anti_spam_passed:
+                route_b_reject = f"Anti-spam bloqueado ({bars_since_last_pos}/{min_bars_anti_spam} velas y {price_dist_atr:.2f}/{min_atr_dist_anti_spam:.1f} ATR de última orden)"
+            elif not candle_confirmed:
+                route_b_reject = f"Sin vela de rechazo bajista en EMA{self.ema_trend_period}"
+            else:
+                route_b_score += 1
+                route_b_details.append(f"Pullback Dinámico a EMA{self.ema_trend_period} (+1)")
+
+                if vol_ok:
+                    route_b_score += 1
+                    route_b_details.append("Actividad de Volumen (+1)")
+
+                route_b_score += 1
+                route_b_details.append(f"Patrón de Rechazo: {patron_label} (+1)")
+
+                if route_b_score >= self.min_confluence_score:
+                    route_b_valid = True
+                else:
+                    route_b_reject = f"Score insuficiente ({route_b_score}/{self.min_confluence_score})"
+
+        # -------------------------------------------------------------
+        # Cálculo de Stop Loss / Take Profit para Reentradas
+        # -------------------------------------------------------------
         point = 0.0001 if "JPY" not in self.symbol else 0.01
         sl_dist = (current_atr * self.atr_sl_mult) if current_atr > 0 else (self.static_sl_pips * point)
         tp_dist = (current_atr * self.atr_tp_mult) if current_atr > 0 else (self.static_tp_pips * point)
@@ -560,18 +655,50 @@ class SyntxStrategy(BaseStrategy):
         sl_price = (curr_close - sl_dist) if is_buy else (curr_close + sl_dist)
         tp_price = (curr_close + tp_dist) if is_buy else (curr_close - tp_dist)
 
+        # -------------------------------------------------------------
+        # Retorno de Señal según la Ruta Activada
+        # -------------------------------------------------------------
+        if route_a_valid:
+            return {
+                "signal": expected_signal,
+                "is_reentry": True,
+                "reentry_route": "FIBO_LADDER",
+                "reentry_tag": f"Fibo {target_fibo_pct}%",
+                "order_comment": f"Reentry #{current_count} Fibo {target_fibo_pct}%",
+                "reentry_number": current_count,
+                "max_reentries": max_reentries,
+                "fibo_level_pct": target_fibo_pct,
+                "fibo_target_price": target_fibo_price,
+                "support": support,
+                "resistance": resistance,
+                "atr": current_atr,
+                "score": route_a_score,
+                "sl": sl_price,
+                "tp": tp_price,
+                "reason": f"⚡ [REENTRADA #{current_count}/{max_reentries} - RUTA A: FIBO] Nivel {target_fibo_pct}% {expected_signal} @ {curr_close:.5f} (Objetivo: {target_fibo_price:.5f}) con Score {route_a_score}/3: {', '.join(route_a_details)}"
+            }
+
+        if route_b_valid:
+            return {
+                "signal": expected_signal,
+                "is_reentry": True,
+                "reentry_route": "EMA_PULLBACK",
+                "reentry_tag": "EMA Pullback",
+                "order_comment": f"Reentry #{current_count} EMA Pullback",
+                "reentry_number": current_count,
+                "max_reentries": max_reentries,
+                "fibo_level_pct": target_fibo_pct,
+                "fibo_target_price": ema_trend,
+                "support": support,
+                "resistance": resistance,
+                "atr": current_atr,
+                "score": route_b_score,
+                "sl": sl_price,
+                "tp": tp_price,
+                "reason": f"⚡ [REENTRADA #{current_count}/{max_reentries} - RUTA B: PULLBACK EMA200] {expected_signal} @ {curr_close:.5f} (EMA200: {ema_trend:.5f} ± {ema_buffer:.5f} | Anti-Spam: {bars_since_last_pos} velas / {price_dist_atr:.1f} ATR) con Score {route_b_score}/3: {', '.join(route_b_details)}"
+            }
+
         return {
-            "signal": expected_signal,
-            "is_reentry": True,
-            "reentry_number": current_count,
-            "max_reentries": max_reentries,
-            "fibo_level_pct": target_fibo_pct,
-            "fibo_target_price": target_fibo_price,
-            "support": support,
-            "resistance": resistance,
-            "atr": current_atr,
-            "score": score,
-            "sl": sl_price,
-            "tp": tp_price,
-            "reason": f"⚡ [REENTRADA #{current_count}/{max_reentries}] Fibo {target_fibo_pct}% {expected_signal} @ {curr_close:.5f} (Objetivo Fibo: {target_fibo_price:.5f}) con Score {score}/3: {', '.join(score_details)}"
+            "signal": "HOLD",
+            "reason": f"Reentrada #{current_count} en espera | Ruta A (Fibo {target_fibo_pct}%): {route_a_reject} | Ruta B (Pullback EMA{self.ema_trend_period}): {route_b_reject}"
         }

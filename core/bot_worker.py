@@ -433,7 +433,8 @@ class SymbolWorker(threading.Thread):
                                 else:
                                     self._log(f"⚡ [OPORTUNIDAD DE REENTRADA DETECTADA] {reentry_eval.get('reason')}", "SUCCESS")
                                     reentry_num = reentry_eval.get("reentry_number", len(open_positions))
-                                    fibo_pct = reentry_eval.get("fibo_level_pct", 78.6)
+                                    reentry_tag = reentry_eval.get("reentry_tag", f"Fibo {reentry_eval.get('fibo_level_pct', 78.6)}%")
+                                    reentry_comment = reentry_eval.get("order_comment", f"Reentry #{reentry_num} {reentry_tag}")
                                     reentry_sl = reentry_eval.get("sl", 0.0)
                                     reentry_tp = reentry_eval.get("tp", 0.0)
                                     reentry_lot = self.lot
@@ -456,7 +457,7 @@ class SymbolWorker(threading.Thread):
                                     }
 
                                     if ai_enabled and ai_api_key.strip():
-                                        self._log(f"🧠 [IA CONSULTOR] Evaluando Reentrada #{reentry_num} (Fibo {fibo_pct}%) en {self.symbol}...", "INFO")
+                                        self._log(f"🧠 [IA CONSULTOR] Evaluando Reentrada #{reentry_num} ({reentry_tag}) en {self.symbol}...", "INFO")
 
                                         # Preparar contexto para la IA
                                         news_txt = news_manager.format_news_summary_for_ai(self.symbol)
@@ -517,9 +518,9 @@ class SymbolWorker(threading.Thread):
                                             volume=reentry_lot,
                                             sl_price=reentry_sl,
                                             tp_price=reentry_tp,
-                                            comment=f"Reentry #{reentry_num} Fibo {fibo_pct}%"
+                                            comment=reentry_comment
                                         )
-                                        self._log(f"🚀 [REENTRADA #{reentry_num}/{max_reentries} ENVIADA] {self.symbol} {reentry_sig} | Lote: {reentry_lot} | SL: {reentry_sl} | TP: {reentry_tp} | Fibo {fibo_pct}%", "SUCCESS")
+                                        self._log(f"🚀 [REENTRADA #{reentry_num}/{max_reentries} ENVIADA] {self.symbol} {reentry_sig} ({reentry_tag}) | Lote: {reentry_lot} | SL: {reentry_sl} | TP: {reentry_tp}", "SUCCESS")
 
                 else:
                     # 🟢 RAMA B: NO HAY POSICIONES ABIERTAS ➔ BUSCAR NUEVAS ENTRADAS
