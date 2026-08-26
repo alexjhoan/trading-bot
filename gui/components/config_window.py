@@ -181,21 +181,72 @@ class ConfigWindow(ctk.CTkToplevel):
         self.btn_fetch_models.grid(row=0, column=1, sticky="e")
         current_row += 1
 
-        # 3. API KEY, URL BASE Y THINKING BUDGET
-        labels_ai_inputs = [
-            ("API Key (Secret Token):", "ai_api_key_entry"),
-            ("URL Base / Proxy (Opcional):", "ai_base_url_entry"),
-            ("Thinking Budget (Tokens, 0=off):", "ai_thinking_budget_entry"),
-        ]
+        # 3. API KEY (VISIBLE POR DEFECTO PARA VERIFICACIÓN)
+        api_key_lbl = ctk.CTkLabel(self.scroll_frame, text="API Key (Token de Acceso):", anchor="w")
+        api_key_lbl.grid(row=current_row, column=0, padx=(5, 10), pady=4, sticky="w")
 
-        for label_text, key in labels_ai_inputs:
-            lbl = ctk.CTkLabel(self.scroll_frame, text=label_text, anchor="w")
-            lbl.grid(row=current_row, column=0, padx=(5, 10), pady=4, sticky="w")
+        api_key_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
+        api_key_frame.grid(row=current_row, column=1, padx=(0, 5), pady=4, sticky="ew")
+        api_key_frame.grid_columnconfigure(0, weight=1)
 
-            entry = ctk.CTkEntry(self.scroll_frame, show="*" if "api_key" in key else "")
-            entry.grid(row=current_row, column=1, padx=(0, 5), pady=4, sticky="ew")
-            self.entries[key] = entry
-            current_row += 1
+        self.api_key_visible = True
+        self.api_key_entry = ctk.CTkEntry(api_key_frame, show="", placeholder_text="Pega aquí tu API Key...")
+        self.api_key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.entries["ai_api_key_entry"] = self.api_key_entry
+
+        self.btn_toggle_key = ctk.CTkButton(
+            api_key_frame,
+            text="👁️ Ocultar",
+            width=85,
+            command=self._toggle_api_key_visibility,
+            fg_color="#374151",
+            hover_color="#4B5563"
+        )
+        self.btn_toggle_key.grid(row=0, column=1, sticky="e")
+        current_row += 1
+
+        # 4. URL BASE / PROXY (OPCIONAL)
+        url_lbl = ctk.CTkLabel(self.scroll_frame, text="URL Base / Proxy (Opcional):", anchor="w")
+        url_lbl.grid(row=current_row, column=0, padx=(5, 10), pady=4, sticky="w")
+
+        url_entry = ctk.CTkEntry(self.scroll_frame, placeholder_text="https://generativelanguage.googleapis.com...")
+        url_entry.grid(row=current_row, column=1, padx=(0, 5), pady=4, sticky="ew")
+        self.entries["ai_base_url_entry"] = url_entry
+        current_row += 1
+
+        # 5. SWITCH PARA MODO THINKING (RAZONAMIENTO PROFUNDO)
+        self.ai_thinking_enabled_var = ctk.BooleanVar(value=False)
+        self.ai_thinking_switch = ctk.CTkSwitch(
+            self.scroll_frame,
+            text="Activar Razonamiento Profundo (Thinking / Reasoning)",
+            variable=self.ai_thinking_enabled_var,
+            command=self._on_thinking_switch_toggle,
+            font=("Arial", 12, "bold"),
+            progress_color="#8B5CF6"
+        )
+        self.ai_thinking_switch.grid(row=current_row, column=0, columnspan=2, pady=(8, 4), sticky="w")
+        current_row += 1
+
+        # Cuadro de Advertencia de Thinking (se muestra al pasar a ON)
+        self.thinking_warning_frame = ctk.CTkFrame(
+            self.scroll_frame,
+            fg_color="#3B2607",
+            border_color="#D97706",
+            border_width=1,
+            corner_radius=6
+        )
+        self.thinking_warning_label = ctk.CTkLabel(
+            self.thinking_warning_frame,
+            text="⚠️ Advertencia: El modo Thinking incrementa la profundidad analítica,\npero aumenta el tiempo de respuesta (latencia) y genera mayor consumo de tokens en la API.",
+            font=("Arial", 11),
+            text_color="#FDE68A",
+            justify="left"
+        )
+        self.thinking_warning_label.pack(padx=10, pady=6, fill="x")
+        self.thinking_warning_row = current_row
+        # Por defecto oculto hasta que se active
+        current_row += 1
+
 
         # ----------------------------------------------------
         # SECCIÓN 3: SEGURIDAD & LICENCIA DEL BOT
@@ -299,6 +350,41 @@ class ConfigWindow(ctk.CTkToplevel):
             fg_color="#10B981"
         )
         self.btn_save.grid(row=0, column=0, sticky="ew")
+
+    def _toggle_api_key_visibility(self) -> None:
+        """Alterna la visibilidad del texto de la API Key para que el usuario verifique lo copiado."""
+        if self.api_key_visible:
+            self.api_key_entry.configure(show="*")
+            self.btn_toggle_key.configure(text="👁️ Mostrar")
+            self.api_key_visible = False
+        else:
+            self.api_key_entry.configure(show="")
+            self.btn_toggle_key.configure(text="👁️ Ocultar")
+            self.api_key_visible = True
+
+    def _on_thinking_switch_toggle(self) -> None:
+        """Muestra u oculta la advertencia de latencia/tokens y ajusta el thinking budget por defecto a 128."""
+        is_enabled = self.ai_thinking_enabled_var.get()
+        if is_enabled:
+            self.thinking_warning_frame.grid(
+                row=self.thinking_warning_row,
+                column=0,
+                columnspan=2,
+                padx=5,
+                pady=(4, 8),
+                sticky="ew"
+            )
+            # Si el budget actual está en 0 o vacío, asignar por defecto 128
+            if "ai_thinking_budget_entry" in self.entries:
+                curr_val = self.entries["ai_thinking_budget_entry"].get().strip()
+                if not curr_val or curr_val == "0":
+                    self.entries["ai_thinking_budget_entry"].delete(0, "end")
+                    self.entries["ai_thinking_budget_entry"].insert(0, "128")
+        else:
+            self.thinking_warning_frame.grid_forget()
+            if "ai_thinking_budget_entry" in self.entries:
+                self.entries["ai_thinking_budget_entry"].delete(0, "end")
+                self.entries["ai_thinking_budget_entry"].insert(0, "0")
 
     def _copy_machine_id(self) -> None:
         """Copia el key ID al portapapeles del sistema."""
@@ -414,8 +500,20 @@ class ConfigWindow(ctk.CTkToplevel):
 
         self.entries["ai_api_key_entry"].insert(0, str(self.config_data.get("ai_api_key", "")))
         self.entries["ai_base_url_entry"].insert(0, str(self.config_data.get("ai_base_url", "")))
+
+        # Configuración de Thinking y Thinking Budget
+        saved_budget = int(self.config_data.get("ai_thinking_budget", 0))
+        saved_thinking_on = bool(self.config_data.get("ai_thinking_enabled", False) or (saved_budget > 0))
+        self.ai_thinking_enabled_var.set(saved_thinking_on)
+
         if "ai_thinking_budget_entry" in self.entries:
-            self.entries["ai_thinking_budget_entry"].insert(0, str(self.config_data.get("ai_thinking_budget", 128)))
+            self.entries["ai_thinking_budget_entry"].delete(0, "end")
+            if saved_thinking_on:
+                self.entries["ai_thinking_budget_entry"].insert(0, str(saved_budget if saved_budget > 0 else 128))
+            else:
+                self.entries["ai_thinking_budget_entry"].insert(0, "0")
+
+        self._on_thinking_switch_toggle()
 
         # Valor de Licencia
         if "license_key_entry" in self.entries:
@@ -429,11 +527,18 @@ class ConfigWindow(ctk.CTkToplevel):
         except ValueError:
             login_val = 0
 
-        try:
-            raw_tb = self.entries["ai_thinking_budget_entry"].get().strip() if "ai_thinking_budget_entry" in self.entries else "128"
-            thinking_val = int(raw_tb) if raw_tb else 128
-        except ValueError:
-            thinking_val = 128
+        is_thinking_on = bool(self.ai_thinking_enabled_var.get())
+        if "ai_thinking_budget_entry" in self.entries:
+            try:
+                raw_tb = self.entries["ai_thinking_budget_entry"].get().strip()
+                thinking_val = int(raw_tb) if raw_tb else (128 if is_thinking_on else 0)
+            except ValueError:
+                thinking_val = 128 if is_thinking_on else 0
+            final_budget = max(0, thinking_val) if is_thinking_on else 0
+        else:
+            final_budget = int(self.config_data.get("ai_thinking_budget", 128)) if is_thinking_on else 0
+            if is_thinking_on and final_budget <= 0:
+                final_budget = 128
 
         data.update({
             "login": login_val,
@@ -450,7 +555,8 @@ class ConfigWindow(ctk.CTkToplevel):
             "ai_api_key": self.entries["ai_api_key_entry"].get().strip(),
             "ai_model": self.selected_model.get().strip() or "gemini-2.5-flash",
             "ai_base_url": self.entries["ai_base_url_entry"].get().strip(),
-            "ai_thinking_budget": max(0, thinking_val),
+            "ai_thinking_enabled": is_thinking_on,
+            "ai_thinking_budget": final_budget,
             # Campo de Licencia
             "license_key": self.entries["license_key_entry"].get().strip() if "license_key_entry" in self.entries else "",
         })

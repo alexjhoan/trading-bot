@@ -30,6 +30,16 @@ TIMEFRAME_SECONDS_MAP: Dict[int, int] = {
     mt5.TIMEFRAME_D1: 86400,
 }
 
+TIMEFRAME_NAMES: Dict[int, str] = {
+    mt5.TIMEFRAME_M1: "M1",
+    mt5.TIMEFRAME_M5: "M5",
+    mt5.TIMEFRAME_M15: "M15",
+    mt5.TIMEFRAME_M30: "M30",
+    mt5.TIMEFRAME_H1: "H1",
+    mt5.TIMEFRAME_H4: "H4",
+    mt5.TIMEFRAME_D1: "D1",
+}
+
 
 def calculate_sleep_seconds(timeframe_seconds: int) -> float:
     """Calcula el tiempo exacto restante hasta el cierre de la vela actual + 1s extra de margen."""
@@ -430,7 +440,22 @@ class SymbolWorker(threading.Thread):
 
                                     # Validación y recomendación por IA (si está habilitada)
                                     reentry_approved = True
-                                    if ai_enabled:
+                                    curr_close = float(df['close'].iloc[-1]) if not df.empty else 0.0
+                                    tf_name = TIMEFRAME_NAMES.get(self.timeframe, "M15")
+
+                                    ai_api_key = str(cfg.get("ai_api_key", api_key if 'api_key' in locals() else ""))
+                                    ai_model = str(cfg.get("ai_model", model_name if 'model_name' in locals() else "gemini-2.5-flash"))
+                                    ai_base_url = str(cfg.get("ai_base_url", base_url if 'base_url' in locals() else ""))
+                                    ai_budget = int(cfg.get("ai_thinking_budget", 128))
+
+                                    acc_info_now = mt5.account_info()
+                                    acct_dict = {
+                                        "balance": acc_info_now.balance if acc_info_now else 0.0,
+                                        "equity": acc_info_now.equity if acc_info_now else 0.0,
+                                        "free_margin": acc_info_now.margin_free if acc_info_now else 0.0
+                                    }
+
+                                    if ai_enabled and ai_api_key.strip():
                                         self._log(f"🧠 [IA CONSULTOR] Evaluando Reentrada #{reentry_num} (Fibo {fibo_pct}%) en {self.symbol}...", "INFO")
 
                                         # Preparar contexto para la IA

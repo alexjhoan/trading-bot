@@ -13,12 +13,13 @@ import threading
 from typing import Dict, List, Any
 import MetaTrader5 as mt5
 
-from gui.components import TopbarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
+from gui.components import TopbarComponent, StatsBarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
 from core.bot_worker import SymbolWorker
 from core.config_manager import load_config, save_config
 from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs, check_user_credentials_exist
 from core.licensing import verify_license_token, get_hardware_id
 from core.ai_advisor import test_ai_payload_terminal
+from core.stats_calculator import calculate_closed_trades_stats
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -29,19 +30,23 @@ class QuantBotApp(ctk.CTk):
         super().__init__()
 
         self.title("🤖 Quant Trading Bot - Auto Execution")
-        self.geometry("1150x760")
-        self.minsize(1000, 680)
+        self.geometry("1150x780")
+        self.minsize(1000, 700)
 
-        # Configuración de Grid Principal (Row 0: Topbar, Row 1: Main Panel)
+        # Configuración de Grid Principal (Row 0: Topbar, Row 1: Stats Bar, Row 2: Main Panel)
         self.grid_rowconfigure(0, weight=0)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(1, weight=0)
+        self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
         # Cargar configuración persistente
         self.config_data: Dict[str, Any] = load_config()
         self.selected_strategy: str = self.config_data.get("selected_strategy", "forex")
+        self.stats_period: str = self.config_data.get("stats_period", "Día")
+        self.stats_time_mode: str = self.config_data.get("stats_time_mode", "Hora Broker")
         raw_active_symbols: List[str] = self.config_data.get("active_symbols", [])
         available_symbols: List[str] = self.config_data.get("available_symbols", [])
+
 
         # Sanitizar coincidencia de mayúsculas/minúsculas según la lista disponible de MT5
         if available_symbols:
@@ -149,15 +154,24 @@ class QuantBotApp(ctk.CTk):
             on_config_saved_callback=self._on_config_reloaded,
             on_test_ai_callback=self._handle_test_ai_terminal
         )
-        self.topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+        self.topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 3))
 
-        # 2. Panel Central (Fila 1)
+        # 2. Barra de Estadísticas de Operaciones Cerradas (Fila 1 - Justo debajo del Topbar)
+        self.stats_bar = StatsBarComponent(
+            self,
+            selected_period=self.stats_period,
+            selected_time_mode=self.stats_time_mode,
+            on_filter_changed_callback=self._handle_stats_filter_changed
+        )
+        self.stats_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=(2, 5))
+
+        # 3. Panel Central (Fila 2)
         self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
+        self.main_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
         self.main_frame.grid_rowconfigure(1, weight=1)
         self.main_frame.grid_columnconfigure(0, weight=1)
 
-        # 3. Selector de Símbolos y Tabla por Par (dentro de self.main_frame)
+        # 4. Selector de Símbolos y Tabla por Par (dentro de self.main_frame)
         self.symbol_selector = SymbolSelectorComponent(
             self.main_frame,
             symbols=self.symbols,
@@ -171,12 +185,32 @@ class QuantBotApp(ctk.CTk):
         )
         self.symbol_selector.pack(fill="x", pady=(0, 8))
 
-        # 4. Consola de Logs (dentro de self.main_frame)
+        # 5. Consola de Logs (dentro de self.main_frame)
         self.console = ConsoleTabviewComponent(
             master=self.main_frame,
             symbols=self.symbol_selector.symbols
         )
         self.console.pack(fill="both", expand=True)
+
+    def _handle_stats_filter_changed(self, new_period: str, new_time_mode: str) -> None:
+        """Maneja el cambio del filtro de período (Día/Semana) u horario (Broker/Local) y lo persiste."""
+        self.stats_period = new_period
+        self.stats_time_mode = new_time_mode
+        self.config_data["stats_period"] = new_period
+        self.config_data["stats_time_mode"] = new_time_mode
+        self.save_settings()
+        self._refresh_stats()
+        self.console.log("General", f"📊 Filtro de estadísticas: '{new_period}' | '{new_time_mode}' (Configuración guardada para próximas sesiones).", "INFO")
+
+    def _refresh_stats(self) -> None:
+        """Calcula y actualiza las estadísticas de operaciones cerradas en la interfaz."""
+        try:
+            stats = calculate_closed_trades_stats(period=self.stats_period, time_mode=self.stats_time_mode)
+            if hasattr(self, "stats_bar") and self.stats_bar:
+                self.stats_bar.update_stats(stats)
+        except Exception as e:
+            print(f"[DEBUG STATS] Error actualizando barra de estadísticas: {e}")
+
 
     def _handle_strategy_changed(self, new_strategy: str) -> None:
         """Maneja el cambio dinámico de estrategia desde el selector del Topbar."""
@@ -332,6 +366,8 @@ class QuantBotApp(ctk.CTk):
         """Guarda los símbolos activos y configuraciones individuales en config.json."""
         self.config_data["active_symbols"] = self.symbols
         self.config_data["selected_strategy"] = self.selected_strategy
+        self.config_data["stats_period"] = self.stats_period
+        self.config_data["stats_time_mode"] = self.stats_time_mode
 
         if hasattr(self, "symbol_selector"):
             all_configs = self.symbol_selector.get_all_symbol_configs()
@@ -359,7 +395,7 @@ class QuantBotApp(ctk.CTk):
         super().destroy()
 
     def _update_account_loop(self) -> None:
-        """Bucle secundario en segundo plano para actualizar balance, equidad y detectar operaciones abiertas."""
+        """Bucle secundario en segundo plano para actualizar balance, equidad, estadísticas y detectar operaciones abiertas."""
         try:
             acc_info = mt5.account_info()
             if acc_info is None:
@@ -398,11 +434,15 @@ class QuantBotApp(ctk.CTk):
                 self.topbar.update_account_info(0.0, 0.0)
                 self.symbol_selector.set_account_balance(0.0)
 
+            # 📊 Actualizar estadísticas en tiempo real
+            self._refresh_stats()
+
         except Exception as e:
             print(f"[DEBUG ACCOUNT] Excepción en loop: {e}")
             traceback.print_exc()
 
         self.after(5000, self._update_account_loop)
+
 
     def on_worker_log(self, symbol: str, message: str, level: str = "INFO") -> None:
         """Callback que reciben los workers para enviar logs a la consola de la UI."""
