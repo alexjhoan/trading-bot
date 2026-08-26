@@ -94,7 +94,7 @@ class SyntxStrategy(BaseStrategy):
         df["resistance"] = df["resistance"].bfill().ffill()
         df["support"] = df["support"].bfill().ffill()
 
-        # 2. Niveles de Fibonacci 61.8%
+        # 2. Niveles de Fibonacci Progresivos (Entrada Base 61.8% y Escalera de Reentradas: 78.6%, 92%, 100%, 132%, 161.8%)
         swing_range = (df["resistance"] - df["support"]).abs()
         zero_range_mask = (swing_range <= 1e-6) | swing_range.isna()
         if zero_range_mask.any():
@@ -105,6 +105,16 @@ class SyntxStrategy(BaseStrategy):
 
         df["fibo_618_buy"] = df["resistance"] - (swing_range * 0.618)
         df["fibo_618_sell"] = df["support"] + (swing_range * 0.618)
+        df["fibo_786_buy"] = df["resistance"] - (swing_range * 0.786)
+        df["fibo_786_sell"] = df["support"] + (swing_range * 0.786)
+        df["fibo_920_buy"] = df["resistance"] - (swing_range * 0.920)
+        df["fibo_920_sell"] = df["support"] + (swing_range * 0.920)
+        df["fibo_1000_buy"] = df["resistance"] - (swing_range * 1.000)
+        df["fibo_1000_sell"] = df["support"] + (swing_range * 1.000)
+        df["fibo_1320_buy"] = df["resistance"] - (swing_range * 1.320)
+        df["fibo_1320_sell"] = df["support"] + (swing_range * 1.320)
+        df["fibo_1618_buy"] = df["resistance"] - (swing_range * 1.618)
+        df["fibo_1618_sell"] = df["support"] + (swing_range * 1.618)
 
         # 3. Indicadores Estándar
         df["atr"] = ta.atr(high=df["high"], low=df["low"], close=df["close"], length=self.atr_period)
@@ -339,4 +349,173 @@ class SyntxStrategy(BaseStrategy):
             "sl": sl_price,
             "tp": tp_price,
             "reason": reason
+        }
+
+    def evaluate_reentry_signal(self, df: pd.DataFrame, open_positions: List[Any], max_reentries: int = 0) -> Dict[str, Any]:
+        """
+        Evalúa si el mercado ofrece una REENTRADA de alta probabilidad según la Escalera Progresiva de Fibonacci:
+        - Entrada Base (0 posiciones): Fibo 61.8%
+        - Reentrada #1 (1 posición abierta): Fibo 78.6% (0.786)
+        - Reentrada #2 (2 posiciones abiertas): Fibo 92.0% (0.920)
+        - Reentrada #3 (3 posiciones abiertas): Fibo 100.0% (1.000 / Origen del Swing)
+        - Reentrada #4 (4 posiciones abiertas): Fibo 132.0% (1.320 / Extensión)
+        - Reentrada #5 (5 posiciones abiertas): Fibo 161.8% (1.618 / Extensión)
+
+        Requiere además:
+        1. Que el precio alcance el nivel objetivo de Fibo y supere el precio de apertura de las posiciones previas.
+        2. Confluencia con la estrategia principal (EMA200 con respiro institucional, volumen y patrón de vela de rechazo).
+        """
+        if max_reentries <= 0 or not open_positions:
+            return {"signal": "HOLD", "reason": "Reentradas deshabilitadas o sin posición base"}
+
+        current_count = len(open_positions)
+        if current_count >= (max_reentries + 1):
+            return {"signal": "HOLD", "reason": f"Límite de reentradas alcanzado ({current_count - 1}/{max_reentries})"}
+
+        # Determinar la dirección de las órdenes existentes
+        base_pos = open_positions[0]
+        is_buy = base_pos.type == mt5.POSITION_TYPE_BUY
+        expected_signal = "BUY" if is_buy else "SELL"
+
+        min_bars = max(self.pivot_window * 2, self.atr_period, self.volume_ma_period, self.ema_trend_period) + 10
+        if df is None or len(df) < min_bars:
+            return {"signal": "HOLD", "reason": "Insuficiente historial para evaluar reentrada"}
+
+        df_analyzed = self.calculate_indicators(df)
+        curr_candle = df_analyzed.iloc[-2]
+        curr_close = float(curr_candle["close"])
+        curr_low = float(curr_candle.get("low", curr_close))
+        curr_high = float(curr_candle.get("high", curr_close))
+
+        support = float(curr_candle.get("support", curr_close * 0.999))
+        resistance = float(curr_candle.get("resistance", curr_close * 1.001))
+        swing_range = abs(resistance - support)
+        if swing_range <= 1e-6:
+            swing_range = curr_close * 0.002
+
+        current_atr = float(curr_candle.get("atr", 0.0))
+        ema_trend = float(curr_candle.get("ema_trend", curr_close))
+        ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.002)
+
+        # Escalera Progresiva de Fibonacci por Reentrada:
+        fibo_ladder = [0.786, 0.920, 1.000, 1.320, 1.618, 2.000, 2.618]
+        reentry_idx = current_count - 1
+        if reentry_idx < len(fibo_ladder):
+            target_fibo_ratio = fibo_ladder[reentry_idx]
+        else:
+            target_fibo_ratio = fibo_ladder[-1] + (reentry_idx - len(fibo_ladder) + 1) * 0.5
+
+        target_fibo_pct = round(target_fibo_ratio * 100, 1)
+
+        # 1. Validación de Nivel de Fibonacci y Separación respecto a posiciones previas
+        score = 0
+        score_details = []
+
+        if is_buy:
+            # Reentrada BUY: Nivel Fibo proyectado hacia abajo desde la resistencia
+            target_fibo_price = float(resistance - (swing_range * target_fibo_ratio))
+            lowest_open_price = min(float(p.price_open) for p in open_positions)
+
+            # El precio debe haber alcanzado/profundizado hasta el nivel Fibo objetivo
+            level_reached = (curr_close <= target_fibo_price) or (curr_low <= target_fibo_price)
+            # Y debe estar estrictamente a un precio inferior al de las compras anteriores (mejor precio / no repetir en cada vela)
+            better_price = curr_close < lowest_open_price
+
+            if not level_reached:
+                return {
+                    "signal": "HOLD",
+                    "reason": f"Precio actual ({curr_close:.5f}) aún no alcanza el nivel Fibo {target_fibo_pct}% ({target_fibo_price:.5f}) para Reentrada #{current_count}"
+                }
+            if not better_price:
+                return {
+                    "signal": "HOLD",
+                    "reason": f"Precio ({curr_close:.5f}) no mejora el precio de compra previo ({lowest_open_price:.5f}) para Reentrada #{current_count}"
+                }
+
+            # Validación de tendencia con respiro institucional o soporte profundo
+            trend_ok = curr_close >= (ema_trend - ema_buffer)
+            if trend_ok:
+                score += 1
+                score_details.append(f"Zona Fibo {target_fibo_pct}% sobre EMA{self.ema_trend_period} (+1)")
+            elif curr_close >= (target_fibo_price - ema_buffer):
+                score += 1
+                score_details.append(f"Zona Fibo {target_fibo_pct}% Institucional (+1)")
+
+        else:
+            # Reentrada SELL: Nivel Fibo proyectado hacia arriba desde el soporte
+            target_fibo_price = float(support + (swing_range * target_fibo_ratio))
+            highest_open_price = max(float(p.price_open) for p in open_positions)
+
+            level_reached = (curr_close >= target_fibo_price) or (curr_high >= target_fibo_price)
+            better_price = curr_close > highest_open_price
+
+            if not level_reached:
+                return {
+                    "signal": "HOLD",
+                    "reason": f"Precio actual ({curr_close:.5f}) aún no alcanza el nivel Fibo {target_fibo_pct}% ({target_fibo_price:.5f}) para Reentrada #{current_count}"
+                }
+            if not better_price:
+                return {
+                    "signal": "HOLD",
+                    "reason": f"Precio ({curr_close:.5f}) no mejora el precio de venta previo ({highest_open_price:.5f}) para Reentrada #{current_count}"
+                }
+
+            trend_ok = curr_close <= (ema_trend + ema_buffer)
+            if trend_ok:
+                score += 1
+                score_details.append(f"Zona Fibo {target_fibo_pct}% bajo EMA{self.ema_trend_period} (+1)")
+            elif curr_close <= (target_fibo_price + ema_buffer):
+                score += 1
+                score_details.append(f"Zona Fibo {target_fibo_pct}% Institucional (+1)")
+
+        # 2. Confluencia de Volumen / Actividad
+        if bool(curr_candle.get("high_volume", False)):
+            score += 1
+            score_details.append("Actividad de Volumen Confirmada (+1)")
+
+        # 3. Confluencia de Patrones de Vela (Hammer, Shooting Star, Impulso de Rechazo)
+        candlestick_info = detect_candlestick_patterns(df)
+        candle_bias = candlestick_info.get("bias", "NEUTRAL")
+        candle_pattern_name = candlestick_info.get("primary_pattern", "Vela")
+        body_ratio = float(curr_candle.get("body_ratio", 0.0))
+        is_bull_hammer = bool(curr_candle.get("is_bullish_hammer", False))
+        is_bear_hammer = bool(curr_candle.get("is_bearish_hammer", False))
+
+        if is_buy and (candle_bias == "BULLISH" or is_bull_hammer or body_ratio >= 0.40):
+            patron_label = candle_pattern_name if candle_bias == "BULLISH" else ("Hammer Alcista" if is_bull_hammer else f"Rebote Vela Fuerte ({body_ratio * 100:.0f}%)")
+            score += 1
+            score_details.append(f"Patrón: {patron_label} (+1)")
+        elif not is_buy and (candle_bias == "BEARISH" or is_bear_hammer or body_ratio >= 0.40):
+            patron_label = candle_pattern_name if candle_bias == "BEARISH" else ("Shooting Star" if is_bear_hammer else f"Rechazo Vela Fuerte ({body_ratio * 100:.0f}%)")
+            score += 1
+            score_details.append(f"Patrón: {patron_label} (+1)")
+
+        if score < self.min_confluence_score:
+            return {
+                "signal": "HOLD",
+                "reason": f"Reentrada #{current_count} (Fibo {target_fibo_pct}%) rechazada por baja confluencia ({score}/{self.min_confluence_score} requerido)"
+            }
+
+        # Cálculo de SL/TP para la reentrada
+        point = 0.0001 if "JPY" not in self.symbol else 0.01
+        sl_dist = (current_atr * self.atr_sl_mult) if current_atr > 0 else (self.static_sl_pips * point)
+        tp_dist = (current_atr * self.atr_tp_mult) if current_atr > 0 else (self.static_tp_pips * point)
+
+        sl_price = (curr_close - sl_dist) if is_buy else (curr_close + sl_dist)
+        tp_price = (curr_close + tp_dist) if is_buy else (curr_close - tp_dist)
+
+        return {
+            "signal": expected_signal,
+            "is_reentry": True,
+            "reentry_number": current_count,
+            "max_reentries": max_reentries,
+            "fibo_level_pct": target_fibo_pct,
+            "fibo_target_price": target_fibo_price,
+            "support": support,
+            "resistance": resistance,
+            "atr": current_atr,
+            "score": score,
+            "sl": sl_price,
+            "tp": tp_price,
+            "reason": f"⚡ [REENTRADA #{current_count}/{max_reentries}] Fibo {target_fibo_pct}% {expected_signal} @ {curr_close:.5f} (Objetivo Fibo: {target_fibo_price:.5f}) con Score {score}/3: {', '.join(score_details)}"
         }

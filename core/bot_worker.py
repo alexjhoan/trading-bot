@@ -15,6 +15,9 @@ from core.data_loader import get_historical_data
 from core.config_manager import load_config
 from core.ai_advisor import evaluate_trade_setup, evaluate_open_position_ai
 from core.ai_memory import AIMemoryManager
+from core.news_manager import news_manager
+from core.market_context import analyze_macro_multitimeframe
+from core.candlestick_patterns import format_candlestick_summary_for_ai
 
 TIMEFRAME_SECONDS_MAP: Dict[int, int] = {
     mt5.TIMEFRAME_M1: 60,
@@ -326,7 +329,7 @@ class SymbolWorker(threading.Thread):
                             self._log(f"🔎 [GESTIÓN ESTRATEGIA LOCAL] #{pos.ticket} ➔ Acción: {action} | Razón: {reason}", "INFO")
                             self.executor.manage_position_with_strategy(position=pos, management_result=mgmt_result)
 
-                    # 3. ⚡ EVALUACIÓN DE REENTRADAS POR CONSOLIDACIÓN Y SIGUIENTE NIVEL FIBO (78.6%)
+                    # 3. ⚡ EVALUACIÓN DE REENTRADAS POR ESCALERA PROGRESIVA DE FIBONACCI (78.6%, 92%, 100%, 132%, ...)
                     if (len(open_positions) < (max_reentries + 1)) and (max_reentries > 0) and not is_danger_zone:
                         if hasattr(self.strategy, "evaluate_reentry_signal"):
                             reentry_eval = self.strategy.evaluate_reentry_signal(
@@ -337,22 +340,84 @@ class SymbolWorker(threading.Thread):
                             reentry_sig = reentry_eval.get("signal", "HOLD")
 
                             if reentry_sig in ["BUY", "SELL"]:
-                                is_spread_ok, _, sp_msg = self.risk_manager.validate_spread(self.symbol, max_allowed_pips=max_spread_allowed)
-                                if is_spread_ok:
+                                is_spread_ok, curr_spread, sp_msg = self.risk_manager.validate_spread(self.symbol, max_allowed_pips=max_spread_allowed)
+                                if not is_spread_ok:
+                                    self._log(f"⚠️ [REENTRADA BLOQUEADA] {sp_msg}", "WARNING")
+                                else:
                                     self._log(f"⚡ [OPORTUNIDAD DE REENTRADA DETECTADA] {reentry_eval.get('reason')}", "SUCCESS")
-                                    # Ejecutar la reentrada
+                                    reentry_num = reentry_eval.get("reentry_number", len(open_positions))
+                                    fibo_pct = reentry_eval.get("fibo_level_pct", 78.6)
                                     reentry_sl = reentry_eval.get("sl", 0.0)
                                     reentry_tp = reentry_eval.get("tp", 0.0)
-                                    reentry_num = reentry_eval.get("reentry_number", len(open_positions))
+                                    reentry_lot = self.lot
 
-                                    self.executor.send_order(
-                                        order_type=reentry_sig,
-                                        volume=self.lot,
-                                        sl_price=reentry_sl,
-                                        tp_price=reentry_tp,
-                                        comment=f"Reentry #{reentry_num}"
-                                    )
-                                    self._log(f"🚀 [REENTRADA #{reentry_num}/{max_reentries} ENVIADA] {self.symbol} {reentry_sig} | Lote: {self.lot} | SL: {reentry_sl} | TP: {reentry_tp}", "SUCCESS")
+                                    # Validación y recomendación por IA (si está habilitada)
+                                    reentry_approved = True
+                                    if ai_enabled:
+                                        self._log(f"🧠 [IA CONSULTOR] Evaluando Reentrada #{reentry_num} (Fibo {fibo_pct}%) en {self.symbol}...", "INFO")
+
+                                        # Preparar contexto para la IA
+                                        news_txt = news_manager.format_news_summary_for_ai(self.symbol)
+                                        macro_txt = analyze_macro_multitimeframe(self.symbol, float(curr_close))
+                                        candle_txt = format_candlestick_summary_for_ai(df)
+                                        spread_txt = f"Spread: {curr_spread:.1f} pips (Límite: {max_spread_allowed} pips)"
+                                        past_trades = self.ai_memory.get_recent_trades_context(self.symbol, limit=3)
+
+                                        reentry_setup = {
+                                            "symbol": self.symbol,
+                                            "timeframe": tf_name,
+                                            "signal": reentry_sig,
+                                            "price": float(curr_close),
+                                            "default_sl": reentry_sl,
+                                            "default_tp": reentry_tp,
+                                            "default_lot": reentry_lot,
+                                            "is_reentry": True,
+                                            "details": reentry_eval,
+                                            "news_summary": news_txt,
+                                            "macro_summary": macro_txt,
+                                            "candlestick_summary": candle_txt,
+                                            "spread_info": spread_txt,
+                                            "df": df
+                                        }
+
+                                        ai_result = evaluate_trade_setup(
+                                            candidate_setup=reentry_setup,
+                                            account_info=acct_dict,
+                                            past_trades=past_trades,
+                                            api_key=ai_api_key,
+                                            model_name=ai_model,
+                                            base_url=ai_base_url,
+                                            thinking_budget=ai_budget
+                                        )
+
+                                        reentry_approved = ai_result.get("approved", True)
+                                        opinion = ai_result.get("opinion", "")
+                                        confidence = ai_result.get("confidence", 1.0)
+                                        ai_sl = float(ai_result.get("ai_sl", reentry_sl))
+                                        ai_tp = float(ai_result.get("ai_tp", reentry_tp))
+                                        ai_lot = float(ai_result.get("suggested_lot", reentry_lot))
+
+                                        if reentry_approved:
+                                            self._log(f"✅ [IA APROBÓ REENTRADA #{reentry_num}] Confianza: {confidence * 100:.0f}% | {opinion}", "SUCCESS")
+                                            if ai_sl > 0:
+                                                reentry_sl = ai_sl
+                                            if ai_tp > 0:
+                                                reentry_tp = ai_tp
+                                            if ai_lot > 0:
+                                                reentry_lot = ai_lot
+                                        else:
+                                            reentry_rej = ai_result.get("rejection_reason", "Descartado por IA")
+                                            self._log(f"🛑 [IA BLOQUEÓ REENTRADA #{reentry_num}] Razón: {reentry_rej} | {opinion}", "WARNING")
+
+                                    if reentry_approved:
+                                        self.executor.send_order(
+                                            order_type=reentry_sig,
+                                            volume=reentry_lot,
+                                            sl_price=reentry_sl,
+                                            tp_price=reentry_tp,
+                                            comment=f"Reentry #{reentry_num} Fibo {fibo_pct}%"
+                                        )
+                                        self._log(f"🚀 [REENTRADA #{reentry_num}/{max_reentries} ENVIADA] {self.symbol} {reentry_sig} | Lote: {reentry_lot} | SL: {reentry_sl} | TP: {reentry_tp} | Fibo {fibo_pct}%", "SUCCESS")
 
                 else:
                     # 🟢 RAMA B: NO HAY POSICIONES ABIERTAS ➔ BUSCAR NUEVAS ENTRADAS

@@ -2,9 +2,11 @@ import json
 import re
 import time
 import socket
+import threading
+import random
 import urllib.request
 import urllib.error
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 from core.ai_logger import ai_logger
 from core.news_manager import news_manager
 from core.market_context import calculate_psychological_levels, analyze_macro_multitimeframe
@@ -12,6 +14,27 @@ from core.candlestick_patterns import format_candlestick_summary_for_ai, detect_
 
 
 DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+
+# Control global de Rate Limit / Cooldown para evitar tormentas de peticiones 429
+_GLOBAL_RATE_LIMIT_LOCK = threading.Lock()
+_GLOBAL_RATE_LIMIT_UNTIL: float = 0.0
+
+
+def _wait_for_global_cooldown() -> None:
+    """Espera si existe un cooldown activo por Rate Limit (HTTP 429)."""
+    global _GLOBAL_RATE_LIMIT_UNTIL
+    with _GLOBAL_RATE_LIMIT_LOCK:
+        now = time.time()
+        if now < _GLOBAL_RATE_LIMIT_UNTIL:
+            wait_remaining = _GLOBAL_RATE_LIMIT_UNTIL - now
+            time.sleep(wait_remaining)
+
+
+def _set_global_cooldown(seconds: float) -> None:
+    """Establece una pausa global para todas las peticiones tras detectar un 429."""
+    global _GLOBAL_RATE_LIMIT_UNTIL
+    with _GLOBAL_RATE_LIMIT_LOCK:
+        _GLOBAL_RATE_LIMIT_UNTIL = max(_GLOBAL_RATE_LIMIT_UNTIL, time.time() + seconds)
 
 # Proveedores soportados con sus configuraciones por defecto
 PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
@@ -194,9 +217,9 @@ def clean_symbol_name(symbol: str) -> str:
     return generic_clean if len(generic_clean) >= 3 else sym
 
 
-def _clean_json_text(raw_text: str) -> Dict[str, Any]:
+def _clean_json_text(raw_text: str) -> Any:
     """
-    Limpia y extrae un bloque JSON de la respuesta de la IA.
+    Limpia y extrae un bloque JSON (objeto dict o array list) de la respuesta de la IA.
     Soporta bloques de código markdown ```json ... ``` y respuestas con prefijos explicativos.
     """
     if not raw_text:
@@ -206,7 +229,7 @@ def _clean_json_text(raw_text: str) -> Dict[str, Any]:
     # 1. Intentar decodificar directo si ya viene como JSON válido
     try:
         res = json.loads(cleaned)
-        if isinstance(res, dict):
+        if isinstance(res, (dict, list)):
             return res
     except Exception:
         pass
@@ -217,26 +240,49 @@ def _clean_json_text(raw_text: str) -> Dict[str, Any]:
         block = match.group(1).strip()
         try:
             res = json.loads(block)
-            if isinstance(res, dict):
+            if isinstance(res, (dict, list)):
                 return res
         except Exception:
             cleaned = block
 
-    # 3. Buscar el primer '{' y el último '}' para extraer el objeto JSON puro
-    start_idx = cleaned.find("{")
-    end_idx = cleaned.rfind("}")
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        sub_str = cleaned[start_idx:end_idx + 1].strip()
-        try:
-            res = json.loads(sub_str)
-            if isinstance(res, dict):
-                return res
-        except Exception:
-            pass
+    # 3. Detectar si el inicio prioritario es un array '[' o un objeto '{'
+    start_brace = cleaned.find("{")
+    start_bracket = cleaned.find("[")
 
-    # 4. Si el JSON fue cortado por límite de tokens (MAX_TOKENS), intentar repararlo cerrando llaves
-    if start_idx != -1 and (end_idx == -1 or end_idx <= start_idx):
-        sub_str = cleaned[start_idx:].strip()
+    # Caso Array [...]
+    if start_bracket != -1 and (start_brace == -1 or start_bracket < start_brace):
+        end_bracket = cleaned.rfind("]")
+        if end_bracket != -1 and end_bracket > start_bracket:
+            sub_str = cleaned[start_bracket:end_bracket + 1].strip()
+            try:
+                res = json.loads(sub_str)
+                if isinstance(res, list):
+                    return res
+            except Exception:
+                pass
+        # Reparación de array truncado
+        sub_str = cleaned[start_bracket:].strip()
+        for closure in ["]", '"}]', '"}]', '}]', "}]"]:
+            try:
+                res = json.loads(sub_str + closure)
+                if isinstance(res, list):
+                    return res
+            except Exception:
+                pass
+
+    # Caso Objeto {...}
+    if start_brace != -1:
+        end_brace = cleaned.rfind("}")
+        if end_brace != -1 and end_brace > start_brace:
+            sub_str = cleaned[start_brace:end_brace + 1].strip()
+            try:
+                res = json.loads(sub_str)
+                if isinstance(res, dict):
+                    return res
+            except Exception:
+                pass
+        # Reparación de objeto truncado
+        sub_str = cleaned[start_brace:].strip()
         for closure in ["}", '"}', '" }', '0 }', 'false }', '"" }']:
             try:
                 res = json.loads(sub_str + closure)
@@ -261,14 +307,17 @@ def send_ai_http_with_retry(
     Envía peticiones HTTP a la API de IA (Gemini / OpenAI / Groq) con reintento automático
     ante timeouts o errores transitorios del servidor (500, 502, 503, 504, 429).
 
+    Aplica cooldown global y backoff exponencial con jitter cuando detecta HTTP 429 (Rate Limit).
     Retorna: (status_code, raw_response_text, total_duration_ms)
-    Lanza: HTTPError o Exception si todos los reintentos fallan o si es un error fatal de cliente (400, 401, 403, 404).
     """
     start_total_time = time.time()
     last_exception: Optional[Exception] = None
 
     for intento in range(max_retries):
         try:
+            # Respetar cualquier cooldown activo por un 429 anterior
+            _wait_for_global_cooldown()
+
             req = urllib.request.Request(
                 endpoint,
                 data=payload_bytes,
@@ -284,14 +333,24 @@ def send_ai_http_with_retry(
         except urllib.error.HTTPError as he:
             last_exception = he
             err_body = he.read().decode("utf-8", errors="ignore")
-            # Errores transitorios del servidor o Rate limit (429, 500, 502, 503, 504): Reintentar
-            if he.code in (500, 502, 503, 504, 429) and intento < max_retries - 1:
+
+            # Manejo específico y robusto para HTTP 429 (Rate Limit / Quota)
+            if he.code == 429:
+                wait_time = 2.0 * (2 ** intento) + random.uniform(0.2, 0.6)
+                _set_global_cooldown(wait_time)
+                print(f"⚠️ [{action_label}] Rate Limit / 429 detectado. Cooldown activo ({wait_time:.1f}s) - Reintento {intento + 1}/{max_retries}...")
+                if intento < max_retries - 1:
+                    time.sleep(wait_time)
+                    continue
+
+            # Errores transitorios del servidor (500, 502, 503, 504)
+            elif he.code in (500, 502, 503, 504) and intento < max_retries - 1:
                 wait_time = 1.0 + (intento * 0.5)
                 print(f"⚠️ [{action_label}] Error HTTP {he.code} en servidor de IA. Reintentando ({intento + 1}/{max_retries}) en {wait_time:.1f}s...")
                 time.sleep(wait_time)
                 continue
 
-            # Error no recuperable (400, 401, 403, 404) o se agotaron los reintentos
+            # Error no recuperable o se agotaron los reintentos
             he.msg = f"{he.msg} | {err_body}"
             raise he
 
@@ -457,7 +516,7 @@ def test_ai_connection(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, bas
         return False, f"❌ Excepción de conexión: {str(e)}"
 
 
-def evaluate_trade_setup(
+def evaluate_trade_setup_direct(
     account_info: Dict[str, Any],
     candidate_setup: Dict[str, Any],
     past_trades: List[Dict[str, Any]],
@@ -467,7 +526,7 @@ def evaluate_trade_setup(
     thinking_budget: Optional[int] = 128
 ) -> Dict[str, Any]:
     """
-    Evalúa una señal candidata mediante la IA con inyección de memoria histórica (Few-Shot Context).
+    Evalúa una señal candidata individual directamente mediante la IA con inyección de memoria histórica (Few-Shot Context).
     Realiza gestión de riesgo sobre el capital total y calcula/ajusta SL y TP óptimos.
     Registra automáticamente el payload, request, response y depuración en ia-log/semana_WW_YYYY/YYYY-MM-DD.log.
 
@@ -539,21 +598,28 @@ def evaluate_trade_setup(
     if not candlestick_summary:
         candlestick_summary = "Patrón de Vela: Acción de precio estándar [NEUTRAL]"
 
+    is_reentry = candidate_setup.get("is_reentry") or details.get("is_reentry", False)
+    reentry_num = details.get("reentry_number", 1)
+    fibo_pct = details.get("fibo_level_pct", 78.6)
+    fibo_px = details.get("fibo_target_price", current_price)
+    reentry_tag = f" [⚡ REENTRADA #{reentry_num} - Nivel Fibonacci {fibo_pct}% | Objetivo: {fibo_px}]" if is_reentry else " [NUEVA ENTRADA BASE - Fibo 61.8%]"
+
     system_instruction = (
         "Eres un Gestor de Riesgo Cuantitativo Senior de Trading Algorítmico.\n"
-        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez, patrones de velas y riesgo.\n\n"
+        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez, patrones de velas, niveles de Fibonacci y riesgo.\n\n"
         "REGLAS DE BLOQUEO Y APROBACIÓN ESTRICTAS:\n"
         "1. Rechaza ('approved': false) si hay noticias de alto impacto (HIGH) en <30 min.\n"
         "2. Rechaza ('approved': false) si el spread actual es anómalo/alto (>3.0 pips) o coincide con cierre de sesión/rollover.\n"
         "3. Rechaza o ajusta si la entrada/TP choca directamente contra un nivel psicológico institucional (ej. 0.XX00 / 0.XX50).\n"
         "4. Rechaza si la señal en M15 contradice la estructura Macro (H4/D1).\n"
         "5. CONFLUENCIA DE VELAS: Prioriza ('approved': true) compras BUY respaldadas por patrones alcistas (Morning Star, Hammer, Bullish Engulfing, Three White Soldiers, Rising Three, Piercing Line, Bullish Harami); y ventas SELL respaldadas por patrones bajistas (Evening Star, Shooting Star, Bearish Engulfing, Three Black Crows, Falling Three, Dark Cloud Cover, Bearish Harami).\n"
-        "6. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
+        "6. ESCALERA DE REENTRADAS EN FIBONACCI (78.6%, 92%, 100%, 132%, etc.): Si se evalúa una REENTRADA, valida que el precio se encuentre en un retroceso institucional óptimo, respetando la estructura con volumen o rechazo.\n"
+        "7. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
     )
 
     user_content = (
         f"CUENTA: Eq ${equity:,.2f} USD | Historial {clean_symbol}: {history_summary}\n\n"
-        f"SEÑAL EN EVALUACIÓN ({timeframe}):\n"
+        f"SEÑAL EN EVALUACIÓN ({timeframe}){reentry_tag}:\n"
         f"- Par: {clean_symbol} | Dirección: {signal} | Precio: {current_price}\n"
         f"- Sugerido: SL {strat_sl} | TP {strat_tp} | Lote {strat_lot} | ATR {atr_str}\n\n"
         f"FILTROS AVANZADOS (CONTEXTO EN VIVO):\n"
@@ -805,7 +871,561 @@ def evaluate_trade_setup(
         return fallback_output
 
 
-def evaluate_open_position_ai(
+def evaluate_batch_trade_setups(
+    account_info: Dict[str, Any],
+    candidate_setups: List[Dict[str, Any]],
+    past_trades_by_symbol: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    api_key: str = "",
+    model_name: str = DEFAULT_GEMINI_MODEL,
+    base_url: str = "",
+    thinking_budget: Optional[int] = 100
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Evalúa un LOTE de señales candidatas en una ÚNICA petición HTTP a la IA.
+    Evita de raíz el error 429 por exceso de peticiones concurrentes y distribuye
+    las respuestas resultantes a sus respectivos análisis y consolas por símbolo.
+
+    Retorna un diccionario {symbol: output_dict}.
+    """
+    if not candidate_setups:
+        return {}
+
+    # Si no hay API key, retornar fallback inmediato para todos los pares del lote
+    if not api_key or not api_key.strip():
+        fallbacks: Dict[str, Dict[str, Any]] = {}
+        for cs in candidate_setups:
+            sym = cs.get("symbol", "UNKNOWN")
+            sl = float(cs.get("default_sl", 0.0))
+            tp = float(cs.get("default_tp", 0.0))
+            lot = float(cs.get("default_lot", 0.01))
+            fallbacks[sym] = {
+                "symbol": sym,
+                "approved": True,
+                "confidence": 1.0,
+                "ai_sl": sl,
+                "ai_tp": tp,
+                "suggested_lot": lot,
+                "risk_reward_ratio": 2.0,
+                "opinion": "Operación ejecutada con SL/TP cuantitativo (IA no configurada)",
+                "rejection_reason": "",
+                "fallback": True,
+                "latency_ms": 0.0
+            }
+        return fallbacks
+
+    clean_key = api_key.strip()
+    model = (model_name or DEFAULT_GEMINI_MODEL).strip()
+    custom_url = (base_url or "").strip()
+    provider = _detect_provider(model, custom_url)
+    balance = float(account_info.get("balance", 0.0))
+    equity = float(account_info.get("equity", 0.0))
+
+    # 1. Construcción del Prompt del Lote (Batch Content)
+    system_instruction = (
+        "Eres un Gestor de Riesgo Cuantitativo Senior de Trading Algorítmico.\n"
+        "Tu misión es evaluar una lista de señales candidatas en paralelo de forma independiente.\n\n"
+        "REGLAS:\n"
+        "1. Rechaza ('approved': false) si detectas spread alto, noticias en <30 min, o conflicto macro.\n"
+        "2. Si apruebas, define SL/TP con R:R 1:1.8 a 1:3.\n"
+        "3. Responde una lista JSON donde cada objeto corresponde exactamente a un par ingresado."
+    )
+
+    prompt_items = []
+    for idx, setup in enumerate(candidate_setups, 1):
+        sym = setup.get("symbol", f"PAIR_{idx}")
+        clean_sym = clean_symbol_name(sym)
+        sig = setup.get("signal", "HOLD")
+        px = float(setup.get("price", 0.0))
+        sl = float(setup.get("default_sl", 0.0))
+        tp = float(setup.get("default_tp", 0.0))
+        lot = float(setup.get("default_lot", 0.01))
+
+        details = setup.get("details", {})
+        atr_val = setup.get("atr", details.get("atr", "0.0010"))
+        atr_str = f"{float(atr_val):.5f}" if isinstance(atr_val, (int, float)) else str(atr_val)
+
+        spread = setup.get("spread_info", "Spread normal")
+        news = setup.get("news_summary") or news_manager.format_news_summary_for_ai(clean_sym)
+        macro = setup.get("macro_summary") or analyze_macro_multitimeframe(clean_sym, px)
+        candle = setup.get("candlestick_summary")
+        if not candle and "df" in setup:
+            candle = format_candlestick_summary_for_ai(setup["df"])
+        if not candle:
+            candle = "Estructura de velas estándar"
+
+        is_reentry = setup.get("is_reentry") or details.get("is_reentry", False)
+        reentry_num = details.get("reentry_number", 1)
+        fibo_pct = details.get("fibo_level_pct", 78.6)
+        reentry_tag = f" ⚡ REENTRADA #{reentry_num} (Fibo {fibo_pct}%)" if is_reentry else ""
+
+        prompt_items.append(
+            f"{idx}. [{clean_sym}]{reentry_tag}\n"
+            f"   - Dirección: {sig} | Precio: {px} | SL Sugerido: {sl} | TP: {tp} | Lote: {lot} | ATR: {atr_str}\n"
+            f"   - Contexto: {spread} | {news} | Macro: {macro} | {candle}."
+        )
+
+    user_content = "EVALÚA LAS SIGUIENTES SEÑALES CANDIDATAS:\n\n" + "\n\n".join(prompt_items)
+
+    # 2. Esquema JSON de Respuesta en Lista (Array de Objetos)
+    batch_response_schema = {
+        "type": "ARRAY",
+        "items": {
+            "type": "OBJECT",
+            "properties": {
+                "pair": {"type": "STRING"},
+                "approved": {"type": "BOOLEAN"},
+                "confidence": {"type": "NUMBER"},
+                "ai_sl": {"type": "NUMBER"},
+                "ai_tp": {"type": "NUMBER"},
+                "suggested_lot": {"type": "NUMBER"},
+                "opinion": {"type": "STRING"},
+                "rejection_reason": {"type": "STRING"}
+            },
+            "required": ["pair", "approved", "confidence", "ai_sl", "ai_tp", "suggested_lot", "opinion", "rejection_reason"]
+        }
+    }
+
+    start_time = time.time()
+    endpoint = ""
+    req_headers: Dict[str, str] = {}
+    payload_obj: Any = None
+    status_code = 0
+    raw_res_text = ""
+
+    try:
+        if custom_url and "googleapis.com" not in custom_url:
+            endpoint = custom_url.rstrip("/")
+            if not endpoint.endswith("/chat/completions"):
+                endpoint = f"{endpoint}/chat/completions"
+
+            payload_obj = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_instruction + "\nResponde un array JSON [ {pair, approved, confidence, ai_sl, ai_tp, suggested_lot, opinion, rejection_reason}, ... ]"},
+                    {"role": "user", "content": user_content}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 2048,
+                "response_format": {"type": "json_object"}
+            }
+            payload_bytes = json.dumps(payload_obj).encode("utf-8")
+            req_headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {clean_key}"
+            }
+        else:
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
+            gen_cfg: Dict[str, Any] = {
+                "responseMimeType": "application/json",
+                "temperature": 0.1,
+                "maxOutputTokens": 2048,
+                "responseSchema": batch_response_schema
+            }
+            if thinking_budget is not None and thinking_budget >= 0:
+                gen_cfg["thinkingConfig"] = {
+                    "thinkingBudget": int(thinking_budget)
+                }
+
+            payload_obj = {
+                "systemInstruction": {"parts": [{"text": system_instruction}]},
+                "contents": [{"parts": [{"text": user_content}]}],
+                "generationConfig": gen_cfg
+            }
+            payload_bytes = json.dumps(payload_obj).encode("utf-8")
+            req_headers = {"Content-Type": "application/json"}
+
+        # Enviar ÚNICA petición para todos los símbolos
+        status_code, raw_res_text, duration_ms = send_ai_http_with_retry(
+            endpoint=endpoint,
+            payload_bytes=payload_bytes,
+            headers=req_headers,
+            max_retries=3,
+            timeout_seconds=10.0,
+            action_label=f"BATCH_{len(candidate_setups)}_PAIRS"
+        )
+
+        raw_json = json.loads(raw_res_text)
+        ai_text = ""
+        if "candidates" in raw_json and raw_json["candidates"]:
+            first_cand = raw_json["candidates"][0]
+            parts = first_cand.get("content", {}).get("parts", [])
+            if parts:
+                texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
+                ai_text = "\n".join(texts)
+        elif "choices" in raw_json and raw_json["choices"]:
+            ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
+
+        parsed_array = _clean_json_text(ai_text)
+
+        # Normalizar si vino envuelto en un diccionario
+        if isinstance(parsed_array, dict):
+            for k in ["evaluations", "pairs", "signals", "results", "items", "data", "list"]:
+                if k in parsed_array and isinstance(parsed_array[k], list):
+                    parsed_array = parsed_array[k]
+                    break
+            if isinstance(parsed_array, dict):
+                parsed_array = [parsed_array]
+
+        if not isinstance(parsed_array, list):
+            parsed_array = []
+
+        # 3. Separar y distribuir las respuestas por símbolo correspondiente
+        results_by_symbol: Dict[str, Dict[str, Any]] = {}
+        for idx, setup in enumerate(candidate_setups):
+            orig_symbol = setup.get("symbol", f"PAIR_{idx+1}")
+            clean_sym = clean_symbol_name(orig_symbol)
+            sig = setup.get("signal", "HOLD")
+            px = float(setup.get("price", 0.0))
+            strat_sl = float(setup.get("default_sl", 0.0))
+            strat_tp = float(setup.get("default_tp", 0.0))
+            strat_lot = float(setup.get("default_lot", 0.01))
+
+            # Buscar el objeto correspondiente en el array de respuestas
+            matched_item: Optional[Dict[str, Any]] = None
+            for item in parsed_array:
+                if not isinstance(item, dict):
+                    continue
+                item_pair = clean_symbol_name(str(item.get("pair", "")))
+                if item_pair == clean_sym or item.get("pair") == orig_symbol:
+                    matched_item = item
+                    break
+
+            # Si no hubo match por nombre, intentar por posición de índice
+            if matched_item is None and idx < len(parsed_array) and isinstance(parsed_array[idx], dict):
+                matched_item = parsed_array[idx]
+
+            if matched_item:
+                appr = bool(matched_item.get("approved", True))
+                conf = float(matched_item.get("confidence", 0.8))
+                ai_sl = float(matched_item.get("ai_sl", strat_sl))
+                ai_tp = float(matched_item.get("ai_tp", strat_tp))
+                lot = float(matched_item.get("suggested_lot", strat_lot))
+                op = str(matched_item.get("opinion", "Evaluado en lote de IA"))
+                rej = str(matched_item.get("rejection_reason", ""))
+
+                # Validación de seguridad geométrica para SL y TP
+                if sig == "BUY":
+                    if ai_sl >= px:
+                        ai_sl = strat_sl
+                    if ai_tp <= px:
+                        ai_tp = strat_tp
+                elif sig == "SELL":
+                    if ai_sl <= px:
+                        ai_sl = strat_sl
+                    if ai_tp >= px:
+                        ai_tp = strat_tp
+
+                sl_dist = abs(px - ai_sl)
+                tp_dist = abs(ai_tp - px)
+                rr_val = round(tp_dist / sl_dist, 2) if sl_dist > 1e-6 else 2.0
+
+                sym_output = {
+                    "symbol": orig_symbol,
+                    "approved": appr,
+                    "confidence": round(conf, 2),
+                    "ai_sl": ai_sl,
+                    "ai_tp": ai_tp,
+                    "suggested_lot": lot,
+                    "risk_reward_ratio": rr_val,
+                    "opinion": op,
+                    "rejection_reason": rej,
+                    "fallback": False,
+                    "latency_ms": round(duration_ms, 1),
+                    "provider": provider,
+                    "model": model,
+                    "batch_size": len(candidate_setups)
+                }
+            else:
+                sym_output = {
+                    "symbol": orig_symbol,
+                    "approved": True,
+                    "confidence": 1.0,
+                    "ai_sl": strat_sl,
+                    "ai_tp": strat_tp,
+                    "suggested_lot": strat_lot,
+                    "risk_reward_ratio": 2.0,
+                    "opinion": "Operación ejecutada con SL/TP cuantitativo (Fallback de lote)",
+                    "rejection_reason": "",
+                    "fallback": True,
+                    "latency_ms": round(duration_ms, 1),
+                    "provider": provider,
+                    "model": model,
+                    "batch_size": len(candidate_setups)
+                }
+
+            # Registrar log individual para auditoría
+            log_file = ai_logger.log_interaction(
+                event_type="EVALUATE_TRADE_SETUP_BATCH_ITEM",
+                symbol=orig_symbol,
+                provider=provider,
+                model=model,
+                endpoint=endpoint,
+                request_headers=req_headers,
+                request_payload={"batch_count": len(candidate_setups), "item": setup},
+                response_status=status_code,
+                duration_ms=duration_ms,
+                raw_response=raw_res_text,
+                parsed_response=sym_output,
+                extra_meta={"signal": sig, "price": px, "batch": True}
+            )
+            sym_output["log_file"] = log_file
+            results_by_symbol[orig_symbol] = sym_output
+
+        return results_by_symbol
+
+    except urllib.error.HTTPError as he:
+        duration_ms = (time.time() - start_time) * 1000.0
+        err_body = he.read().decode("utf-8", errors="ignore")
+        err_str = f"HTTP Error {he.code}: {err_body}"
+
+        fallbacks = {}
+        for setup in candidate_setups:
+            sym = setup.get("symbol", "UNKNOWN")
+            sl = float(setup.get("default_sl", 0.0))
+            tp = float(setup.get("default_tp", 0.0))
+            lot = float(setup.get("default_lot", 0.01))
+            fallbacks[sym] = {
+                "symbol": sym,
+                "approved": True,
+                "confidence": 1.0,
+                "ai_sl": sl,
+                "ai_tp": tp,
+                "suggested_lot": lot,
+                "risk_reward_ratio": 2.0,
+                "opinion": f"Ejecución según estrategia cuantitativa (Fallback Lote HTTP {he.code})",
+                "rejection_reason": "",
+                "fallback": True,
+                "fallback_error": err_str,
+                "latency_ms": round(duration_ms, 1),
+                "provider": provider,
+                "model": model
+            }
+        return fallbacks
+
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000.0
+        err_str = str(e)
+        fallbacks = {}
+        for setup in candidate_setups:
+            sym = setup.get("symbol", "UNKNOWN")
+            sl = float(setup.get("default_sl", 0.0))
+            tp = float(setup.get("default_tp", 0.0))
+            lot = float(setup.get("default_lot", 0.01))
+            fallbacks[sym] = {
+                "symbol": sym,
+                "approved": True,
+                "confidence": 1.0,
+                "ai_sl": sl,
+                "ai_tp": tp,
+                "suggested_lot": lot,
+                "risk_reward_ratio": 2.0,
+                "opinion": f"Ejecución cuantitativa (Fallback Lote: {err_str[:60]})",
+                "rejection_reason": "",
+                "fallback": True,
+                "fallback_error": err_str,
+                "latency_ms": round(duration_ms, 1),
+                "provider": provider,
+                "model": model
+            }
+        return fallbacks
+
+
+class AIBatchCoordinator:
+    """
+    Coordinador de Lote de Inteligencia Artificial para Setups de Entrada.
+    Agrupa peticiones de múltiples hilos (SymbolWorker) generadas simultáneamente
+    en una única llamada batch a la API de IA para erradicar por completo los errores HTTP 429.
+    Desempaqueta las respuestas y notifica a cada hilo individualmente con su análisis correspondiente.
+    """
+    def __init__(self, coalesce_window_seconds: float = 0.25):
+        self._window = coalesce_window_seconds
+        self._lock = threading.Lock()
+        self._pending: List[Dict[str, Any]] = []
+        self._timer: Optional[threading.Timer] = None
+
+    def submit_trade_setup(
+        self,
+        account_info: Dict[str, Any],
+        candidate_setup: Dict[str, Any],
+        past_trades: List[Dict[str, Any]],
+        api_key: str,
+        model_name: str = DEFAULT_GEMINI_MODEL,
+        base_url: str = "",
+        thinking_budget: Optional[int] = 128
+    ) -> Dict[str, Any]:
+        """
+        Encola una petición de evaluación de setup y espera a que el lote sea procesado.
+        Si sólo hay una petición tras expirar la ventana, se procesa individualmente.
+        """
+        if not api_key or not api_key.strip():
+            return evaluate_trade_setup_direct(
+                account_info, candidate_setup, past_trades, api_key, model_name, base_url, thinking_budget
+            )
+
+        event = threading.Event()
+        item = {
+            "account_info": account_info,
+            "setup": candidate_setup,
+            "past_trades": past_trades,
+            "api_key": api_key,
+            "model_name": model_name,
+            "base_url": base_url,
+            "thinking_budget": thinking_budget,
+            "event": event,
+            "result": None
+        }
+
+        with self._lock:
+            self._pending.append(item)
+            if self._timer is None:
+                self._timer = threading.Timer(self._window, self._flush)
+                self._timer.daemon = True
+                self._timer.start()
+
+        # Esperar la resolución del lote (timeout seguro de 25s)
+        event_ok = event.wait(timeout=25.0)
+        if event_ok and item.get("result") is not None:
+            return item["result"]
+
+        return evaluate_trade_setup_direct(
+            account_info, candidate_setup, past_trades, api_key, model_name, base_url, thinking_budget
+        )
+
+    def _flush(self) -> None:
+        with self._lock:
+            items_to_process = list(self._pending)
+            self._pending.clear()
+            self._timer = None
+
+        if not items_to_process:
+            return
+
+        if len(items_to_process) == 1:
+            it = items_to_process[0]
+            try:
+                res = evaluate_trade_setup_direct(
+                    it["account_info"], it["setup"], it["past_trades"],
+                    it["api_key"], it["model_name"], it["base_url"], it["thinking_budget"]
+                )
+                it["result"] = res
+            except Exception as e:
+                it["result"] = {
+                    "approved": True,
+                    "confidence": 1.0,
+                    "ai_sl": float(it["setup"].get("default_sl", 0.0)),
+                    "ai_tp": float(it["setup"].get("default_tp", 0.0)),
+                    "suggested_lot": float(it["setup"].get("default_lot", 0.01)),
+                    "risk_reward_ratio": 2.0,
+                    "opinion": f"Fallback por excepción ({str(e)[:60]})",
+                    "rejection_reason": "",
+                    "fallback": True,
+                    "latency_ms": 0.0
+                }
+            finally:
+                it["event"].set()
+            return
+
+        # Peticiones múltiples concurrentes -> Batch unificado
+        first = items_to_process[0]
+        account_info = first["account_info"]
+        api_key = first["api_key"]
+        model_name = first["model_name"]
+        base_url = first["base_url"]
+        thinking_budget = first["thinking_budget"]
+
+        setups = [it["setup"] for it in items_to_process]
+        past_trades_map = {it["setup"].get("symbol", f"S_{i}"): it["past_trades"] for i, it in enumerate(items_to_process)}
+
+        try:
+            batch_results = evaluate_batch_trade_setups(
+                account_info=account_info,
+                candidate_setups=setups,
+                past_trades_by_symbol=past_trades_map,
+                api_key=api_key,
+                model_name=model_name,
+                base_url=base_url,
+                thinking_budget=thinking_budget
+            )
+            for it in items_to_process:
+                sym = it["setup"].get("symbol", "UNKNOWN")
+                clean_sym = clean_symbol_name(sym)
+                res = batch_results.get(sym) or batch_results.get(clean_sym)
+                if not res:
+                    res = {
+                        "symbol": sym,
+                        "approved": True,
+                        "confidence": 1.0,
+                        "ai_sl": float(it["setup"].get("default_sl", 0.0)),
+                        "ai_tp": float(it["setup"].get("default_tp", 0.0)),
+                        "suggested_lot": float(it["setup"].get("default_lot", 0.01)),
+                        "risk_reward_ratio": 2.0,
+                        "opinion": "Fallback cuantitativo (Resultado no hallado en lote)",
+                        "rejection_reason": "",
+                        "fallback": True,
+                        "latency_ms": 0.0
+                    }
+                it["result"] = res
+                it["event"].set()
+        except Exception as e:
+            for it in items_to_process:
+                sym = it["setup"].get("symbol", "UNKNOWN")
+                it["result"] = {
+                    "symbol": sym,
+                    "approved": True,
+                    "confidence": 1.0,
+                    "ai_sl": float(it["setup"].get("default_sl", 0.0)),
+                    "ai_tp": float(it["setup"].get("default_tp", 0.0)),
+                    "suggested_lot": float(it["setup"].get("default_lot", 0.01)),
+                    "risk_reward_ratio": 2.0,
+                    "opinion": f"Fallback por error en lote ({str(e)[:60]})",
+                    "rejection_reason": "",
+                    "fallback": True,
+                    "latency_ms": 0.0
+                }
+                it["event"].set()
+
+
+# Instancia singleton del coordinador de lote de setups
+_ai_batch_coordinator = AIBatchCoordinator(coalesce_window_seconds=0.25)
+
+
+def evaluate_trade_setup(
+    account_info: Dict[str, Any],
+    candidate_setup: Dict[str, Any],
+    past_trades: List[Dict[str, Any]],
+    api_key: str,
+    model_name: str = DEFAULT_GEMINI_MODEL,
+    base_url: str = "",
+    thinking_budget: Optional[int] = 128,
+    use_batch_coordinator: bool = True
+) -> Dict[str, Any]:
+    """
+    Evalúa una señal candidata mediante la IA con gestión de riesgo y SL/TP óptimos.
+    Utiliza el coordinador de lotes para encapsular llamadas simultáneas en una única petición
+    y evitar errores HTTP 429.
+    """
+    if use_batch_coordinator:
+        return _ai_batch_coordinator.submit_trade_setup(
+            account_info=account_info,
+            candidate_setup=candidate_setup,
+            past_trades=past_trades,
+            api_key=api_key,
+            model_name=model_name,
+            base_url=base_url,
+            thinking_budget=thinking_budget
+        )
+    return evaluate_trade_setup_direct(
+        account_info=account_info,
+        candidate_setup=candidate_setup,
+        past_trades=past_trades,
+        api_key=api_key,
+        model_name=model_name,
+        base_url=base_url,
+        thinking_budget=thinking_budget
+    )
+
+
+def evaluate_open_position_ai_direct(
     account_info: Dict[str, Any],
     position_info: Dict[str, Any],
     market_context: Dict[str, Any],
@@ -815,13 +1435,7 @@ def evaluate_open_position_ai(
     thinking_budget: Optional[int] = 128
 ) -> Dict[str, Any]:
     """
-    Evalúa una posición abierta en tiempo real mediante IA para:
-    1. Confirmar si se MANTIENE la entrada (HOLD).
-    2. Modificar dinámicamente SL / TP para asegurar ganancias o trailing (MODIFY_SLTP).
-    3. CIERRE PREMATURO INMEDIATO por confirmación de cambio de estructura / tendencia o alto riesgo (EARLY_CLOSE).
-
-    Prioridad: Si la IA responde válidamente, se ejecuta su recomendación.
-    Si la IA falla o está deshabilitada, se retorna fallback: True para que el bot use la estrategia local.
+    Evalúa una posición abierta individual en tiempo real mediante IA.
     """
     ticket = position_info.get("ticket", 0)
     symbol = position_info.get("symbol", "UNKNOWN")
@@ -1069,57 +1683,524 @@ def evaluate_open_position_ai(
         }
 
 
+def evaluate_batch_open_positions_ai(
+    account_info: Dict[str, Any],
+    positions_list: List[Dict[str, Any]],
+    api_key: str = "",
+    model_name: str = DEFAULT_GEMINI_MODEL,
+    base_url: str = "",
+    thinking_budget: Optional[int] = 100
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Evalúa un LOTE de posiciones abiertas en una ÚNICA petición HTTP a la IA.
+    Evita saturación de rate-limits y distribuye las acciones ('HOLD', 'MODIFY_SLTP', 'EARLY_CLOSE')
+    a cada posición activa identificada por su ticket/símbolo.
+    """
+    if not positions_list:
+        return {}
+
+    if not api_key or not api_key.strip():
+        fallbacks: Dict[str, Dict[str, Any]] = {}
+        for pos_item in positions_list:
+            p_info = pos_item.get("position_info", {})
+            sym = p_info.get("symbol", "UNKNOWN")
+            sl = float(p_info.get("sl", 0.0))
+            tp = float(p_info.get("tp", 0.0))
+            key_id = str(p_info.get("ticket", sym))
+            fallbacks[key_id] = {
+                "action": "HOLD",
+                "suggested_sl": sl,
+                "suggested_tp": tp,
+                "close_reason": "",
+                "confidence": 1.0,
+                "opinion": "Estrategia local activa (IA no configurada)",
+                "fallback": True
+            }
+        return fallbacks
+
+    clean_key = api_key.strip()
+    model = (model_name or DEFAULT_GEMINI_MODEL).strip()
+    custom_url = (base_url or "").strip()
+    provider = _detect_provider(model, custom_url)
+
+    system_instruction = (
+        "Eres un Gestor Cuantitativo de Posiciones Abiertas y Salidas de Emergencia en Forex.\n"
+        "Tu misión es evaluar una lista de posiciones activas simultáneas y decidir para cada una: 'HOLD', 'MODIFY_SLTP' o 'EARLY_CLOSE'.\n\n"
+        "REGLAS:\n"
+        "1. 'HOLD': Si la orden va a favor de la tendencia o el patrón de velas apoya la dirección (BUY con rebote alcista / SELL con rechazo bajista).\n"
+        "2. 'EARLY_CLOSE': Solo si hay cambio estructural severo, reversión fuerte opuesta confirmada o noticias críticas inminentes.\n"
+        "3. 'MODIFY_SLTP': Para mover SL a Break-Even o asegurar ganancias flotantes en velas de continuación.\n"
+        "Responde un array JSON donde cada objeto corresponda a una posición."
+    )
+
+    prompt_items = []
+    for idx, item in enumerate(positions_list, 1):
+        p_info = item.get("position_info", {})
+        m_ctx = item.get("market_context", {})
+        t_id = p_info.get("ticket", idx)
+        sym = p_info.get("symbol", f"POS_{idx}")
+        clean_sym = clean_symbol_name(sym)
+        p_type = p_info.get("type", "BUY")
+        open_px = float(p_info.get("price_open", 0.0))
+        cur_px = float(p_info.get("price_current", open_px))
+        cur_sl = float(p_info.get("sl", 0.0))
+        cur_tp = float(p_info.get("tp", 0.0))
+        pnl_pips = float(p_info.get("profit_pips", 0.0))
+        pnl_usd = float(p_info.get("profit_usd", 0.0))
+
+        candle = m_ctx.get("candlestick_summary")
+        if not candle and "df" in m_ctx:
+            candle = format_candlestick_summary_for_ai(m_ctx["df"])
+        if not candle:
+            candle = "Estructura estándar"
+
+        macro = m_ctx.get("macro_summary", "Estructura estable")
+        news = m_ctx.get("news_summary", "Sin noticias críticas")
+
+        prompt_items.append(
+            f"{idx}. [Ticket #{t_id} | {clean_sym}]\n"
+            f"   - Tipo: {p_type} | Entrada: {open_px} | Actual: {cur_px} | Flotante: ${pnl_usd:+.2f} ({pnl_pips:+.1f} pips)\n"
+            f"   - SL: {cur_sl} | TP: {cur_tp} | Vela: {candle} | Macro: {macro} | {news}"
+        )
+
+    user_content = "EVALÚA LAS SIGUIENTES POSICIONES ACTIVAS:\n\n" + "\n\n".join(prompt_items)
+
+    batch_pos_schema = {
+        "type": "ARRAY",
+        "items": {
+            "type": "OBJECT",
+            "properties": {
+                "ticket": {"type": "STRING"},
+                "action": {"type": "STRING", "enum": ["HOLD", "MODIFY_SLTP", "EARLY_CLOSE"]},
+                "suggested_sl": {"type": "NUMBER"},
+                "suggested_tp": {"type": "NUMBER"},
+                "close_reason": {"type": "STRING"},
+                "confidence": {"type": "NUMBER"},
+                "opinion": {"type": "STRING"}
+            },
+            "required": ["ticket", "action", "suggested_sl", "suggested_tp", "close_reason", "confidence", "opinion"]
+        }
+    }
+
+    start_time = time.time()
+    endpoint = ""
+    req_headers: Dict[str, str] = {}
+    payload_obj: Any = None
+    status_code = 0
+    raw_res_text = ""
+
+    try:
+        if custom_url and "googleapis.com" not in custom_url:
+            endpoint = custom_url.rstrip("/")
+            if not endpoint.endswith("/chat/completions"):
+                endpoint = f"{endpoint}/chat/completions"
+
+            payload_obj = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_instruction + "\nResponde un array JSON [ {ticket, action, suggested_sl, suggested_tp, close_reason, confidence, opinion}, ... ]"},
+                    {"role": "user", "content": user_content}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 2048,
+                "response_format": {"type": "json_object"}
+            }
+            payload_bytes = json.dumps(payload_obj).encode("utf-8")
+            req_headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {clean_key}"
+            }
+        else:
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={clean_key}"
+            gen_cfg: Dict[str, Any] = {
+                "responseMimeType": "application/json",
+                "temperature": 0.1,
+                "maxOutputTokens": 2048,
+                "responseSchema": batch_pos_schema
+            }
+            if thinking_budget is not None and thinking_budget >= 0:
+                gen_cfg["thinkingConfig"] = {
+                    "thinkingBudget": int(thinking_budget)
+                }
+
+            payload_obj = {
+                "systemInstruction": {"parts": [{"text": system_instruction}]},
+                "contents": [{"parts": [{"text": user_content}]}],
+                "generationConfig": gen_cfg
+            }
+            payload_bytes = json.dumps(payload_obj).encode("utf-8")
+            req_headers = {"Content-Type": "application/json"}
+
+        status_code, raw_res_text, duration_ms = send_ai_http_with_retry(
+            endpoint=endpoint,
+            payload_bytes=payload_bytes,
+            headers=req_headers,
+            max_retries=3,
+            timeout_seconds=10.0,
+            action_label=f"BATCH_{len(positions_list)}_POSITIONS"
+        )
+
+        raw_json = json.loads(raw_res_text)
+        ai_text = ""
+        if "candidates" in raw_json and raw_json["candidates"]:
+            first_cand = raw_json["candidates"][0]
+            parts = first_cand.get("content", {}).get("parts", [])
+            if parts:
+                texts = [p.get("text", "") for p in parts if "text" in p and p.get("text")]
+                ai_text = "\n".join(texts)
+        elif "choices" in raw_json and raw_json["choices"]:
+            ai_text = raw_json["choices"][0].get("message", {}).get("content", "")
+
+        parsed_array = _clean_json_text(ai_text)
+        if isinstance(parsed_array, dict):
+            for k in ["evaluations", "positions", "results", "items", "data", "list"]:
+                if k in parsed_array and isinstance(parsed_array[k], list):
+                    parsed_array = parsed_array[k]
+                    break
+            if isinstance(parsed_array, dict):
+                parsed_array = [parsed_array]
+
+        if not isinstance(parsed_array, list):
+            parsed_array = []
+
+        results_by_id: Dict[str, Dict[str, Any]] = {}
+        for idx, item in enumerate(positions_list):
+            p_info = item.get("position_info", {})
+            t_id = str(p_info.get("ticket", idx + 1))
+            sym = p_info.get("symbol", "UNKNOWN")
+            cur_sl = float(p_info.get("sl", 0.0))
+            cur_tp = float(p_info.get("tp", 0.0))
+
+            matched = None
+            for r in parsed_array:
+                if isinstance(r, dict) and str(r.get("ticket", "")).strip() in (t_id, f"#{t_id}"):
+                    matched = r
+                    break
+            if matched is None and idx < len(parsed_array) and isinstance(parsed_array[idx], dict):
+                matched = parsed_array[idx]
+
+            if matched:
+                act = matched.get("action", "HOLD").upper()
+                if act not in ("HOLD", "MODIFY_SLTP", "EARLY_CLOSE"):
+                    act = "HOLD"
+                out = {
+                    "action": act,
+                    "suggested_sl": float(matched.get("suggested_sl", cur_sl)),
+                    "suggested_tp": float(matched.get("suggested_tp", cur_tp)),
+                    "close_reason": str(matched.get("close_reason", "")),
+                    "confidence": round(float(matched.get("confidence", 0.9)), 2),
+                    "opinion": str(matched.get("opinion", "Evaluación de posición en lote")),
+                    "fallback": False,
+                    "latency_ms": round(duration_ms, 1),
+                    "provider": provider,
+                    "model": model,
+                    "batch_size": len(positions_list)
+                }
+            else:
+                out = {
+                    "action": "HOLD",
+                    "suggested_sl": cur_sl,
+                    "suggested_tp": cur_tp,
+                    "close_reason": "",
+                    "confidence": 1.0,
+                    "opinion": "Fallback en lote para posición",
+                    "fallback": True,
+                    "latency_ms": round(duration_ms, 1),
+                    "provider": provider,
+                    "model": model,
+                    "batch_size": len(positions_list)
+                }
+
+            ai_logger.log_interaction(
+                event_type="EVALUATE_OPEN_POSITION_AI_BATCH_ITEM",
+                symbol=sym,
+                provider=provider,
+                model=model,
+                endpoint=endpoint,
+                request_headers=req_headers,
+                request_payload={"ticket": t_id, "batch_count": len(positions_list)},
+                response_status=status_code,
+                duration_ms=duration_ms,
+                raw_response=raw_res_text,
+                parsed_response=out,
+                extra_meta={"ticket": t_id, "action": out.get("action")}
+            )
+            results_by_id[t_id] = out
+            results_by_id[sym] = out
+
+        return results_by_id
+
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000.0
+        err_str = str(e)
+        fallbacks = {}
+        for item in positions_list:
+            p_info = item.get("position_info", {})
+            t_id = str(p_info.get("ticket", "0"))
+            sym = p_info.get("symbol", "UNKNOWN")
+            cur_sl = float(p_info.get("sl", 0.0))
+            cur_tp = float(p_info.get("tp", 0.0))
+            f_res = {
+                "action": "HOLD",
+                "suggested_sl": cur_sl,
+                "suggested_tp": cur_tp,
+                "close_reason": "",
+                "confidence": 1.0,
+                "opinion": f"Fallback lote posición ({err_str[:50]})",
+                "fallback": True,
+                "latency_ms": round(duration_ms, 1),
+                "provider": provider,
+                "model": model
+            }
+            fallbacks[t_id] = f_res
+            fallbacks[sym] = f_res
+        return fallbacks
+
+
+class AIPositionBatchCoordinator:
+    """
+    Coordinador de Lote de Posiciones Abiertas.
+    Agrupa comprobaciones de trailing/cierre prematuro de múltiples órdenes en una única llamada.
+    """
+    def __init__(self, coalesce_window_seconds: float = 0.25):
+        self._window = coalesce_window_seconds
+        self._lock = threading.Lock()
+        self._pending: List[Dict[str, Any]] = []
+        self._timer: Optional[threading.Timer] = None
+
+    def submit_open_position(
+        self,
+        account_info: Dict[str, Any],
+        position_info: Dict[str, Any],
+        market_context: Dict[str, Any],
+        api_key: str,
+        model_name: str = DEFAULT_GEMINI_MODEL,
+        base_url: str = "",
+        thinking_budget: Optional[int] = 128
+    ) -> Dict[str, Any]:
+        if not api_key or not api_key.strip():
+            return evaluate_open_position_ai_direct(
+                account_info, position_info, market_context, api_key, model_name, base_url, thinking_budget
+            )
+
+        event = threading.Event()
+        item = {
+            "account_info": account_info,
+            "position_info": position_info,
+            "market_context": market_context,
+            "api_key": api_key,
+            "model_name": model_name,
+            "base_url": base_url,
+            "thinking_budget": thinking_budget,
+            "event": event,
+            "result": None
+        }
+
+        with self._lock:
+            self._pending.append(item)
+            if self._timer is None:
+                self._timer = threading.Timer(self._window, self._flush)
+                self._timer.daemon = True
+                self._timer.start()
+
+        event_ok = event.wait(timeout=25.0)
+        if event_ok and item.get("result") is not None:
+            return item["result"]
+
+        return evaluate_open_position_ai_direct(
+            account_info, position_info, market_context, api_key, model_name, base_url, thinking_budget
+        )
+
+    def _flush(self) -> None:
+        with self._lock:
+            items_to_process = list(self._pending)
+            self._pending.clear()
+            self._timer = None
+
+        if not items_to_process:
+            return
+
+        if len(items_to_process) == 1:
+            it = items_to_process[0]
+            try:
+                it["result"] = evaluate_open_position_ai_direct(
+                    it["account_info"], it["position_info"], it["market_context"],
+                    it["api_key"], it["model_name"], it["base_url"], it["thinking_budget"]
+                )
+            except Exception as e:
+                it["result"] = {
+                    "action": "HOLD",
+                    "suggested_sl": float(it["position_info"].get("sl", 0.0)),
+                    "suggested_tp": float(it["position_info"].get("tp", 0.0)),
+                    "close_reason": "",
+                    "confidence": 1.0,
+                    "opinion": f"Fallback posición ({str(e)[:50]})",
+                    "fallback": True
+                }
+            finally:
+                it["event"].set()
+            return
+
+        first = items_to_process[0]
+        pos_list = [{"position_info": it["position_info"], "market_context": it["market_context"]} for it in items_to_process]
+        try:
+            batch_res = evaluate_batch_open_positions_ai(
+                account_info=first["account_info"],
+                positions_list=pos_list,
+                api_key=first["api_key"],
+                model_name=first["model_name"],
+                base_url=first["base_url"],
+                thinking_budget=first["thinking_budget"]
+            )
+            for it in items_to_process:
+                t_id = str(it["position_info"].get("ticket", ""))
+                sym = it["position_info"].get("symbol", "")
+                res = batch_res.get(t_id) or batch_res.get(sym) or {
+                    "action": "HOLD",
+                    "suggested_sl": float(it["position_info"].get("sl", 0.0)),
+                    "suggested_tp": float(it["position_info"].get("tp", 0.0)),
+                    "close_reason": "",
+                    "confidence": 1.0,
+                    "opinion": "Fallback en lote de posiciones",
+                    "fallback": True
+                }
+                it["result"] = res
+                it["event"].set()
+        except Exception as e:
+            for it in items_to_process:
+                it["result"] = {
+                    "action": "HOLD",
+                    "suggested_sl": float(it["position_info"].get("sl", 0.0)),
+                    "suggested_tp": float(it["position_info"].get("tp", 0.0)),
+                    "close_reason": "",
+                    "confidence": 1.0,
+                    "opinion": f"Fallback por error en lote ({str(e)[:50]})",
+                    "fallback": True
+                }
+                it["event"].set()
+
+
+# Coordinador de lote para posiciones abiertas
+_ai_pos_batch_coordinator = AIPositionBatchCoordinator(coalesce_window_seconds=0.25)
+
+
+def evaluate_open_position_ai(
+    account_info: Dict[str, Any],
+    position_info: Dict[str, Any],
+    market_context: Dict[str, Any],
+    api_key: str,
+    model_name: str = DEFAULT_GEMINI_MODEL,
+    base_url: str = "",
+    thinking_budget: Optional[int] = 128,
+    use_batch_coordinator: bool = True
+) -> Dict[str, Any]:
+    """
+    Evalúa una posición abierta en tiempo real mediante IA con batching automático contra 429.
+    """
+    if use_batch_coordinator:
+        return _ai_pos_batch_coordinator.submit_open_position(
+            account_info=account_info,
+            position_info=position_info,
+            market_context=market_context,
+            api_key=api_key,
+            model_name=model_name,
+            base_url=base_url,
+            thinking_budget=thinking_budget
+        )
+    return evaluate_open_position_ai_direct(
+        account_info=account_info,
+        position_info=position_info,
+        market_context=market_context,
+        api_key=api_key,
+        model_name=model_name,
+        base_url=base_url,
+        thinking_budget=thinking_budget
+    )
+
+
 def test_ai_payload_terminal(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, base_url: str = "") -> Dict[str, Any]:
     """
-    Ejecuta un test completo con un Payload Genérico de Trading Setup y muestra la respuesta detallada
-    directamente en la consola PowerShell / Terminal para depuración inmediata.
+    Ejecuta un test de Evaluación por Lote (Batch) con 3 señales simultáneas (EURUSD, GBPUSD, NZDUSD)
+    para verificar que una sola llamada HTTP evalúa y distribuye todas las respuestas correctamente.
     """
-    print("\n" + "=" * 70)
-    print("🧠 [DEBUG TERMINAL] INICIANDO TEST DE LLAMADA AL API DE IA...")
-    print("=" * 70)
+    print("\n" + "=" * 75)
+    print("🧠 [DEBUG TERMINAL] INICIANDO TEST DE EVALUACIÓN POR LOTE (BATCH REQUEST)...")
+    print("=" * 75)
 
     sample_account = {
         "balance": 10000.0,
         "equity": 10150.0,
         "free_margin": 9800.0
     }
-    sample_candidate = {
-        "symbol": "EURUSD",
-        "signal": "BUY",
-        "price": 1.08500,
-        "default_sl": 1.08200,
-        "default_tp": 1.09100,
-        "default_lot": 0.10,
-        "timeframe": "M15",
-        "atr": 0.00120,
-        "confluence_score": 3,
-        "spread_info": "Spread normal (0.8 pips)",
-        "news_summary": "Sin noticias de alto impacto en próximas 4 horas",
-        "macro_summary": "H4 Alcista por encima de EMA 200, D1 en zona de soporte",
-        "psych_summary": "Nivel psicológico cercano: 1.08000 (Soporte)"
-    }
-    sample_past_trades = [
-        {"signal": "BUY", "outcome": {"result": "TP_HIT", "profit": 150.0}},
-        {"signal": "SELL", "outcome": {"result": "BE_HIT", "profit": 0.0}}
+
+    sample_batch_candidates = [
+        {
+            "symbol": "EURUSD",
+            "signal": "BUY",
+            "price": 1.08500,
+            "default_sl": 1.08200,
+            "default_tp": 1.09100,
+            "default_lot": 0.10,
+            "timeframe": "M15",
+            "atr": 0.00120,
+            "spread_info": "Spread 0.8 pips",
+            "news_summary": "Sin noticias de alto impacto en próximas 2 horas",
+            "macro_summary": "H4 Alcista por encima de EMA 200",
+            "candlestick_summary": "Patrón Hammer Alcista en soporte"
+        },
+        {
+            "symbol": "GBPUSD",
+            "signal": "SELL",
+            "price": 1.29500,
+            "default_sl": 1.29850,
+            "default_tp": 1.28800,
+            "default_lot": 0.08,
+            "timeframe": "M15",
+            "atr": 0.00180,
+            "spread_info": "Spread 1.2 pips",
+            "news_summary": "Sin noticias en los próximos 45 min",
+            "macro_summary": "D1 Bajista bajo EMA 200",
+            "candlestick_summary": "Patrón Shooting Star en resistencia"
+        },
+        {
+            "symbol": "NZDUSD",
+            "signal": "BUY",
+            "price": 0.59200,
+            "default_sl": 0.58950,
+            "default_tp": 0.59700,
+            "default_lot": 0.12,
+            "timeframe": "M15",
+            "atr": 0.00095,
+            "spread_info": "Spread 1.0 pips",
+            "news_summary": "Noticia HIGH IMPACT en 15 minutos",
+            "macro_summary": "Estructura lateral",
+            "candlestick_summary": "Doji Neutral"
+        }
     ]
 
     print(f"📡 Proveedor / Modelo: {model_name}")
     print(f"🔑 API Key: {api_key[:6]}...{api_key[-4:] if len(api_key) > 10 else ''}")
     if base_url:
         print(f"🌐 Base URL: {base_url}")
-    print(f"📦 Setup Genérico Enviado: {sample_candidate['symbol']} {sample_candidate['signal']} @ {sample_candidate['price']}")
-    print("-" * 70)
+    print(f"📦 Lote Enviado en 1 Sola Petición: {[c['symbol'] for c in sample_batch_candidates]}")
+    print("-" * 75)
 
-    result = evaluate_trade_setup(
+    results = evaluate_batch_trade_setups(
         account_info=sample_account,
-        candidate_setup=sample_candidate,
-        past_trades=sample_past_trades,
+        candidate_setups=sample_batch_candidates,
         api_key=api_key,
         model_name=model_name,
         base_url=base_url
     )
 
-    print("📥 [RESPUESTA OBTENIDA DE LA IA]:")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-    print("=" * 70 + "\n")
-    return result
+    print("📥 [RESPUESTAS DESEMPAQUETADAS Y DISTRIBUIDAS POR PAR]:")
+    for sym, res in results.items():
+        appr_icon = "✅ APROBADO" if res.get("approved") else "❌ RECHAZADO"
+        print(f"\n🔹 {sym} -> {appr_icon} (Confianza: {res.get('confidence', 0)*100:.0f}%)")
+        print(f"   - SL IA: {res.get('ai_sl')} | TP IA: {res.get('ai_tp')} | Lote: {res.get('suggested_lot')} | R:R: {res.get('risk_reward_ratio')}")
+        print(f"   - Opinión: {res.get('opinion')}")
+        if res.get("rejection_reason"):
+            print(f"   - Razón de Rechazo: {res.get('rejection_reason')}")
+
+    print("\n" + "=" * 75 + "\n")
+    return results

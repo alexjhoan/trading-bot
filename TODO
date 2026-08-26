@@ -2,8 +2,13 @@ Todo:
   ☐ el lote minimo no se esta tomando de la divisa
   ☐ los lotes deben venir de la config del broker
   ☐ cambiar los iconos por defecto por otros de la librería de CTK que si no esta operativa, si esta operativa o si hay algun error
-  ☐ que configure los datos Primero que nada si no estan configurados antes de abrir MT5
-  ☐ si ya tiene una operacion abierta que no analice proximas entreadas si no si mantiene la orden abierta o si la modifica o si la cierra
+  ☐  error 429 muchas peticiones, se puede agrupar las peticiones o esperar unos segundos para la proxima peticion, preguntar a la IA
+  ☐ tambien ver si el bot puede identificar una lateridad, xq he visto que entra en lateral y puede perder las entradas
+  ☐ verificar si la estrategia esta analizando el TP para aumentarlo o no, dependiendo si va a mantener la tendencia, ya que parece que los TP estan estaticos
+  ☐ verificar que no se hagan operaciones entre las 16:30 y 17:30 ya que los mercados cierran y las que estan abiertas cerrarlas 1 minuto antes de las 17:00
+  ☐ que no se haga ningun tipo de analisis de velas ni nada si esta fuera de horario que cualquier analisis corre apartir del horario para no gastar procesador innesesario en cada cierre de vela
+  ☐ despues que se guarda una configuracion se pierde la informacion del mt5 esto no debe pasar
+
 
 
 prompt
