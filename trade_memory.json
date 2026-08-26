@@ -961,8 +961,11 @@
       "time": "2026-08-26 11:15:12"
     },
     "outcome": {
-      "status": "OPEN",
-      "result": "PENDING"
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.09,
+      "pnl_usd": 3.56,
+      "exit_reason": "[tp 1.62460]"
     }
   },
   {
@@ -986,6 +989,26 @@
       "pnl_r": -0.37,
       "pnl_usd": -0.63,
       "exit_reason": "Bot_Invalidacion_EMA200"
+    }
+  },
+  {
+    "trade_id": 485105338,
+    "symbol": "USDCAD",
+    "signal": "BUY",
+    "entry_price": 1.38753,
+    "sl": 1.38692,
+    "tp": 1.38872,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-26 13:20:10"
+    },
+    "outcome": {
+      "status": "OPEN",
+      "result": "PENDING"
     }
   }
 ]
