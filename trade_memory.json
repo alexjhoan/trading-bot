@@ -847,5 +847,145 @@
       "status": "OPEN",
       "result": "PENDING"
     }
+  },
+  {
+    "trade_id": 484900130,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.6242999999999999,
+    "sl": 1.62485,
+    "tp": 1.62305,
+    "volume": 0.04,
+    "ai_opinion": "Entrada validada en zona de retroceso Fibo 61.8% con la resistencia institucional de 1.62500 actuando como techo de protección por encima del SL. Spread óptimo (0.6 pips) y sin eventos de alto impacto cercanos. R:R de 1:2.0 adecuado.",
+    "ai_confidence": 0.85,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-26 10:26:31"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.92,
+      "pnl_usd": -1.58,
+      "exit_reason": "[sl 1.62485]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-26 10:30:04",
+        "action": "HOLD",
+        "opinion": "La posición SELL se encuentra actualmente en ligero beneficio (+0.9 pips) y no hay señales claras de reversión alcista ni noticias críticas que amenacen la operación. La estructura se mantiene neutral con la EMA 200 actuando como punto de pivote. Se aplica la regla de MANTENER (HOLD).",
+        "close_reason": "",
+        "profit_pips": 0.9,
+        "profit_usd": 0.26
+      },
+      {
+        "time": "2026-08-26 10:45:14",
+        "action": "HOLD",
+        "opinion": "La posición en SELL se mantiene activa. El precio actual está prácticamente en el punto de entrada (+1.1 pips) cerca de la EMA 200 macro. Como la estructura de velas actual es neutral y no existe un patrón claro de reversión alcista fuerte en contra de la orden, se mantiene la posición de acuerdo a la estrategia.",
+        "close_reason": "",
+        "profit_pips": 1.1,
+        "profit_usd": 0.32
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-26 10:45:14",
+      "action": "HOLD",
+      "opinion": "La posición en SELL se mantiene activa. El precio actual está prácticamente en el punto de entrada (+1.1 pips) cerca de la EMA 200 macro. Como la estructura de velas actual es neutral y no existe un patrón claro de reversión alcista fuerte en contra de la orden, se mantiene la posición de acuerdo a la estrategia.",
+      "close_reason": "",
+      "profit_pips": 1.1,
+      "profit_usd": 0.32
+    }
+  },
+  {
+    "trade_id": 1787754918,
+    "symbol": "EURJPY",
+    "signal": "SELL",
+    "score": 2,
+    "ai_opinion": "RECHAZADO: PSYCHOLOGICAL_LEVEL",
+    "ai_confidence": 0.35,
+    "outcome": {
+      "status": "REJECTED_BY_AI",
+      "result": "BLOCKED"
+    }
+  },
+  {
+    "trade_id": 1787756447,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "score": 3,
+    "ai_opinion": "RECHAZADO: PSYCHOLOGICAL_LEVEL",
+    "ai_confidence": 0.35,
+    "outcome": {
+      "status": "REJECTED_BY_AI",
+      "result": "BLOCKED"
+    }
+  },
+  {
+    "trade_id": 1787756703,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "score": 3,
+    "ai_opinion": "RECHAZADO: PSYCHOLOGICAL_LEVEL",
+    "ai_confidence": 0.35,
+    "outcome": {
+      "status": "REJECTED_BY_AI",
+      "result": "BLOCKED"
+    }
+  },
+  {
+    "trade_id": 1787757005,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "score": 2,
+    "ai_opinion": "RECHAZADO: PSYCHOLOGICAL_LEVEL",
+    "ai_confidence": 0.35,
+    "outcome": {
+      "status": "REJECTED_BY_AI",
+      "result": "BLOCKED"
+    }
+  },
+  {
+    "trade_id": 484964096,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.62584,
+    "sl": 1.6264,
+    "tp": 1.6246,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-26 11:15:12"
+    },
+    "outcome": {
+      "status": "OPEN",
+      "result": "PENDING"
+    }
+  },
+  {
+    "trade_id": 484964240,
+    "symbol": "EURJPY",
+    "signal": "SELL",
+    "entry_price": 185.672,
+    "sl": 185.74,
+    "tp": 185.536,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-26 11:15:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.37,
+      "pnl_usd": -0.63,
+      "exit_reason": "Bot_Invalidacion_EMA200"
+    }
   }
 ]

@@ -77,8 +77,20 @@ class OrderExecutor:
     ) -> Dict[str, Any]:
         symbol_info = mt5.symbol_info(self.symbol)
         if symbol_info is None:
+            from core.data_loader import resolve_mt5_symbol
+            resolved = resolve_mt5_symbol(self.symbol)
+            if resolved:
+                self.symbol = resolved
+                symbol_info = mt5.symbol_info(self.symbol)
+
+        if symbol_info is None:
             print(f"❌ [MT5] No se pudo obtener symbol_info para {self.symbol}")
             return {"status": False, "message": f"Símbolo {self.symbol} no encontrado"}
+
+        # Asegurar que el símbolo esté seleccionado en MarketWatch
+        if not symbol_info.visible:
+            mt5.symbol_select(self.symbol, True)
+            symbol_info = mt5.symbol_info(self.symbol)
 
         tick = mt5.symbol_info_tick(self.symbol)
         if tick is None:

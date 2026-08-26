@@ -589,8 +589,8 @@ def evaluate_trade_setup_direct(
         atr_str = str(atr_val)
 
     news_summary = candidate_setup.get("news_summary") or news_manager.format_news_summary_for_ai(clean_symbol)
-    macro_summary = candidate_setup.get("macro_summary") or analyze_macro_multitimeframe(clean_symbol, current_price)
-    psych_summary = candidate_setup.get("psych_summary") or calculate_psychological_levels(clean_symbol, current_price)
+    macro_summary = candidate_setup.get("macro_summary") or analyze_macro_multitimeframe(symbol, current_price)
+    psych_summary = candidate_setup.get("psych_summary") or calculate_psychological_levels(symbol, current_price)
     spread_info = candidate_setup.get("spread_info", "Spread normal")
     candlestick_summary = candidate_setup.get("candlestick_summary")
     if not candlestick_summary and "df" in candidate_setup:
@@ -946,7 +946,7 @@ def evaluate_batch_trade_setups(
 
         spread = setup.get("spread_info", "Spread normal")
         news = setup.get("news_summary") or news_manager.format_news_summary_for_ai(clean_sym)
-        macro = setup.get("macro_summary") or analyze_macro_multitimeframe(clean_sym, px)
+        macro = setup.get("macro_summary") or analyze_macro_multitimeframe(sym, px)
         candle = setup.get("candlestick_summary")
         if not candle and "df" in setup:
             candle = format_candlestick_summary_for_ai(setup["df"])

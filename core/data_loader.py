@@ -4,6 +4,50 @@ import MetaTrader5 as mt5
 import pandas as pd
 
 
+def resolve_mt5_symbol(symbol: str) -> Optional[str]:
+    """
+    Busca inteligentemente el nombre exacto del símbolo en MT5,
+    gestionando sufijos y prefijos del broker (ej. EURAUD.r, EURAUDm, EURAUDpro).
+    """
+    import re
+    sym_info = mt5.symbol_info(symbol)
+    if sym_info is not None:
+        if not sym_info.visible:
+            mt5.symbol_select(symbol, True)
+        return symbol
+
+    all_symbols = mt5.symbols_get()
+    if not all_symbols:
+        return None
+
+    target_clean = re.sub(r'[^A-Za-z0-9]', '', symbol).upper()
+
+    # 1. Coincidencia exacta insensible a mayúsculas
+    for s in all_symbols:
+        if s.name.lower() == symbol.lower():
+            if not s.visible:
+                mt5.symbol_select(s.name, True)
+            return s.name
+
+    # 2. Coincidencia por prefijo (ej: EURAUD_r, EURAUD.r, EURAUDm, EURAUDpro)
+    for s in all_symbols:
+        s_clean = re.sub(r'[^A-Za-z0-9]', '', s.name).upper()
+        if s_clean.startswith(target_clean) or s.name.upper().startswith(symbol.upper()):
+            if not s.visible:
+                mt5.symbol_select(s.name, True)
+            return s.name
+
+    # 3. Coincidencia que contenga el par base
+    if len(target_clean) >= 6:
+        for s in all_symbols:
+            if target_clean[:6] in s.name.upper():
+                if not s.visible:
+                    mt5.symbol_select(s.name, True)
+                return s.name
+
+    return None
+
+
 def get_historical_data(
     symbol: str,
     timeframe: int,
@@ -19,22 +63,15 @@ def get_historical_data(
     :param log_callback: Callback opcional para enviar logs a la GUI/usuario (symbol, message, level).
     :return: DataFrame procesado o None si ocurre un error.
     """
-    # 1. Asegurar que el símbolo esté seleccionado en la Observación de Mercado (Market Watch) de MT5
-    if not mt5.symbol_select(symbol, True):
-        # Intentar coincidencia case-insensitive por si hubo un error de casing (ej. EURUSD_R vs EURUSD_r)
-        all_symbols = mt5.symbols_get()
-        matched_name = None
-        if all_symbols:
-            matched_name = next((s.name for s in all_symbols if s.name.lower() == symbol.lower()), None)
-        
-        if matched_name and mt5.symbol_select(matched_name, True):
-            symbol = matched_name
-        else:
-            msg = f"❌ El símbolo '{symbol}' no está activo o no existe en la terminal MT5. Código: {mt5.last_error()}"
-            print(msg)
-            if log_callback:
-                log_callback(symbol, msg, "ERROR")
-            return None
+    resolved = resolve_mt5_symbol(symbol)
+    if resolved:
+        symbol = resolved
+    else:
+        msg = f"❌ El símbolo '{symbol}' no está activo o no existe en la terminal MT5. Código: {mt5.last_error()}"
+        print(msg)
+        if log_callback:
+            log_callback(symbol, msg, "ERROR")
+        return None
 
     # 2. Solicitar los datos a la API de MT5
     rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, rates_count)

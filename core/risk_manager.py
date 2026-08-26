@@ -134,49 +134,71 @@ class RiskManager:
     def is_rollover_or_market_close_window(
         self,
         minutes_before_close: int = 15,
-        rollover_start: str = "21:15",
-        rollover_end: str = "22:30"
+        rollover_start: str = "16:40",
+        rollover_end: str = "17:20"
     ) -> Tuple[bool, str, str]:
         """
-        Detecta si estamos en la ventana de Rollover interbancario diario (~17:00 EST / 21:15 - 22:30 UTC)
+        Detecta si estamos en la ventana de Rollover interbancario diario (~16:40 - 17:20)
         o en el cierre semanal de fin de semana (Viernes noche).
 
-        Para estrategias de Scalping, es OBLIGATORIO cerrar todas las operaciones diariamente
-        antes del Rollover para evitar:
-        1. Ensanchamiento extremo del Spread (que revienta el SL).
-        2. Cobro de comisiones de Swap nocturno.
-        3. Falta de liquidez en la apertura de la sesión asiática temprana.
+        Reglas de seguridad:
+        1. Entre 16:40 y 17:20: Prohibidas NUEVAS ENTRADAS y REENTRADAS para evitar alta volatilidad, spread y swap.
+        2. A las 16:55 (16:55 - 17:20): CIERRE OBLIGATORIO de cualquier posición abierta.
+        3. Fines de semana / Cierre de Viernes: Liquidación total preventiva.
 
-        Retorna: (is_danger_zone, reason, action_needed: 'BLOCK_AND_CLOSE' | 'OK')
+        Retorna: (is_danger_zone, reason, action_needed: 'BLOCK_AND_CLOSE' | 'BLOCK_ENTRIES' | 'OK')
         """
         from datetime import datetime, timezone
 
+        now_local = datetime.now()
         now_utc = datetime.now(timezone.utc)
-        weekday = now_utc.weekday()  # 0=Lunes, 4=Viernes, 5=Sábado, 6=Domingo
-        current_hour_min = now_utc.strftime("%H:%M")
-        total_now_minutes = now_utc.hour * 60 + now_utc.minute
+        weekday = now_local.weekday()  # 0=Lunes, 4=Viernes, 5=Sábado, 6=Domingo
+        current_local_hm = now_local.strftime("%H:%M")
+        total_local_minutes = now_local.hour * 60 + now_local.minute
+        total_utc_minutes = now_utc.hour * 60 + now_utc.minute
 
         # 1. Fin de semana (Sábado y Domingo: Mercado cerrado)
         if weekday in (5, 6):
             return (
                 True,
-                f"Mercado cerrado por Fin de Semana ({now_utc.strftime('%A')} {current_hour_min} UTC).",
+                f"Mercado cerrado por Fin de Semana ({now_local.strftime('%A')} {current_local_hm}).",
                 "BLOCK_AND_CLOSE"
             )
 
         # 2. Cierre de Mercado de Fin de Semana (Viernes noche - Previo a cierre semanal)
         # Forex cierra los viernes a las 22:00 UTC (17:00 EST).
         if weekday == 4:  # Viernes
-            close_minutes = 22 * 60  # 22:00 UTC
-            if total_now_minutes >= (close_minutes - minutes_before_close):
+            close_minutes_utc = 22 * 60  # 22:00 UTC
+            close_minutes_local = 17 * 60 # 17:00 Local / EST
+            if (total_utc_minutes >= (close_minutes_utc - minutes_before_close)) or \
+               (total_local_minutes >= (close_minutes_local - minutes_before_close) and total_local_minutes < close_minutes_local + 60):
                 return (
                     True,
-                    f"Cierre semanal de mercado en curso (Viernes {current_hour_min} UTC). Bloqueo total y liquidación por seguridad.",
+                    f"Cierre semanal de mercado en curso (Viernes {current_local_hm}). Bloqueo total y liquidación por seguridad.",
                     "BLOCK_AND_CLOSE"
                 )
 
         # 3. Ventana Diaria Universal de Rollover (Lunes a Viernes)
-        # Se calcula en minutos desde medianoche UTC para máxima precisión
+        # 3.1 Verificación en HORA LOCAL / BROKER (16:40 a 17:20)
+        start_rollover_local = 16 * 60 + 40  # 16:40
+        close_rollover_local = 16 * 60 + 55  # 16:55
+        end_rollover_local = 17 * 60 + 20    # 17:20
+
+        if start_rollover_local <= total_local_minutes <= end_rollover_local:
+            if total_local_minutes >= close_rollover_local:
+                return (
+                    True,
+                    f"Ventana de Rollover ({current_local_hm} - Cierre forzoso de 16:55 a 17:20). Liquidando posiciones para evitar Swap y ensanchamiento de Spread.",
+                    "BLOCK_AND_CLOSE"
+                )
+            else:
+                return (
+                    True,
+                    f"Ventana previa a Rollover ({current_local_hm} entre 16:40 y 17:20). Entradas y reentradas bloqueadas por seguridad.",
+                    "BLOCK_ENTRIES"
+                )
+
+        # 3.2 Verificación en HORA UTC (Equivalente al Rollover bancario de Nueva York ~21:15-22:30 UTC)
         def _to_minutes(t_str: str, default_val: int) -> int:
             try:
                 parts = t_str.strip().split(":")
@@ -184,16 +206,22 @@ class RiskManager:
             except Exception:
                 return default_val
 
-        start_rollover_min = _to_minutes(rollover_start, 21 * 60 + 15)  # Default 21:15 UTC (16:15 EST)
-        end_rollover_min = _to_minutes(rollover_end, 22 * 60 + 30)      # Default 22:30 UTC (17:30 EST)
+        start_rollover_utc = _to_minutes(rollover_start, 21 * 60 + 15)
+        end_rollover_utc = _to_minutes(rollover_end, 22 * 60 + 30)
 
-        if start_rollover_min <= total_now_minutes <= end_rollover_min:
-            return (
-                True,
-                f"Ventana de Rollover Diario / Cambio de Sesión ({current_hour_min} UTC entre {rollover_start}-{rollover_end}). "
-                f"Spreads bancarios elevados y Swap nocturno.",
-                "BLOCK_AND_CLOSE"
-            )
+        if start_rollover_utc <= total_utc_minutes <= end_rollover_utc:
+            if total_utc_minutes >= (start_rollover_utc + 40):  # ~21:55 UTC
+                return (
+                    True,
+                    f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Cierre preventivo de posiciones.",
+                    "BLOCK_AND_CLOSE"
+                )
+            else:
+                return (
+                    True,
+                    f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Entradas bloqueadas.",
+                    "BLOCK_ENTRIES"
+                )
 
         return False, "Horario regular de mercado y liquidez adecuada.", "OK"
 

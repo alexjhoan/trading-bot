@@ -18,6 +18,7 @@ from core.ai_memory import AIMemoryManager
 from core.news_manager import news_manager
 from core.market_context import analyze_macro_multitimeframe
 from core.candlestick_patterns import format_candlestick_summary_for_ai
+from config import STRATEGY_CONFIG
 
 TIMEFRAME_SECONDS_MAP: Dict[int, int] = {
     mt5.TIMEFRAME_M1: 60,
@@ -121,6 +122,36 @@ class SymbolWorker(threading.Thread):
             except Exception as e:
                 print(f"[DEBUG CLOSED TRADES] Error actualizando trade #{ticket}: {e}")
 
+    @staticmethod
+    def _is_within_session(start_str: str, end_str: str) -> bool:
+        """Verifica si la hora actual local está dentro del rango horario de la sesión."""
+        now = datetime.now()
+        current_t = now.time()
+        try:
+            start_t = datetime.strptime(start_str.strip(), "%H:%M").time()
+            end_t = datetime.strptime(end_str.strip(), "%H:%M").time()
+            if start_t <= end_t:
+                return start_t <= current_t <= end_t
+            else:
+                return current_t >= start_t or current_t <= end_t
+        except Exception:
+            return True
+
+    @staticmethod
+    def _get_seconds_until_session_start(start_str: str) -> int:
+        """Calcula los segundos exactos restantes hasta la próxima apertura de sesión."""
+        now = datetime.now()
+        try:
+            start_h, start_m = map(int, start_str.strip().split(":"))
+            target_today = now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+            if target_today <= now:
+                target = target_today + timedelta(days=1)
+            else:
+                target = target_today
+            return max(5, int((target - now).total_seconds()))
+        except Exception:
+            return 60
+
     def run(self) -> None:
         self._log(f"Iniciando monitoreo para {self.symbol} con estrategia '{self.strategy_name}'...", "INFO")
 
@@ -129,7 +160,70 @@ class SymbolWorker(threading.Thread):
                 # 0. Verificar si trades anteriores se han cerrado para actualizar la memoria
                 self._check_closed_trades()
 
-                # 1. Obtener datos según la temporalidad configurada para este símbolo
+                # 1. Verificar si ya existe al menos una posición abierta en este par
+                open_positions = mt5.positions_get(symbol=self.symbol)
+
+                # ⚠️ FILTRO DE SEGURIDAD 1: VERIFICAR VENTANA DE ROLLOVER Y CIERRE DE MERCADO
+                cfg = load_config()
+                max_spread_allowed = float(cfg.get("max_spread_pips", 3.5))
+                close_on_rollover = bool(cfg.get("close_before_rollover", True))
+                rollover_start = str(cfg.get("rollover_start_utc", "16:40"))
+                rollover_end = str(cfg.get("rollover_end_utc", "17:20"))
+                min_before_close = int(cfg.get("weekend_close_minutes_before", 15))
+
+                is_danger_zone, danger_reason, danger_action = self.risk_manager.is_rollover_or_market_close_window(
+                    minutes_before_close=min_before_close,
+                    rollover_start=rollover_start,
+                    rollover_end=rollover_end
+                )
+
+                # ⏰ FILTRO DE HORARIO Y SESIÓN CUANDO NO HAY POSICIONES ABIERTAS
+                # Si el par no tiene trades abiertos y está fuera de horario, esperar pacíficamente
+                # hasta la hora de reinicio/apertura sin consultar MT5 ni gastar CPU en cada vela.
+                if not open_positions or len(open_positions) == 0:
+                    market_open, open_reason = STRATEGY_CONFIG.is_market_open(self.symbol)
+                    if not market_open:
+                        self._log(f"⏸️ [MERCADO CERRADO] {self.symbol}: {open_reason}. En pausa hasta apertura...", "INFO")
+                        sleep_count = 0
+                        while sleep_count < 120 and not self.stop_event.is_set():
+                            time.sleep(2.0)
+                            sleep_count += 2
+                        continue
+
+                    use_session = getattr(self.strategy, "use_session_filter", True)
+                    if use_session:
+                        start_str, end_str = STRATEGY_CONFIG.get_session_times_for_symbol(self.symbol)
+                        if not self._is_within_session(start_str, end_str):
+                            secs_left = self._get_seconds_until_session_start(start_str)
+                            hrs = secs_left // 3600
+                            mins = (secs_left % 3600) // 60
+                            self._log(
+                                f"⏸️ [FUERA DE HORARIO] {self.symbol} fuera de sesión activa ({start_str}-{end_str}). "
+                                f"Reanudación automática programada a las {start_str} (en {hrs}h {mins}m). Hilo en reposo.",
+                                "INFO"
+                            )
+                            # Espera silenciosa e interrumpible hasta que llegue la hora
+                            while secs_left > 0 and not self.stop_event.is_set():
+                                sleep_step = min(5.0, float(secs_left))
+                                time.sleep(sleep_step)
+                                secs_left -= int(sleep_step)
+                                if self._is_within_session(start_str, end_str):
+                                    break
+
+                            if not self.stop_event.is_set():
+                                self._log(f"🟢 [HORARIO ACTIVO ALCANZADO] Sesión {start_str} iniciada para {self.symbol}. Reiniciando análisis en tiempo real...", "SUCCESS")
+                            continue
+
+                    # Si estamos en ventana de peligro (16:40 - 17:20) y no hay posiciones
+                    if is_danger_zone:
+                        self._log(f"⏸️ [PAUSA POR RIESGO] {self.symbol}: {danger_reason}. Esperando que pase la ventana de spread/swap...", "INFO")
+                        sleep_count = 0
+                        while sleep_count < 30 and not self.stop_event.is_set():
+                            time.sleep(2.0)
+                            sleep_count += 2
+                        continue
+
+                # 2. Obtener datos según la temporalidad configurada para este símbolo
                 df = get_historical_data(
                     symbol=self.symbol,
                     timeframe=self.timeframe,
@@ -140,23 +234,6 @@ class SymbolWorker(threading.Thread):
                 if df is None or df.empty:
                     time.sleep(3)
                     continue
-
-                # 2. Verificar si ya existe al menos una posición abierta en este par
-                open_positions = mt5.positions_get(symbol=self.symbol)
-
-                # ⚠️ FILTRO DE SEGURIDAD 1: VERIFICAR VENTANA DE ROLLOVER Y CIERRE DE MERCADO
-                cfg = load_config()
-                max_spread_allowed = float(cfg.get("max_spread_pips", 3.5))
-                close_on_rollover = bool(cfg.get("close_before_rollover", True))
-                rollover_start = str(cfg.get("rollover_start_utc", "21:15"))
-                rollover_end = str(cfg.get("rollover_end_utc", "22:30"))
-                min_before_close = int(cfg.get("weekend_close_minutes_before", 15))
-
-                is_danger_zone, danger_reason, danger_action = self.risk_manager.is_rollover_or_market_close_window(
-                    minutes_before_close=min_before_close,
-                    rollover_start=rollover_start,
-                    rollover_end=rollover_end
-                )
 
                 if open_positions and len(open_positions) > 0:
                     # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP, CIERRE PREMATURO E EVALUACIÓN DE REENTRADAS

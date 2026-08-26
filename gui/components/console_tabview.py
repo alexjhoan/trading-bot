@@ -41,8 +41,6 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
 
         self.symbols: List[str] = list(symbols) if symbols else []
         self.console_boxes: Dict[str, ctk.CTkTextbox] = {}
-        # Mapeo: símbolo -> nombre actual de la pestaña (ej: "⚪ EURUSD")
-        self.symbol_tab_names: Dict[str, str] = {}
         # Mapeo: símbolo -> estado actual ("INACTIVE", "WAITING", "OPEN_ORDER", "WARNING", "ERROR")
         self.symbol_status: Dict[str, str] = {}
         # Tooltips por pestaña
@@ -85,79 +83,98 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
         else:
             self._gui_queue.put(fn)
 
-    def _build_tabs(self):
-        """Inicializa la pestaña General y las pestañas para todos los símbolos disponibles."""
-        # 1. Pestaña General (Siempre presente)
-        self.add("🌐 General")
-        box_gen = ctk.CTkTextbox(
-            self.tab("🌐 General"),
-            font=ctk.CTkFont(family="Consolas", size=12),
-            wrap="word"
-        )
-        box_gen.pack(fill="both", expand=True, padx=5, pady=5)
-        self.console_boxes["General"] = box_gen
-        self.symbol_tab_names["General"] = "🌐 General"
+    def _get_tab_button(self, tab_key: str) -> Optional[Any]:
+        """Obtiene el botón de la barra de pestañas correspondiente a la clave."""
+        try:
+            if hasattr(self, "_segmented_button") and hasattr(self._segmented_button, "_buttons_dict"):
+                return self._segmented_button._buttons_dict.get(tab_key)
+        except Exception:
+            pass
+        return None
 
-        # Asociar tooltip a la pestaña General si es accesible
-        self._bind_tab_tooltip("🌐 General", "Consola de eventos generales y estado de la cuenta")
-
-        # 2. Pestañas iniciales para cada símbolo disponible
-        for symbol in list(self.symbols):
-            self.add_symbol_tab(symbol)
+    def _bind_tab_tooltip(self, tab_key: str, text: str) -> None:
+        """Enlaza o actualiza el ToolTip al botón correspondiente del segmented button."""
+        try:
+            btn = self._get_tab_button(tab_key)
+            if btn:
+                if tab_key in self.tab_tooltips:
+                    self.tab_tooltips[tab_key].set_text(text)
+                else:
+                    self.tab_tooltips[tab_key] = ToolTip(btn, text=text, delay_ms=300)
+        except Exception:
+            pass
 
     def _get_status_icon_and_tip(self, status: str) -> tuple:
         cfg = TAB_STATUS_CONFIG.get(status, TAB_STATUS_CONFIG["INACTIVE"])
         return cfg["icon"], cfg["tooltip"]
 
-    def _bind_tab_tooltip(self, tab_name: str, text: str) -> None:
-        """Intenta enlazar el ToolTip al botón correspondiente del tabview."""
+    def _build_tabs(self):
+        """Inicializa la pestaña General y las pestañas para todos los símbolos disponibles."""
+        # 1. Pestaña General (Siempre presente con clave "🌐 General")
+        gen_tab_key = "🌐 General"
+        if gen_tab_key not in self._tab_dict:
+            self.add(gen_tab_key)
+
+        box_gen = ctk.CTkTextbox(
+            self.tab(gen_tab_key),
+            font=ctk.CTkFont(family="Consolas", size=12),
+            wrap="word"
+        )
+        box_gen.pack(fill="both", expand=True, padx=5, pady=5)
+        self.console_boxes["General"] = box_gen
+
+        # Asociar tooltip a la pestaña General
+        self._bind_tab_tooltip(gen_tab_key, "Consola de eventos generales y estado de la cuenta")
+
+        # 2. Pestañas iniciales para cada símbolo
+        for symbol in list(self.symbols):
+            self.add_symbol_tab(symbol)
+
+        # Forzar selección inicial en General
         try:
-            # CustomTkinter CTkTabview contiene internamente los botones en self._segmented_button
-            if hasattr(self, "_segmented_button") and hasattr(self._segmented_button, "_buttons_dict"):
-                btn = self._segmented_button._buttons_dict.get(tab_name)
-                if btn:
-                    if tab_name in self.tab_tooltips:
-                        self.tab_tooltips[tab_name].set_text(text)
-                    else:
-                        self.tab_tooltips[tab_name] = ToolTip(btn, text=text, delay_ms=300)
+            self.set(gen_tab_key)
         except Exception:
             pass
 
     def add_symbol_tab(self, symbol: str, initial_status: str = "INACTIVE"):
-        """Agrega dinámicamente una nueva pestaña para un símbolo con su ícono y tooltip de estado."""
-        if symbol == "General":
+        """Agrega de forma estable una nueva pestaña para un símbolo con su textbox persistente."""
+        if symbol == "General" or symbol == "🌐 General":
             return
 
         icon, tooltip_text = self._get_status_icon_and_tip(initial_status)
-        tab_name = f"{icon} {symbol}"
+        tab_key = symbol
 
         if symbol not in self.console_boxes:
             try:
-                if tab_name not in self._tab_dict:
-                    self.add(tab_name)
+                if tab_key not in self._tab_dict:
+                    self.add(tab_key)
 
                 box = ctk.CTkTextbox(
-                    self.tab(tab_name),
+                    self.tab(tab_key),
                     font=ctk.CTkFont(family="Consolas", size=12),
                     wrap="word"
                 )
                 box.pack(fill="both", expand=True, padx=5, pady=5)
                 self.console_boxes[symbol] = box
-                self.symbol_tab_names[symbol] = tab_name
                 self.symbol_status[symbol] = initial_status
 
-                # Tooltip explicativo en la pestaña
-                self._bind_tab_tooltip(tab_name, f"[{symbol}] {tooltip_text}")
+                # Actualizar el texto del botón en el segmented button para mostrar el ícono de estado
+                btn = self._get_tab_button(tab_key)
+                if btn:
+                    btn.configure(text=f"{icon} {symbol}")
 
-            except Exception:
-                pass
+                # Tooltip explicativo en la pestaña
+                self._bind_tab_tooltip(tab_key, f"[{symbol}] {tooltip_text}")
+
+            except Exception as e:
+                print(f"[ERROR ADD SYMBOL TAB] {symbol}: {e}")
 
         if symbol not in self.symbols:
             self.symbols.append(symbol)
 
     def set_symbol_status(self, symbol: str, status: str, custom_tooltip: Optional[str] = None):
         """
-        Actualiza el ícono, estado y tooltip del tab para el símbolo dado.
+        Actualiza el ícono, estado y tooltip del tab para el símbolo dado sin destruir widgets ni perder el foco.
         Estados:
         - 'INACTIVE': ⚪ Bot no está analizando el par
         - 'WAITING': 🟢 Bot activo y en espera de una entrada
@@ -165,102 +182,93 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
         - 'WARNING': ⚠️ Alerta / Fuera de tiempo / Spread alto
         - 'ERROR': ❌ Error crítico
         """
-        if symbol not in self.console_boxes or symbol == "General":
+        if symbol not in self.console_boxes or symbol in ("General", "🌐 General"):
             return
 
         current_status = self.symbol_status.get(symbol, "INACTIVE")
         if current_status == status and not custom_tooltip:
             return  # No hay cambios necesarios
 
-        old_tab_name = self.symbol_tab_names.get(symbol, f"⚪ {symbol}")
         icon, default_tip = self._get_status_icon_and_tip(status)
-        new_tab_name = f"{icon} {symbol}"
         tooltip_text = custom_tooltip or f"[{symbol}] {default_tip}"
-
-        if old_tab_name == new_tab_name:
-            self.symbol_status[symbol] = status
-            self._bind_tab_tooltip(new_tab_name, tooltip_text)
-            return
 
         def _do_update():
             try:
-                # Guardar el contenido del textbox actual
-                box = self.console_boxes.get(symbol)
-                content = box.get("1.0", "end") if box else ""
-                is_selected = (self.get() == old_tab_name)
-
-                # Eliminar pestaña vieja
-                try:
-                    self.delete(old_tab_name)
-                except Exception:
-                    pass
-
-                # Crear pestaña nueva con el nuevo ícono
-                if new_tab_name not in self._tab_dict:
-                    self.add(new_tab_name)
-
-                new_box = ctk.CTkTextbox(
-                    self.tab(new_tab_name),
-                    font=ctk.CTkFont(family="Consolas", size=12),
-                    wrap="word"
-                )
-                new_box.pack(fill="both", expand=True, padx=5, pady=5)
-                if content.strip():
-                    new_box.insert("1.0", content)
-                    new_box.see("end")
-
-                self.console_boxes[symbol] = new_box
-                self.symbol_tab_names[symbol] = new_tab_name
                 self.symbol_status[symbol] = status
-
-                if is_selected:
-                    self.set(new_tab_name)
-
-                self._bind_tab_tooltip(new_tab_name, tooltip_text)
-            except Exception:
-                pass
+                btn = self._get_tab_button(symbol)
+                if btn:
+                    btn.configure(text=f"{icon} {symbol}")
+                self._bind_tab_tooltip(symbol, tooltip_text)
+            except Exception as e:
+                print(f"[ERROR SET SYMBOL STATUS] {symbol}: {e}")
 
         self.run_on_gui_thread(_do_update)
 
     def remove_symbol_tab(self, symbol: str):
         """Elimina una pestaña de símbolo de la interfaz de forma segura."""
-        tab_name = self.symbol_tab_names.get(symbol, f"⚪ {symbol}")
+        if symbol in ("General", "🌐 General"):
+            return
+
+        tab_key = symbol
         if symbol in self.console_boxes:
             del self.console_boxes[symbol]
-        if symbol in self.symbol_tab_names:
-            del self.symbol_tab_names[symbol]
         if symbol in self.symbol_status:
             del self.symbol_status[symbol]
-        if tab_name in self.tab_tooltips:
-            del self.tab_tooltips[tab_name]
+        if tab_key in self.tab_tooltips:
+            del self.tab_tooltips[tab_key]
 
         if symbol in self.symbols:
             self.symbols.remove(symbol)
 
         try:
-            self.delete(tab_name)
+            if tab_key in self._tab_dict:
+                self.delete(tab_key)
         except Exception:
             pass
 
     def sync_tabs(self, new_symbols: List[str]):
-        """Sincroniza la consola agregando nuevas pestañas o eliminando las retiradas."""
-        target_symbols = list(new_symbols)
+        """Sincroniza la consola agregando nuevas pestañas o eliminando las retiradas sin perder visibilidad."""
+        def _do_sync():
+            try:
+                current_active = self.get()
+                target_symbols = list(new_symbols)
 
-        # 1. Eliminar pestañas que ya no están en la lista de símbolos
-        existing_symbols = [s for s in list(self.console_boxes.keys()) if s != "General"]
-        for sym in existing_symbols:
-            if sym not in target_symbols:
-                self.remove_symbol_tab(sym)
+                # 1. Eliminar pestañas que ya no están en la lista de símbolos
+                existing_symbols = [s for s in list(self.console_boxes.keys()) if s not in ("General", "🌐 General")]
+                for sym in existing_symbols:
+                    if sym not in target_symbols:
+                        self.remove_symbol_tab(sym)
 
-        # 2. Agregar pestañas para los símbolos nuevos
-        created_any = False
-        for sym in target_symbols:
-            if sym not in self.console_boxes:
-                self.add_symbol_tab(sym)
-                created_any = True
+                # 2. Agregar pestañas para los símbolos nuevos
+                for sym in target_symbols:
+                    if sym not in self.console_boxes:
+                        self.add_symbol_tab(sym)
+                    else:
+                        # Asegurar que el botón muestre el ícono correspondiente al estado actual
+                        curr_st = self.symbol_status.get(sym, "INACTIVE")
+                        icon, _ = self._get_status_icon_and_tip(curr_st)
+                        btn = self._get_tab_button(sym)
+                        if btn:
+                            btn.configure(text=f"{icon} {sym}")
 
-        # 3. Forzar renderizado visual inmediato
-        self.update_idletasks()
+                # 3. Mantener el tab activo visible de forma garantizada
+                if current_active and (current_active in self._tab_dict or current_active == "🌐 General"):
+                    try:
+                        self.set(current_active)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        self.set("🌐 General")
+                    except Exception:
+                        pass
+
+                # Forzar refresco de geometría para que el tab seleccionado sea visible inmediatamente
+                self.update_idletasks()
+            except Exception as e:
+                print(f"[SYNC TABS ERROR] {e}")
+
+        self.run_on_gui_thread(_do_sync)
 
     def log(self, target: str, message: str, level: str = "INFO"):
         """
@@ -279,7 +287,7 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
 
             formatted_msg = f"{timestamp}{prefix}{message}\n"
 
-            if target not in self.console_boxes and target != "General":
+            if target not in self.console_boxes and target not in ("General", "🌐 General"):
                 self.add_symbol_tab(target)
 
             box = self.console_boxes.get(target) or self.console_boxes.get("General")
@@ -296,7 +304,7 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
                     box.configure(state="disabled")
 
             # 🟢 ACTUALIZAR AUTOMÁTICAMENTE EL ÍCONO Y TOOLTIP SEGÚN EL LOG
-            if target != "General" and target in self.console_boxes:
+            if target not in ("General", "🌐 General") and target in self.console_boxes:
                 msg_upper = message.upper()
 
                 if "POSICIÓN ACTIVA DETECTADA" in msg_upper or "OPERACIÓN DETECTADA" in msg_upper or "OPERACIÓN ABIERTA" in msg_upper:
@@ -318,3 +326,4 @@ class ConsoleTabviewComponent(ctk.CTkTabview):
 
         # Delegar la ejecución al hilo de la GUI mediante la cola thread-safe
         self.run_on_gui_thread(_update_gui)
+

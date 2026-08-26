@@ -266,7 +266,22 @@ class QuantBotApp(ctk.CTk):
         specs = self.config_data.get("symbol_specs", {})
         self.symbol_selector.update_available_symbols(available)
         self.symbol_selector.update_symbol_specs(specs)
-        self.console.log("General", "🔄 Configuración reloaded exitosamente.", "SUCCESS")
+
+        # Sincronizar y verificar la conexión con MT5 inmediatamente tras guardar
+        if initialize_mt5():
+            acc_info = mt5.account_info()
+            if acc_info is not None:
+                self.topbar.update_account_info(acc_info.balance, acc_info.equity)
+                self.symbol_selector.set_account_balance(acc_info.balance)
+                self.symbol_selector.update_schedules_color()
+                self._adopt_open_positions()
+                self.console.log("General", f"🔌 Conexión con MT5 activa | Balance: ${acc_info.balance:.2f} | Bróker: {acc_info.company}", "SUCCESS")
+            else:
+                self.console.log("General", "🔄 Configuración guardada. MT5 inicializado.", "SUCCESS")
+        else:
+            self.console.log("General", "⚠️ No se pudo autenticar en MT5 con las credenciales ingresadas.", "WARNING")
+
+        self.console.log("General", "🔄 Configuración recargada exitosamente.", "INFO")
 
     def _handle_test_ai_terminal(self) -> None:
         """Dispara una petición de prueba genérica a la IA e imprime todo el payload y respuesta en la consola de terminal."""
@@ -275,7 +290,7 @@ class QuantBotApp(ctk.CTk):
             self.console.log("General", "👉 Revisa la consola de PowerShell/Terminal para ver el Payload JSON exacto y la respuesta cruda de la IA.", "INFO")
             cfg = load_config()
             api_key = str(cfg.get("ai_api_key", ""))
-            model_name = str(cfg.get("ai_model", "gemini-3.6-flash"))
+            model_name = str(cfg.get("ai_model", "gemini-2.5-flash"))
             base_url = str(cfg.get("ai_base_url", ""))
 
             res = test_ai_payload_terminal(
@@ -347,6 +362,13 @@ class QuantBotApp(ctk.CTk):
         """Bucle secundario en segundo plano para actualizar balance, equidad y detectar operaciones abiertas."""
         try:
             acc_info = mt5.account_info()
+            if acc_info is None:
+                # Intentar reconexión automática si existen credenciales válidas
+                creds_ok, _ = check_user_credentials_exist()
+                if creds_ok:
+                    if initialize_mt5():
+                        acc_info = mt5.account_info()
+
             if acc_info is not None:
                 balance = acc_info.balance
                 equity = acc_info.equity

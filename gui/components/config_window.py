@@ -32,7 +32,7 @@ class ConfigWindow(ctk.CTkToplevel):
         self.entries: Dict[str, ctk.CTkEntry] = {}
 
         self.selected_provider = ctk.StringVar(value=self.config_data.get("ai_provider", "Google Gemini"))
-        self.selected_model = ctk.StringVar(value=self.config_data.get("ai_model", "gemini-3.6-flash"))
+        self.selected_model = ctk.StringVar(value=self.config_data.get("ai_model", "gemini-2.5-flash"))
 
         self._build_ui()
         self._load_values()
@@ -159,7 +159,7 @@ class ConfigWindow(ctk.CTkToplevel):
         model_select_frame.grid_columnconfigure(0, weight=1)
 
         initial_provider = self.selected_provider.get()
-        initial_models = PROVIDER_PRESETS.get(initial_provider, {}).get("models", ["gemini-3.6-flash"])
+        initial_models = PROVIDER_PRESETS.get(initial_provider, {}).get("models", ["gemini-2.5-flash"])
 
         self.model_menu = ctk.CTkOptionMenu(
             model_select_frame,
@@ -409,7 +409,7 @@ class ConfigWindow(ctk.CTkToplevel):
             self.selected_provider.set(provider)
             self._on_provider_change(provider)
 
-        saved_model = self.config_data.get("ai_model", "gemini-3.6-flash")
+        saved_model = self.config_data.get("ai_model", "gemini-2.5-flash")
         self.selected_model.set(saved_model)
 
         self.entries["ai_api_key_entry"].insert(0, str(self.config_data.get("ai_api_key", "")))
@@ -448,7 +448,7 @@ class ConfigWindow(ctk.CTkToplevel):
             "ai_enabled": self.ai_enabled_var.get(),
             "ai_provider": self.selected_provider.get(),
             "ai_api_key": self.entries["ai_api_key_entry"].get().strip(),
-            "ai_model": self.selected_model.get().strip() or "gemini-3.6-flash",
+            "ai_model": self.selected_model.get().strip() or "gemini-2.5-flash",
             "ai_base_url": self.entries["ai_base_url_entry"].get().strip(),
             "ai_thinking_budget": max(0, thinking_val),
             # Campo de Licencia
@@ -497,12 +497,10 @@ class ConfigWindow(ctk.CTkToplevel):
                 text=f"❌ Fallo de autenticación en MT5: {mt5.last_error()}", text_color="#EF4444"
             )
 
-        mt5.shutdown()
-
     def _test_ai_connection_async(self) -> None:
         """Prueba la API Key y conexión con el modelo de IA en un hilo secundario para no congelar la UI."""
         api_key = self.entries["ai_api_key_entry"].get().strip()
-        model = self.selected_model.get().strip() or "gemini-3.6-flash"
+        model = self.selected_model.get().strip() or "gemini-2.5-flash"
         base_url = self.entries["ai_base_url_entry"].get().strip()
 
         if not api_key:
@@ -562,8 +560,6 @@ class ConfigWindow(ctk.CTkToplevel):
                 if broker_symbols:
                     data["available_symbols"] = broker_symbols
                     data["symbol_specs"] = get_all_symbol_specs(broker_symbols)
-
-                mt5.shutdown()
 
             if save_config(data):
                 self.status_label.configure(

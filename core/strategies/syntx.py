@@ -161,38 +161,50 @@ class SyntxStrategy(BaseStrategy):
         current_sl = float(position.sl)
         current_tp = float(position.tp)
 
-        # A. Cierre prematuro o Mantenimiento ('HOLD') según Acción del Precio y Patrones de Velas
+        # A. Cierre prematuro por confirmación de retroceso o cambio de estructura en SYNTX
         pat_info = detect_candlestick_patterns(df)
         pat_bias = pat_info.get("bias", "NEUTRAL")
         pat_name = pat_info.get("primary_pattern", "Vela Estándar")
         pat_strength = pat_info.get("strength", "MODERATE")
+        curr_rsi = float(curr_candle.get("rsi", 50.0))
 
         ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
 
-        # Regla de Oro SYNTX: Si hay patrón de confirmación alcista a favor de BUY o bajista a favor de SELL, MANTENER
         if is_buy:
-            if pat_bias == "BULLISH" and pat_strength in ["STRONG", "MEDIUM"]:
-                pass
-            elif curr_close < (ema_trend - ema_buffer):
+            if curr_close < (ema_trend - ema_buffer):
+                if pat_bias == "BEARISH" or curr_rsi < 45:
+                    return {
+                        "action": "EARLY_CLOSE",
+                        "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) rompió EMA200 ({ema_trend:.5f}) con confirmación bajista ({pat_name}, RSI: {curr_rsi:.1f})",
+                        "close_reason": "Cambio_Tendencia_EMA200"
+                    }
+            elif (curr_close > price_open) and pat_bias == "BEARISH" and pat_strength == "STRONG" and curr_rsi > 72:
                 return {
                     "action": "EARLY_CLOSE",
-                    "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) rompió la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f}) y sin patrón alcista protector",
-                    "close_reason": "Invalidacion_EMA200"
+                    "reason": f"Cierre preventivo en ganancia SYNTX: Confirmación de agotamiento/retroceso por {pat_name} (RSI {curr_rsi:.1f})",
+                    "close_reason": "Agotamiento_Sobrecompra"
                 }
         else:
-            if pat_bias == "BEARISH" and pat_strength in ["STRONG", "MEDIUM"]:
-                pass
-            elif curr_close > (ema_trend + ema_buffer):
+            if curr_close > (ema_trend + ema_buffer):
+                if pat_bias == "BULLISH" or curr_rsi > 55:
+                    return {
+                        "action": "EARLY_CLOSE",
+                        "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) superó EMA200 ({ema_trend:.5f}) con confirmación alcista ({pat_name}, RSI: {curr_rsi:.1f})",
+                        "close_reason": "Cambio_Tendencia_EMA200"
+                    }
+            elif (curr_close < price_open) and pat_bias == "BULLISH" and pat_strength == "STRONG" and curr_rsi < 28:
                 return {
                     "action": "EARLY_CLOSE",
-                    "reason": f"Cierre prematuro SYNTX: Precio ({curr_close:.5f}) superó la EMA200 ({ema_trend:.5f}) superando el buffer ({ema_buffer:.5f}) y sin patrón bajista protector",
-                    "close_reason": "Invalidacion_EMA200"
+                    "reason": f"Cierre preventivo en ganancia SYNTX: Confirmación de rebote/retroceso por {pat_name} (RSI {curr_rsi:.1f})",
+                    "close_reason": "Agotamiento_Sobreventa"
                 }
 
         # B. Trailing Stop inteligente por ATR y Mínimos/Máximos de Vela
         suggested_sl = current_sl
         suggested_tp = current_tp
         needs_sl_update = False
+        needs_tp_update = False
+        update_reasons = []
 
         if current_atr > 0:
             trailing_offset = current_atr * max(2.0, self.atr_sl_mult)
@@ -204,19 +216,63 @@ class SyntxStrategy(BaseStrategy):
                     if new_trailing_sl > current_sl and new_trailing_sl > price_open:
                         suggested_sl = new_trailing_sl
                         needs_sl_update = True
+                        update_reasons.append(f"Trailing SL: {suggested_sl:.5f}")
             else:
                 if curr_close <= (price_open - activation_buffer):
                     new_trailing_sl = curr_high + trailing_offset
                     if (current_sl == 0.0 or new_trailing_sl < current_sl) and new_trailing_sl < price_open:
                         suggested_sl = new_trailing_sl
                         needs_sl_update = True
+                        update_reasons.append(f"Trailing SL: {suggested_sl:.5f}")
 
-        if needs_sl_update:
+        # C. 📈 AJUSTE DINÁMICO DE TP EN CONTINUACIÓN DE TENDENCIA (Fibonacci 127.2% / 161.8%)
+        lookback = min(len(df_analyzed), max(self.lookback_swing, 40))
+        swing_slice = df_analyzed.iloc[-lookback:-1]
+        swing_high = float(swing_slice["high"].max())
+        swing_low = float(swing_slice["low"].min())
+        swing_range = max(swing_high - swing_low, current_atr * 2.0)
+
+        if is_buy:
+            fibo_ext_127 = swing_low + (swing_range * 1.272)
+            fibo_ext_161 = swing_low + (swing_range * 1.618)
+            resistance_lvl = float(curr_candle.get("resistance", swing_high))
+
+            is_strong_continuation = (curr_close > ema_trend) and (curr_rsi >= 50 and curr_rsi <= 75) and (pat_bias != "BEARISH")
+            in_profit = curr_close > (price_open + current_atr * 0.5)
+
+            if is_strong_continuation and in_profit:
+                if current_tp == 0.0 or curr_close >= (current_tp - current_atr * 0.8) or curr_close >= (swing_high - current_atr * 0.5):
+                    target_tp = fibo_ext_161 if curr_close >= (fibo_ext_127 - current_atr * 0.3) else fibo_ext_127
+                    target_tp = max(target_tp, resistance_lvl, swing_high + current_atr)
+                    if target_tp > current_tp and target_tp > (curr_close + current_atr * 0.8):
+                        suggested_tp = target_tp
+                        needs_tp_update = True
+                        update_reasons.append(f"Extensión TP Fibo: {suggested_tp:.5f}")
+
+        else:
+            fibo_ext_127 = swing_high - (swing_range * 1.272)
+            fibo_ext_161 = swing_high - (swing_range * 1.618)
+            support_lvl = float(curr_candle.get("support", swing_low))
+
+            is_strong_continuation = (curr_close < ema_trend) and (curr_rsi <= 50 and curr_rsi >= 25) and (pat_bias != "BULLISH")
+            in_profit = curr_close < (price_open - current_atr * 0.5)
+
+            if is_strong_continuation and in_profit:
+                if current_tp == 0.0 or curr_close <= (current_tp + current_atr * 0.8) or curr_close <= (swing_low + current_atr * 0.5):
+                    target_tp = fibo_ext_161 if curr_close <= (fibo_ext_127 + current_atr * 0.3) else fibo_ext_127
+                    target_tp = min(target_tp, support_lvl, swing_low - current_atr)
+                    if (current_tp == 0.0 or target_tp < current_tp) and target_tp < (curr_close - current_atr * 0.8):
+                        suggested_tp = target_tp
+                        needs_tp_update = True
+                        update_reasons.append(f"Extensión TP Fibo: {suggested_tp:.5f}")
+
+        if needs_sl_update or needs_tp_update:
+            reason_str = " | ".join(update_reasons)
             return {
                 "action": "MODIFY_SLTP",
                 "suggested_sl": suggested_sl,
                 "suggested_tp": suggested_tp,
-                "reason": f"Trailing Stop SYNTX ajustado ({pos_type_str} #{position.ticket})"
+                "reason": f"Ajuste dinámico SYNTX #{position.ticket} ({pos_type_str}) ➔ {reason_str}"
             }
 
         return {
