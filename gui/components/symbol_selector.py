@@ -217,7 +217,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self.lbl_sl_pips[symbol] = lbl_pips
 
         # 7. Timeframe OptionMenu (width ~80)
-        default_tf = self.symbol_timeframes.get(symbol, "M1")
+        default_tf = self.symbol_timeframes.get(symbol, "M5")
         opt_tf = ctk.CTkOptionMenu(
             row,
             values=list(TIMEFRAME_MAP.keys()),
@@ -365,7 +365,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self.symbols.append(sym)
             self.symbol_lots[sym] = min_lot
             self.symbol_risk_pcts[sym] = 1.0
-            self.symbol_timeframes[sym] = "M1"
+            self.symbol_timeframes[sym] = "M5"
             self.entry_symbol.delete(0, "end")
             self._hide_suggestions()
 
@@ -404,7 +404,9 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self._hide_suggestions()
             return
 
-        matches = [s for s in self.available_symbols if query in s.lower()][:5]
+        # 🟢 Excluir del dropdown los pares que ya están en la ventana/tabla de uso
+        current_symbols_lower = {s.lower() for s in self.symbols}
+        matches = [s for s in self.available_symbols if (query in s.lower()) and (s.lower() not in current_symbols_lower)][:5]
         if matches:
             self._show_suggestions(matches)
         else:
@@ -499,7 +501,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self.symbols.append(symbol)
             self.symbol_lots[symbol] = use_lot
             self.symbol_risk_pcts[symbol] = 1.0
-            self.symbol_timeframes[symbol] = "M1"
+            self.symbol_timeframes[symbol] = "M5"
 
             self._add_symbol_row(symbol)
 

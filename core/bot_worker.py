@@ -254,6 +254,17 @@ class SymbolWorker(threading.Thread):
                     max_reentries = int(cfg.get("max_reentries", 0))
 
                     for pos in open_positions:
+                        # 0. CONTROL DE HORARIO FIN DE JORNADA (16:15+ Y 16:50)
+                        session_rules = self.risk_manager.get_daily_session_rules()
+                        if session_rules.get("is_after_1650", False):
+                            self._log(
+                                f"⏰ [FIN DE JORNADA 16:50] Cerrando posición #{pos.ticket} ({self.symbol}) preventivamente "
+                                f"para evitar swaps nocturnos y apertura de spread bancario.",
+                                "WARNING"
+                            )
+                            self.executor.close_position(pos, reason="SessionEnd_1650_RiskProtection")
+                            continue
+
                         # Si estamos en ventana de peligro (Rollover / Cierre de mercado) y está configurado cerrar
                         if is_danger_zone and danger_action == "BLOCK_AND_CLOSE" and close_on_rollover:
                             self._log(
@@ -281,6 +292,34 @@ class SymbolWorker(threading.Thread):
                         sym_info = mt5.symbol_info(self.symbol)
                         pip_size = (sym_info.point * 10.0 if sym_info and sym_info.digits in (3, 5) else (sym_info.point if sym_info else 0.0001))
                         profit_pips = ((sym_info.bid - pos.price_open) / pip_size) if (sym_info and pos.type == mt5.POSITION_TYPE_BUY) else (((pos.price_open - sym_info.ask) / pip_size) if sym_info else 0.0)
+
+                        # GESTIÓN 16:15+ (Mover a BE si está en positivo o si recupera >10% de ganancia)
+                        if session_rules.get("is_after_1615", False):
+                            is_buy_pos = pos.type == mt5.POSITION_TYPE_BUY
+                            is_already_be = (is_buy_pos and pos.sl >= pos.price_open - 1e-5) or (not is_buy_pos and pos.sl > 0 and pos.sl <= pos.price_open + 1e-5)
+
+                            if (pnl_current > 0 and profit_pips > 0):
+                                if not is_already_be:
+                                    self._log(
+                                        f"🛡️ [PROTECCIÓN 16:15+] Posición #{pos.ticket} ({self.symbol} {pos_type_str}) en positivo (+{profit_pips:.1f}p | ${pnl_current:+.2f}). "
+                                        f"Moviendo SL a punto de entrada (Break Even: {pos.price_open:.5f}).",
+                                        "SUCCESS"
+                                    )
+                                    self.executor.modify_order_sltp(pos.ticket, sl=pos.price_open, tp=pos.tp)
+                            else:
+                                # Si está en negativo o neutra, monitorear si superó el 10% de ganancia esperada
+                                tp_dist = abs(pos.tp - pos.price_open) if pos.tp > 0 else (pip_size * 20.0)
+                                curr_gain_dist = (sym_info.bid - pos.price_open) if is_buy_pos else (pos.price_open - sym_info.ask)
+                                gain_pct_target = (curr_gain_dist / max(tp_dist, 1e-5)) if tp_dist > 0 else 0.0
+
+                                if (gain_pct_target >= 0.10 or profit_pips >= 2.0) and pnl_current > 0:
+                                    if not is_already_be:
+                                        self._log(
+                                            f"🎯 [RECUPERACIÓN >10% 16:15+] Posición #{pos.ticket} recuperó ganancia ({gain_pct_target*100:.1f}% de TP | +{profit_pips:.1f}p). "
+                                            f"Moviendo SL a punto de entrada (Break Even: {pos.price_open:.5f}).",
+                                            "SUCCESS"
+                                        )
+                                        self.executor.modify_order_sltp(pos.ticket, sl=pos.price_open, tp=pos.tp)
 
                         self._log(
                             f"🛡️ [POSICIÓN ACTIVA DETECTADA] {self.symbol} #{pos.ticket} ({pos_type_str} {pos.volume} lotes | PnL: ${pnl_current:+.2f} ({profit_pips:+.1f}p) | Spread: {curr_spread:.1f} pips). "
@@ -464,7 +503,7 @@ class SymbolWorker(threading.Thread):
                                         macro_txt = analyze_macro_multitimeframe(self.symbol, float(curr_close))
                                         candle_txt = format_candlestick_summary_for_ai(df)
                                         spread_txt = f"Spread: {curr_spread:.1f} pips (Límite: {max_spread_allowed} pips)"
-                                        past_trades = self.ai_memory.get_recent_trades_context(self.symbol, limit=3)
+                                        past_trades = self.ai_memory.get_relevant_past_trades(symbol=self.symbol, signal=reentry_sig, limit=3)
 
                                         reentry_setup = {
                                             "symbol": self.symbol,
@@ -538,7 +577,17 @@ class SymbolWorker(threading.Thread):
                         signal = signal_data.get("signal", "HOLD") if isinstance(signal_data, dict) else str(signal_data)
                         self._log(f"🧠 [RESULTADO ANÁLISIS] {signal_data} - {self.symbol}", "INFO")
 
-                    # 2. Comprobar Filtro de Spread Máximo antes de avanzar a validaciones complejas
+                    # 2. Comprobar Filtro de Horario (16:00+) y Filtro de Spread Máximo antes de avanzar a validaciones complejas
+                    if signal in ["BUY", "SELL"]:
+                        daily_rules = self.risk_manager.get_daily_session_rules()
+                        if not daily_rules.get("allow_new_entries", True):
+                            self._log(
+                                f"⏸️ [ENTRADA BLOQUEADA POR HORARIO 16:00+] Señal {signal} en {self.symbol} descartada. "
+                                f"Hora actual ({daily_rules.get('current_time_str')}) >= 16:00. Prohibidas nuevas entradas.",
+                                "WARNING"
+                            )
+                            signal = "HOLD"
+
                     if signal in ["BUY", "SELL"]:
                         is_spread_ok, curr_spread, spread_msg = self.risk_manager.validate_spread(
                             self.symbol, max_allowed_pips=max_spread_allowed

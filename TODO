@@ -3,6 +3,9 @@ Todo:
   ☐ los lotes deben venir de la config del broker
   ☐ tambien ver si el bot puede identificar una lateridad, xq he visto que entra en lateral y puede perder las entradas
 
+  ☐ verificar que se este enviando el historial en las peticiones al api
+
+  ☐ las llamadas no concuerdan xq posiblemente el loop inicia en lo que yo paso el switch, entonces lo que hay que hacer es que agrupe los loop por tiempo en velas y asi asi un solo analicis de todo de los pares que corresponden a esas velas y en ese punto hay que hacer la llamada al api con todo, y cuando concuerden los tiempo ej 5m y 10m alli se agrupan esos tiempos se analizan y se manda a la IA
 
 
 prompt

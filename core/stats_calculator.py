@@ -1,50 +1,88 @@
+import time
 import MetaTrader5 as mt5
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
+
+
+def get_broker_server_time_and_offset() -> Tuple[datetime, float]:
+    """
+    Obtiene la hora actual del servidor del broker en MT5 y calcula
+    la diferencia exacta (offset en segundos) respecto a la hora local.
+    """
+    try:
+        symbols = mt5.symbols_get()
+        if symbols:
+            for s in symbols[:10]:
+                tick = mt5.symbol_info_tick(s.name)
+                if tick and tick.time > 0:
+                    broker_dt = datetime.fromtimestamp(tick.time)
+                    offset_sec = tick.time - time.time()
+                    return broker_dt, offset_sec
+        # Intento con rates de símbolo común
+        for sym_cand in ["EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "Volatility 75 Index"]:
+            rates = mt5.copy_rates_from_pos(sym_cand, mt5.TIMEFRAME_M1, 0, 1)
+            if rates is not None and len(rates) > 0:
+                broker_ts = int(rates[0]['time'])
+                broker_dt = datetime.fromtimestamp(broker_ts)
+                offset_sec = broker_ts - time.time()
+                return broker_dt, offset_sec
+    except Exception:
+        pass
+
+    return datetime.now(), 0.0
 
 
 def get_broker_server_time() -> datetime:
-    """
-    Obtiene la hora actual del servidor del broker en MT5 para sincronizar
-    exactamente los filtros de 'Día' y 'Semana' sin desfases de zona horaria local.
-    """
-    try:
-        # Intentar obtener la hora del último tick en algún símbolo visible
-        symbols = mt5.symbols_get()
-        if symbols:
-            for s in symbols[:5]:
-                tick = mt5.symbol_info_tick(s.name)
-                if tick and tick.time > 0:
-                    return datetime.fromtimestamp(tick.time)
-    except Exception:
-        pass
-    return datetime.now()
+    """Retorna la hora del servidor del broker."""
+    b_time, _ = get_broker_server_time_and_offset()
+    return b_time
 
 
 def calculate_closed_trades_stats(period: str = "Día", time_mode: str = "Hora Broker") -> Dict[str, Any]:
     """
-    Calcula con precisión exacta las estadísticas de posiciones cerradas en MT5:
+    Calcula con precisión matemática exacta las estadísticas de posiciones cerradas en MT5:
     - period: 'Día' | 'Semana'
     - time_mode: 'Hora Broker' | 'Hora Local' (o 'Broker' | 'Local')
-    1. Agrupa por 'position_id' para sumar ganancias, comisiones totales (entrada y salida) y swaps.
-    2. Usa la hora del broker o la hora local según la preferencia seleccionada.
+    1. Agrupa por 'position_id' para sumar ganancias netas, comisiones totales (in/out) y swaps.
+    2. Convierte y filtra las operaciones exactamente desde la medianoche (00:00:00) del horario elegido.
     3. Excluye depósitos, retiros, créditos o ajustes de balance.
     """
     is_broker_time = "broker" in str(time_mode).strip().lower()
-    ref_time = get_broker_server_time() if is_broker_time else datetime.now()
+    broker_now, broker_offset = get_broker_server_time_and_offset()
+    local_now = datetime.now()
     is_day = str(period).strip().lower() in ("día", "dia", "day", "hoy", "today")
-    time_badge = "Broker" if is_broker_time else "Local"
 
-    if is_day:
-        start_dt = datetime(ref_time.year, ref_time.month, ref_time.day, 0, 0, 0)
-        period_label = f"Hoy ({ref_time.strftime('%d/%m')} [{time_badge}])"
+    if is_broker_time:
+        ref_time = broker_now
+        time_badge = f"Broker {broker_now.strftime('%H:%M')}"
+        if is_day:
+            filter_start_dt = datetime(ref_time.year, ref_time.month, ref_time.day, 0, 0, 0)
+            period_label = f"Hoy ({ref_time.strftime('%d/%m')} [{time_badge}])"
+        else:
+            start_of_week = ref_time - timedelta(days=ref_time.weekday())
+            filter_start_dt = datetime(start_of_week.year, start_of_week.month, start_of_week.day, 0, 0, 0)
+            period_label = f"Semana #{ref_time.strftime('%V')} (Desde {start_of_week.strftime('%d/%m')} [{time_badge}])"
+
+        # En MT5 history_deals_get usa la escala del broker
+        query_start = filter_start_dt - timedelta(hours=2)
+        query_end = broker_now + timedelta(days=1)
+        filter_start_timestamp = filter_start_dt.timestamp()
     else:
-        # Lunes de la semana actual a las 00:00:00
-        start_of_week = ref_time - timedelta(days=ref_time.weekday())
-        start_dt = datetime(start_of_week.year, start_of_week.month, start_of_week.day, 0, 0, 0)
-        period_label = f"Semana #{ref_time.strftime('%V')} (Desde {start_of_week.strftime('%d/%m')} [{time_badge}])"
+        ref_time = local_now
+        time_badge = f"Local {local_now.strftime('%H:%M')}"
+        if is_day:
+            filter_start_dt = datetime(ref_time.year, ref_time.month, ref_time.day, 0, 0, 0)
+            period_label = f"Hoy ({ref_time.strftime('%d/%m')} [{time_badge}])"
+        else:
+            start_of_week = ref_time - timedelta(days=ref_time.weekday())
+            filter_start_dt = datetime(start_of_week.year, start_of_week.month, start_of_week.day, 0, 0, 0)
+            period_label = f"Semana #{ref_time.strftime('%V')} (Desde {start_of_week.strftime('%d/%m')} [{time_badge}])"
 
-    end_dt = ref_time + timedelta(days=1)
+        # Convertir medianoche local al equivalente en hora de broker para consultar MT5
+        query_start = filter_start_dt + timedelta(seconds=broker_offset) - timedelta(hours=2)
+        query_end = local_now + timedelta(seconds=broker_offset) + timedelta(days=1)
+        # La marca de tiempo límite en la escala del deal
+        filter_start_timestamp = (filter_start_dt + timedelta(seconds=broker_offset)).timestamp()
 
     win_count = 0
     loss_count = 0
@@ -54,17 +92,15 @@ def calculate_closed_trades_stats(period: str = "Día", time_mode: str = "Hora B
     net_total = 0.0
 
     try:
-        # Solicitar historial de transacciones (deals) en el rango horario
-        deals = mt5.history_deals_get(start_dt, end_dt)
+        deals = mt5.history_deals_get(query_start, query_end)
         if deals:
-            # Agrupar todos los deals por position_id para calcular el PnL neto real de cada posición
             positions_map: Dict[int, Dict[str, Any]] = {}
 
             for d in deals:
                 deal_type = getattr(d, "type", -1)
                 pos_id = getattr(d, "position_id", 0)
 
-                # Filtrar solo transacciones de trading BUY / SELL (ignora balance, créditos, etc.)
+                # Filtrar solo transacciones de trading BUY / SELL (ignora balance, depósitos, retiros)
                 if deal_type in (mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL) and pos_id > 0:
                     if pos_id not in positions_map:
                         positions_map[pos_id] = {
@@ -78,7 +114,7 @@ def calculate_closed_trades_stats(period: str = "Día", time_mode: str = "Hora B
                         }
 
                     entry_type = getattr(d, "entry", -1)
-                    # DEAL_ENTRY_OUT (1) o DEAL_ENTRY_OUT_BY (3) o DEAL_ENTRY_INOUT (2)
+                    # DEAL_ENTRY_OUT (1), DEAL_ENTRY_OUT_BY (3), DEAL_ENTRY_INOUT (2)
                     if entry_type in (mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_BY, mt5.DEAL_ENTRY_INOUT, 1, 3, 2):
                         positions_map[pos_id]["has_exit"] = True
                         positions_map[pos_id]["close_time"] = getattr(d, "time", positions_map[pos_id]["close_time"])
@@ -88,21 +124,23 @@ def calculate_closed_trades_stats(period: str = "Día", time_mode: str = "Hora B
                     positions_map[pos_id]["swap"] += float(getattr(d, "swap", 0.0))
                     positions_map[pos_id]["fee"] += float(getattr(d, "fee", 0.0))
 
-            # Solo contabilizar posiciones que efectivamente hayan tenido deal de salida (cerradas)
+            # Contabilizar únicamente posiciones cerradas que hayan finalizado dentro del período seleccionado
             for pos_id, data in positions_map.items():
                 if data["has_exit"]:
-                    # PnL neto = Beneficio de precio + Comisiones + Swap + Fee
-                    net_pos_profit = data["profit"] + data["commission"] + data["swap"] + data["fee"]
-                    net_total += net_pos_profit
+                    close_ts = data["close_time"]
+                    # Validar si el cierre ocurrió después del inicio del período seleccionado
+                    if close_ts >= filter_start_timestamp:
+                        net_pos_profit = data["profit"] + data["commission"] + data["swap"] + data["fee"]
+                        net_total += net_pos_profit
 
-                    if net_pos_profit > 0.0001:
-                        win_count += 1
-                        win_total += net_pos_profit
-                    elif net_pos_profit < -0.0001:
-                        loss_count += 1
-                        loss_total += net_pos_profit
-                    else:
-                        be_count += 1
+                        if net_pos_profit > 0.0001:
+                            win_count += 1
+                            win_total += net_pos_profit
+                        elif net_pos_profit < -0.0001:
+                            loss_count += 1
+                            loss_total += net_pos_profit
+                        else:
+                            be_count += 1
     except Exception as e:
         print(f"[DEBUG STATS] Error calculando estadísticas de MT5: {e}")
 

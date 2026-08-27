@@ -178,27 +178,28 @@ class RiskManager:
                     "BLOCK_AND_CLOSE"
                 )
 
-        # 3. Ventana Diaria Universal de Rollover (Lunes a Viernes)
-        # 3.1 Verificación en HORA LOCAL / BROKER (16:40 a 17:20)
-        start_rollover_local = 16 * 60 + 40  # 16:40
-        close_rollover_local = 16 * 60 + 55  # 16:55
-        end_rollover_local = 17 * 60 + 20    # 17:20
+        # 3. Ventana Diaria Universal de Fin de Jornada / Rollover (Lunes a Viernes)
+        # 3.1 Verificación en HORA LOCAL (16:00 bloqueo de entradas, 16:50 cierre total)
+        start_no_entries_local = 16 * 60       # 16:00 (Fin de entradas)
+        start_be_protect_local = 16 * 60 + 15  # 16:15 (Mover SL a Breakeven en positivos y monitorear >10% en negativos)
+        start_force_close_local = 16 * 60 + 50 # 16:50 (Cierre forzoso de todas las operaciones)
+        end_rollover_local = 17 * 60 + 20      # 17:20 (Fin de ventana de spread de cambio de día)
 
-        if start_rollover_local <= total_local_minutes <= end_rollover_local:
-            if total_local_minutes >= close_rollover_local:
+        if start_no_entries_local <= total_local_minutes <= end_rollover_local:
+            if total_local_minutes >= start_force_close_local:
                 return (
                     True,
-                    f"Ventana de Rollover ({current_local_hm} - Cierre forzoso de 16:55 a 17:20). Liquidando posiciones para evitar Swap y ensanchamiento de Spread.",
+                    f"Cierre obligatorio de fin de jornada ({current_local_hm} >= 16:50). Liquidando todas las posiciones para proteger capital contra Spreads y Swaps.",
                     "BLOCK_AND_CLOSE"
                 )
             else:
                 return (
                     True,
-                    f"Ventana previa a Rollover ({current_local_hm} entre 16:40 y 17:20). Entradas y reentradas bloqueadas por seguridad.",
+                    f"Fin de sesión operativa ({current_local_hm} >= 16:00). Nuevas entradas y reentradas suspendidas.",
                     "BLOCK_ENTRIES"
                 )
 
-        # 3.2 Verificación en HORA UTC (Equivalente al Rollover bancario de Nueva York ~21:15-22:30 UTC)
+        # 3.2 Verificación en HORA UTC (Equivalente al Rollover bancario de Nueva York ~21:00-22:30 UTC)
         def _to_minutes(t_str: str, default_val: int) -> int:
             try:
                 parts = t_str.strip().split(":")
@@ -206,11 +207,11 @@ class RiskManager:
             except Exception:
                 return default_val
 
-        start_rollover_utc = _to_minutes(rollover_start, 21 * 60 + 15)
+        start_rollover_utc = _to_minutes(rollover_start, 21 * 60 + 0)
         end_rollover_utc = _to_minutes(rollover_end, 22 * 60 + 30)
 
         if start_rollover_utc <= total_utc_minutes <= end_rollover_utc:
-            if total_utc_minutes >= (start_rollover_utc + 40):  # ~21:55 UTC
+            if total_utc_minutes >= (start_rollover_utc + 50):  # ~21:50 UTC
                 return (
                     True,
                     f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Cierre preventivo de posiciones.",
@@ -219,11 +220,37 @@ class RiskManager:
             else:
                 return (
                     True,
-                    f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Entradas bloqueadas.",
+                    f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Nuevas entradas bloqueadas.",
                     "BLOCK_ENTRIES"
                 )
 
         return False, "Horario regular de mercado y liquidez adecuada.", "OK"
+
+    def get_daily_session_rules(self) -> dict[str, Any]:
+        """
+        Retorna el estado de la sesión diaria del bot según la hora local:
+        - '< 16:00': Operativa normal activa.
+        - '16:00 - 16:15': No más entradas ni reentradas.
+        - '16:15 - 16:50': SL a Breakeven para órdenes en positivo; monitoreo de >10% de ganancia en órdenes negativas para mover a BE.
+        - '>= 16:50': Cierre forzoso de todas las operaciones abiertas.
+        """
+        from datetime import datetime
+        now = datetime.now()
+        tot_mins = now.hour * 60 + now.minute
+
+        allow_new_entries = tot_mins < (16 * 60)
+        be_protect_active = (16 * 60 + 15) <= tot_mins < (16 * 60 + 50)
+        force_close_active = (16 * 60 + 50) <= tot_mins <= (17 * 60 + 20)
+
+        return {
+            "current_time_str": now.strftime("%H:%M"),
+            "allow_new_entries": allow_new_entries,
+            "be_protect_active": be_protect_active,
+            "force_close_active": force_close_active,
+            "is_after_1600": tot_mins >= (16 * 60),
+            "is_after_1615": tot_mins >= (16 * 60 + 15),
+            "is_after_1650": tot_mins >= (16 * 60 + 50)
+        }
 
     def validate_new_trade(
         self, symbol: str, proposed_lot: float, max_spread_pips: Optional[float] = None

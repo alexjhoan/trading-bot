@@ -185,10 +185,10 @@ class QuantBotApp(ctk.CTk):
         )
         self.symbol_selector.pack(fill="x", pady=(0, 8))
 
-        # 5. Consola de Logs (dentro de self.main_frame)
+        # 5. Consola de Logs (dentro de self.main_frame - solo pares activos)
         self.console = ConsoleTabviewComponent(
             master=self.main_frame,
-            symbols=self.symbol_selector.symbols
+            active_symbols=[]
         )
         self.console.pack(fill="both", expand=True)
 
@@ -275,6 +275,13 @@ class QuantBotApp(ctk.CTk):
             self.workers[symbol] = worker
             worker.start()
 
+            # 🟢 Mostrar pestaña en la consola de console_tabview solo cuando el par está encendido
+            self.console.add_symbol_tab(symbol, initial_status="WAITING")
+            try:
+                self.console.set(symbol)
+            except Exception:
+                pass
+
             self.console.log(symbol, f"🚀 Monitoreo activado ({symbol} | Estrategia: {active_strat.upper()} | Lote: {sym_config['lot']} | Riesgo: {sym_config['risk_pct']*100:.1f}% | TF: {sym_config['timeframe_str']})", "INFO")
         else:
             if symbol in self.stop_events:
@@ -283,15 +290,19 @@ class QuantBotApp(ctk.CTk):
             if symbol in self.workers:
                 del self.workers[symbol]
 
-            self.console.log(symbol, f"🛑 Monitoreo detenido para {symbol}...", "WARN")
+            # 🟢 Ocultar / retirar pestaña de la consola cuando el par se apaga
+            self.console.remove_symbol_tab(symbol)
+
+            self.console.log("General", f"🛑 Monitoreo detenido para {symbol}...", "WARN")
 
     def _handle_symbols_list_changed(self, new_symbols: List[str]) -> None:
         self.symbols = new_symbols
         self.save_settings()
 
-        # Sincronizar las pestañas de la consola inmediatamente
-        if hasattr(self, "console"):
-            self.console.sync_tabs(self.symbols)
+        # Sincronizar solo los pares que estén activos
+        if hasattr(self, "console") and hasattr(self, "symbol_selector"):
+            active_only = [s for s in self.symbols if self.symbol_selector.is_symbol_active(s)]
+            self.console.sync_tabs(active_only)
 
     def _on_config_reloaded(self) -> None:
         """Callback cuando se guardan credenciales desde el modal de configuración."""

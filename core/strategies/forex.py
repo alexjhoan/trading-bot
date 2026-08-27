@@ -11,20 +11,61 @@ from core.candlestick_patterns import detect_candlestick_patterns, format_candle
 
 class ForexStrategy(BaseStrategy):
     """
-    Estrategia Cuantitativa Forex de Acción del Precio con Puntuación de Confluencia:
-    - 1. Filtro Previo de Tendencia Macro: EMA 200 con Buffer Flexible de Tolerancia (20% ATR).
-    - 2. Trigger Obligatorio: Retroceso de Fibonacci igual o mayor al 61.8% (Zona dorada / descuento profundo >= 61.8%).
-    - 3. Reentradas por Siguiente Nivel Fibo (78.6%) y Mayor Confluencia / Consolidación.
-    - 4. Puntuación de Confluencia (Score):
-        a. Tendencia Macro (Filtro EMA 200 con 20% buffer de respiración).
-        b. Volumen Institucional (Tick Volume > Media Móvil de Volumen).
-        c. Patrón de Vela / Fuerza de Reacción (Hammer, Shooting Star o Vela con cuerpo >= 50%).
-    - 5. Módulo de Gestión Activa de Posiciones Abiertas:
-        - Trailing Stop dinámico por ATR + Estructura de vela previa.
-        - Cierre Prematuro por invalidación de tendencia (quiebre EMA 200 más allá del buffer 20%).
-        - Modificación dinámica de SL / TP con margen de respiración previo (1.0x ATR).
-    - 6. Filtro Dinámico de Horarios de Sesión (Londres / NY / Asia).
-    - 7. Filtro de Correlación de Pares de Pearson (r >= 0.70).
+    ========================================================================================
+    RESUMEN EJECUTIVO Y DOCUMENTACIÓN TÉCNICA DE LA ESTRATEGIA CUANTITATIVA FOREX
+    ========================================================================================
+
+    1. ESTRATEGIA DE ENTRADA (PRIMARY ENTRY):
+       - Tendencia Macro: Evaluada mediante la EMA de 200 períodos con un Buffer de Tolerancia
+         del 20% del ATR (14 períodos). El precio debe estar sobre la EMA (compras) o bajo la EMA (ventas).
+       - Filtro de Sobreextensión (Rango 50% de la EMA): Si el precio actual está excesivamente
+         alejado de la EMA 200 (distancia > 50% del rango de Swing actual o > 1.5x ATR), la entrada
+         se BLOQUEA preventivamente porque el impulso está agotado y es inminente un retroceso correctivo.
+       - Trigger Cuantitativo: Retroceso de Fibonacci >= 61.8% dentro de la estructura de Swings reciente.
+       - Puntuación de Confluencia (Score >= 2/3):
+         a) Tendencia Macro a favor con buffer de respiración (+1).
+         b) Volumen Institucional (Tick Volume > Media Móvil de Volumen 20) (+1).
+         c) Patrón de Vela de Reacción / Fuerza (Hammer, Shooting Star o cuerpo >= 50%) (+1).
+       - Filtro de Correlación de Pearson: Evita abrir pares correlacionados (r >= 0.70) en la misma dirección.
+       - Filtro de Horario: Solo opera dentro de las sesiones activas de las divisas del par (Londres/NY/Asia).
+
+    2. ESTRATEGIA DE REENTRADA (RE-ENTRY ENGINE - HASTA 5 REENTRADAS):
+       Permite acumular posiciones a favor de la tendencia principal mediante DOS RUTAS:
+       - RUTA A (Escalera Fibo Progresiva - Descuento Profundo):
+         * Reentrada #1: Nivel Fibo 78.6% (0.786).
+         * Reentrada #2: Nivel Fibo 92.0% (0.920).
+         * Reentrada #3: Nivel Fibo 100.0% (1.000 / Origen del Swing).
+         * Reentrada #4: Nivel Fibo 132.0% (1.320 / Extensión).
+         * Reentrada #5: Nivel Fibo 161.8% (1.618 / Extensión).
+         Requiere que el precio mejore el precio de entrada de las órdenes precedentes.
+       - RUTA B (Pullback Dinámico a la EMA 200):
+         * Si el precio retrocede y testea la EMA 200 (dentro del buffer de tolerancia).
+         * Requiere vela de rechazo (Hammer o cuerpo >= 40%) en la dirección de la tendencia.
+         * Filtro Anti-Spam: Mínimo 3 velas o distancia >= 1.0x ATR de la última orden.
+
+    3. ESTRATEGIA DE CIERRE PREMATURO (PREMATURE EXIT / INVALIDATION):
+       - Salida por Ruptura del 20% de la EMA:
+         Si una COMPRA fue abierta sobre la EMA y el precio cae rompiendo la EMA un 20% del ATR
+         por debajo (Precio < EMA200 - 0.20 * ATR) con confirmación bajista, se cierra de inmediato.
+         Si una VENTA fue abierta bajo la EMA y el precio sube rompiendo la EMA un 20% del ATR
+         por encima (Precio > EMA200 + 0.20 * ATR) con confirmación alcista, se cierra de inmediato.
+       - Salida Preventiva en Ganancia: Agotamiento extremo (RSI > 70 / < 28) con vela contraria fuerte.
+
+    4. CÁLCULO DE STOP LOSS (SL) Y TAKE PROFIT (TP):
+       - Cálculo Dinámico Basado en Volatilidad ATR (14):
+         * SL = Precio de Entrada +/- (ATR * 1.5)
+         * TP = Precio de Entrada -/+ (ATR * 3.0)  [Ratio Riesgo:Beneficio 1:2]
+       - Cálculo por Gestión de Riesgo Fijo Monetario:
+         * Pips SL = (Balance * %Riesgo) / (Lotaje * Valor del Pip)
+         * TP Pips = SL Pips * 2.0
+       - Trailing Stop Estructural: Se ajusta dinámicamente al mínimo/máximo de las últimas velas.
+
+    5. REGLAS HORARIAS DE FIN DE JORNADA (16:00 / 16:15 / 16:50):
+       - A partir de las 16:00: Bloqueo total de nuevas entradas y reentradas.
+       - A partir de las 16:15: Las operaciones en positivo mueven su SL a Break Even (precio de entrada).
+         Las operaciones en negativo se monitorean activamente; al superar 10% de ganancia, se protegen a BE.
+       - A las 16:50: Cierre forzoso de todas las órdenes abiertas para evitar swaps y spreads de medianoche.
+    ========================================================================================
     """
 
     name: str = "forex"
@@ -185,17 +226,16 @@ class ForexStrategy(BaseStrategy):
 
         ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.002)
 
-        # Reglas de Cierre Prematuro: Solo en confirmación real de cambio de estructura / retroceso fuerte
+        # Reglas de Cierre Prematuro: Salida cuando el precio quiebra la EMA200 un 20% del ATR del lado opuesto
         if is_buy:
-            # 1. Ruptura de EMA200 confirmada con debilidad técnica (sin patrón alcista protector)
+            # 1. Ruptura de EMA200 un 20% del ATR por debajo (Precio < EMA200 - 0.20 * ATR)
             if curr_close < (ema_trend - ema_buffer):
-                if pat_bias == "BEARISH" or curr_rsi < 45:
-                    return {
-                        "action": "EARLY_CLOSE",
-                        "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) rompió EMA200 ({ema_trend:.5f}) con confirmación bajista ({pat_name}, RSI: {curr_rsi:.1f})",
-                        "close_reason": "Cambio_Tendencia_EMA200"
-                    }
-            # 2. Rechazo fuerte en zona alta con patrón bajista mayor
+                return {
+                    "action": "EARLY_CLOSE",
+                    "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) rompió EMA200 ({ema_trend:.5f}) un 20% por debajo ({ema_trend - ema_buffer:.5f}) invalidando tendencia alcista",
+                    "close_reason": "Cambio_Tendencia_EMA200"
+                }
+            # 2. Rechazo fuerte en zona alta con patrón bajista mayor en sobrecompra
             elif (curr_close > price_open) and pat_bias == "BEARISH" and pat_strength == "STRONG" and curr_rsi > 70:
                 return {
                     "action": "EARLY_CLOSE",
@@ -203,15 +243,14 @@ class ForexStrategy(BaseStrategy):
                     "close_reason": "Agotamiento_Sobrecompra"
                 }
         else:
-            # 1. Ruptura de EMA200 confirmada al alza
+            # 1. Ruptura de EMA200 un 20% del ATR por encima (Precio > EMA200 + 0.20 * ATR)
             if curr_close > (ema_trend + ema_buffer):
-                if pat_bias == "BULLISH" or curr_rsi > 55:
-                    return {
-                        "action": "EARLY_CLOSE",
-                        "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) superó EMA200 ({ema_trend:.5f}) con confirmación alcista ({pat_name}, RSI: {curr_rsi:.1f})",
-                        "close_reason": "Cambio_Tendencia_EMA200"
-                    }
-            # 2. Rechazo fuerte en zona baja con patrón alcista mayor
+                return {
+                    "action": "EARLY_CLOSE",
+                    "reason": f"Cierre prematuro: Precio ({curr_close:.5f}) superó EMA200 ({ema_trend:.5f}) un 20% por encima ({ema_trend + ema_buffer:.5f}) invalidando tendencia bajista",
+                    "close_reason": "Cambio_Tendencia_EMA200"
+                }
+            # 2. Rebote fuerte en zona baja con patrón alcista mayor en sobreventa
             elif (curr_close < price_open) and pat_bias == "BULLISH" and pat_strength == "STRONG" and curr_rsi < 30:
                 return {
                     "action": "EARLY_CLOSE",
@@ -375,16 +414,33 @@ class ForexStrategy(BaseStrategy):
         fibo_618_buy = float(0.0 if pd.isna(raw_fibo_buy) else raw_fibo_buy)
         fibo_618_sell = float(0.0 if pd.isna(raw_fibo_sell) else raw_fibo_sell)
 
-        # 3. VALIDACIÓN FLEXIBLE DE TENDENCIA MACRO CON BUFFER (EMA 200)
+        # 3. FILTRO DE SOBREEXTENSIÓN DE EMA 200 (MÁXIMO 50% DE DISTANCIA DEL RANGO)
+        dist_to_ema = abs(curr_close - ema_trend)
+        swing_span = abs(resistance - support)
+        max_ema_distance = max(swing_span * 0.50, current_atr * 1.5) if swing_span > 0 else (current_atr * 1.5 if current_atr > 0 else ema_trend * 0.01)
+
+        if dist_to_ema > max_ema_distance:
+            return {
+                "signal": "HOLD",
+                "support": support,
+                "resistance": resistance,
+                "atr": current_atr,
+                "score": 0,
+                "sl": 0.0,
+                "tp": 0.0,
+                "reason": f"[Filtro EMA] Precio sobreextendido ({curr_close:.5f}) muy lejos de EMA200 ({ema_trend:.5f}) [Distancia: {dist_to_ema:.5f} > 50% Rango: {max_ema_distance:.5f}]. Posible retroceso inminente."
+            }
+
+        # 4. VALIDACIÓN FLEXIBLE DE TENDENCIA MACRO CON BUFFER (EMA 200)
         ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
         is_bullish_trend = curr_close >= (ema_trend - ema_buffer)
         is_bearish_trend = curr_close <= (ema_trend + ema_buffer)
 
-        # 4. VALIDACIÓN DE RETROCESO DE FIBONACCI >= 61.8%
+        # 5. VALIDACIÓN DE RETROCESO DE FIBONACCI >= 61.8%
         fibo_buy = is_bullish_trend and (fibo_618_buy > 0) and (curr_close <= fibo_618_buy) and (curr_close >= support)
         fibo_sell = is_bearish_trend and (fibo_618_sell > 0) and (curr_close >= fibo_618_sell) and (curr_close <= resistance)
 
-        # 5. SCORE DE CONFLUENCIA
+        # 6. SCORE DE CONFLUENCIA
         score = 0
         score_details = []
 

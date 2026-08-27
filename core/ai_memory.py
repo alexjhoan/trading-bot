@@ -213,8 +213,8 @@ class AIMemoryManager:
 
     def get_relevant_past_trades(self, symbol: str, signal: str = "", limit: int = 4) -> List[Dict[str, Any]]:
         """
-        Recupera los casos históricos cerrados más relevantes para inyectar como memoria a la IA.
-        Prioriza operaciones cerradas del mismo par (normalizado) y dirección de señal.
+        Recupera los casos históricos cerrados correspondientes estrictamente al par indicado (normalizado).
+        Garantiza aislamiento por símbolo en trade_memory.json y prioriza la dirección de la señal.
         """
         clean_target = _normalize_sym(symbol)
         with _LOCK:
@@ -223,33 +223,27 @@ class AIMemoryManager:
                 if not data:
                     return []
 
-                # Filtrar trades cerrados del mismo par (limpio)
+                # Filtrar trades cerrados que pertenecen exclusivamente al mismo par (normalizado)
                 closed_same_sym = [
                     t for t in data
                     if t.get("outcome", {}).get("status") == "CLOSED"
                     and _normalize_sym(str(t.get("symbol", ""))) == clean_target
                 ]
 
-                # Si hay operaciones con la misma señal (ej. BUY), priorizarlas
+                # Si se especifica señal (ej. BUY / SELL), priorizar los casos de esa misma dirección
                 if signal:
                     same_signal = [t for t in closed_same_sym if str(t.get("signal", "")).upper() == signal.upper()]
-                    if len(same_signal) >= limit:
+                    if same_signal:
                         return same_signal[-limit:]
-
-                # Si hay pocos del mismo par, traer también los últimos generales cerrados
-                if len(closed_same_sym) < limit:
-                    closed_all = [
-                        t for t in data
-                        if t.get("outcome", {}).get("status") == "CLOSED"
-                        and t not in closed_same_sym
-                    ]
-                    combined = closed_all + closed_same_sym
-                    return combined[-limit:]
 
                 return closed_same_sym[-limit:]
             except Exception as e:
-                print(f"❌ [AI_MEMORY] Error recuperando memoria pasada: {e}")
+                print(f"❌ [AI_MEMORY] Error recuperando memoria pasada para {clean_target}: {e}")
                 return []
+
+    def get_recent_trades_context(self, symbol: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """Alias de compatibilidad para recuperar trades cerrados relevantes del símbolo."""
+        return self.get_relevant_past_trades(symbol=symbol, limit=limit)
 
     def get_all_memory(self) -> List[Dict[str, Any]]:
         """Retorna toda la lista de memoria guardada."""

@@ -13,21 +13,32 @@ from core.market_context import calculate_psychological_levels, analyze_macro_mu
 from core.candlestick_patterns import format_candlestick_summary_for_ai, detect_candlestick_patterns
 
 
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 # Control global de Rate Limit / Cooldown para evitar tormentas de peticiones 429
 _GLOBAL_RATE_LIMIT_LOCK = threading.Lock()
 _GLOBAL_RATE_LIMIT_UNTIL: float = 0.0
+_LAST_AI_REQUEST_TIME: float = 0.0
+_MIN_AI_REQUEST_SPACING: float = 1.5  # Espacio mínimo obligatorio entre peticiones individuales
 
 
 def _wait_for_global_cooldown() -> None:
-    """Espera si existe un cooldown activo por Rate Limit (HTTP 429)."""
-    global _GLOBAL_RATE_LIMIT_UNTIL
+    """Espera si existe un cooldown activo por Rate Limit (HTTP 429) o asegura espaciado mínimo."""
+    global _GLOBAL_RATE_LIMIT_UNTIL, _LAST_AI_REQUEST_TIME
     with _GLOBAL_RATE_LIMIT_LOCK:
         now = time.time()
+        # 1. Cooldown de seguridad por 429
         if now < _GLOBAL_RATE_LIMIT_UNTIL:
             wait_remaining = _GLOBAL_RATE_LIMIT_UNTIL - now
             time.sleep(wait_remaining)
+            now = time.time()
+
+        # 2. Espaciado mínimo entre peticiones sucesivas para evitar bursts
+        time_since_last = now - _LAST_AI_REQUEST_TIME
+        if time_since_last < _MIN_AI_REQUEST_SPACING:
+            time.sleep(_MIN_AI_REQUEST_SPACING - time_since_last)
+
+        _LAST_AI_REQUEST_TIME = time.time()
 
 
 def _set_global_cooldown(seconds: float) -> None:
@@ -39,8 +50,12 @@ def _set_global_cooldown(seconds: float) -> None:
 # Proveedores soportados con sus configuraciones por defecto
 PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
     "Google Gemini": {
-        "default_model": "gemini-3.6-flash",
+        "default_model": "gemini-2.5-flash",
         "models": [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-2.5-pro",
             "gemini-3.6-flash"
         ],
         "default_url": "https://generativelanguage.googleapis.com"
@@ -336,7 +351,7 @@ def send_ai_http_with_retry(
 
             # Manejo específico y robusto para HTTP 429 (Rate Limit / Quota)
             if he.code == 429:
-                wait_time = 2.0 * (2 ** intento) + random.uniform(0.2, 0.6)
+                wait_time = 5.0 * (2 ** intento) + random.uniform(0.5, 1.5)
                 _set_global_cooldown(wait_time)
                 print(f"⚠️ [{action_label}] Rate Limit / 429 detectado. Cooldown activo ({wait_time:.1f}s) - Reintento {intento + 1}/{max_retries}...")
                 if intento < max_retries - 1:
@@ -958,10 +973,30 @@ def evaluate_batch_trade_setups(
         fibo_pct = details.get("fibo_level_pct", 78.6)
         reentry_tag = f" ⚡ REENTRADA #{reentry_num} (Fibo {fibo_pct}%)" if is_reentry else ""
 
+        # Recuperar memoria histórica específica de este par
+        trades_for_sym = []
+        if past_trades_by_symbol:
+            trades_for_sym = past_trades_by_symbol.get(sym) or past_trades_by_symbol.get(clean_sym) or []
+        if not trades_for_sym and "past_trades" in setup:
+            trades_for_sym = setup.get("past_trades", [])
+
+        if trades_for_sym:
+            hist_parts = []
+            for t in trades_for_sym[:3]:
+                out = t.get("outcome", {})
+                res = out.get("result", "N/A")
+                pnl_r = float(out.get("pnl_r", 0.0))
+                pnl_usd = float(out.get("pnl_usd", 0.0))
+                hist_parts.append(f"{t.get('signal', 'ORD')}->{res}({pnl_r:+.1f}R/${pnl_usd:+.2f})")
+            hist_str = f"Historial {clean_sym}: " + " | ".join(hist_parts)
+        else:
+            hist_str = f"Historial {clean_sym}: Sin operaciones previas"
+
         prompt_items.append(
             f"{idx}. [{clean_sym}]{reentry_tag}\n"
             f"   - Dirección: {sig} | Precio: {px} | SL Sugerido: {sl} | TP: {tp} | Lote: {lot} | ATR: {atr_str}\n"
-            f"   - Contexto: {spread} | {news} | Macro: {macro} | {candle}."
+            f"   - Contexto: {spread} | {news} | Macro: {macro} | {candle}\n"
+            f"   - {hist_str}."
         )
 
     user_content = "EVALÚA LAS SIGUIENTES SEÑALES CANDIDATAS:\n\n" + "\n\n".join(prompt_items)
@@ -1386,7 +1421,7 @@ class AIBatchCoordinator:
 
 
 # Instancia singleton del coordinador de lote de setups
-_ai_batch_coordinator = AIBatchCoordinator(coalesce_window_seconds=0.25)
+_ai_batch_coordinator = AIBatchCoordinator(coalesce_window_seconds=1.2)
 
 
 def evaluate_trade_setup(
@@ -2081,7 +2116,7 @@ class AIPositionBatchCoordinator:
 
 
 # Coordinador de lote para posiciones abiertas
-_ai_pos_batch_coordinator = AIPositionBatchCoordinator(coalesce_window_seconds=0.25)
+_ai_pos_batch_coordinator = AIPositionBatchCoordinator(coalesce_window_seconds=1.2)
 
 
 def evaluate_open_position_ai(
