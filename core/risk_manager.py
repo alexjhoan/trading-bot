@@ -229,16 +229,19 @@ class RiskManager:
     def get_daily_session_rules(self) -> dict[str, Any]:
         """
         Retorna el estado de la sesión diaria del bot según la hora local:
-        - '< 16:00': Operativa normal activa.
-        - '16:00 - 16:15': No más entradas ni reentradas.
+        - '< 16:00' o '> 17:20': Operativa normal activa (entradas y reentradas permitidas).
+        - '16:00 - 16:15': Ventana de cierre de sesión: no más nuevas entradas ni reentradas.
         - '16:15 - 16:50': SL a Breakeven para órdenes en positivo; monitoreo de >10% de ganancia en órdenes negativas para mover a BE.
-        - '>= 16:50': Cierre forzoso de todas las operaciones abiertas.
+        - '16:50 - 17:20': Cierre forzoso de todas las operaciones abiertas (protección de rollover/swap/spread).
+        - '> 17:20': Reapertura de operativa normal (Sesión Asiática / Sídney / Tokio).
         """
         from datetime import datetime
         now = datetime.now()
         tot_mins = now.hour * 60 + now.minute
 
-        allow_new_entries = tot_mins < (16 * 60)
+        # Ventana de rollover / fin de jornada local: 16:00 a 17:20
+        in_rollover_window = (16 * 60) <= tot_mins <= (17 * 60 + 20)
+        allow_new_entries = not in_rollover_window
         be_protect_active = (16 * 60 + 15) <= tot_mins < (16 * 60 + 50)
         force_close_active = (16 * 60 + 50) <= tot_mins <= (17 * 60 + 20)
 
@@ -247,9 +250,10 @@ class RiskManager:
             "allow_new_entries": allow_new_entries,
             "be_protect_active": be_protect_active,
             "force_close_active": force_close_active,
-            "is_after_1600": tot_mins >= (16 * 60),
-            "is_after_1615": tot_mins >= (16 * 60 + 15),
-            "is_after_1650": tot_mins >= (16 * 60 + 50)
+            "is_in_rollover_window": in_rollover_window,
+            "is_after_1600": in_rollover_window,
+            "is_after_1615": be_protect_active,
+            "is_after_1650": force_close_active
         }
 
     def validate_new_trade(

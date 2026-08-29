@@ -305,7 +305,7 @@ class SymbolWorker(threading.Thread):
                                         f"Moviendo SL a punto de entrada (Break Even: {pos.price_open:.5f}).",
                                         "SUCCESS"
                                     )
-                                    self.executor.modify_order_sltp(pos.ticket, sl=pos.price_open, tp=pos.tp)
+                                    self.executor.modify_sltp(pos, new_sl=pos.price_open, new_tp=pos.tp, reason="BE_1615")
                             else:
                                 # Si está en negativo o neutra, monitorear si superó el 10% de ganancia esperada
                                 tp_dist = abs(pos.tp - pos.price_open) if pos.tp > 0 else (pip_size * 20.0)
@@ -319,7 +319,7 @@ class SymbolWorker(threading.Thread):
                                             f"Moviendo SL a punto de entrada (Break Even: {pos.price_open:.5f}).",
                                             "SUCCESS"
                                         )
-                                        self.executor.modify_order_sltp(pos.ticket, sl=pos.price_open, tp=pos.tp)
+                                        self.executor.modify_sltp(pos, new_sl=pos.price_open, new_tp=pos.tp, reason="Recuperacion_BE_1615")
 
                         self._log(
                             f"🛡️ [POSICIÓN ACTIVA DETECTADA] {self.symbol} #{pos.ticket} ({pos_type_str} {pos.volume} lotes | PnL: ${pnl_current:+.2f} ({profit_pips:+.1f}p) | Spread: {curr_spread:.1f} pips). "
@@ -382,6 +382,9 @@ class SymbolWorker(threading.Thread):
                                 }
 
                                 thinking_budget = int(cfg.get("ai_thinking_budget", 128))
+                                # Recuperar memoria histórica de trades cerrados correspondientes al par
+                                pos_past_trades = self.ai_memory.get_relevant_past_trades(symbol=self.symbol, signal=pos_type_str, limit=3)
+
                                 ai_res = evaluate_open_position_ai(
                                     account_info=account_data,
                                     position_info=pos_data,
@@ -389,7 +392,8 @@ class SymbolWorker(threading.Thread):
                                     api_key=api_key,
                                     model_name=model_name,
                                     base_url=base_url,
-                                    thinking_budget=thinking_budget
+                                    thinking_budget=thinking_budget,
+                                    past_trades=pos_past_trades
                                 )
 
                                 # Actualizar timestamp y barra de última consulta IA para este ticket
@@ -582,8 +586,8 @@ class SymbolWorker(threading.Thread):
                         daily_rules = self.risk_manager.get_daily_session_rules()
                         if not daily_rules.get("allow_new_entries", True):
                             self._log(
-                                f"⏸️ [ENTRADA BLOQUEADA POR HORARIO 16:00+] Señal {signal} en {self.symbol} descartada. "
-                                f"Hora actual ({daily_rules.get('current_time_str')}) >= 16:00. Prohibidas nuevas entradas.",
+                                f"⏸️ [ENTRADA BLOQUEADA POR VENTANA ROLLOVER 16:00-17:20] Señal {signal} en {self.symbol} descartada. "
+                                f"Hora actual ({daily_rules.get('current_time_str')}). Nuevas entradas en pausa hasta las 17:20.",
                                 "WARNING"
                             )
                             signal = "HOLD"

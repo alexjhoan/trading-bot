@@ -13,7 +13,7 @@ from core.market_context import calculate_psychological_levels, analyze_macro_mu
 from core.candlestick_patterns import format_candlestick_summary_for_ai, detect_candlestick_patterns
 
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 
 # Control global de Rate Limit / Cooldown para evitar tormentas de peticiones 429
 _GLOBAL_RATE_LIMIT_LOCK = threading.Lock()
@@ -50,12 +50,8 @@ def _set_global_cooldown(seconds: float) -> None:
 # Proveedores soportados con sus configuraciones por defecto
 PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
     "Google Gemini": {
-        "default_model": "gemini-2.5-flash",
+        "default_model": "gemini-3.6-flash",
         "models": [
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-2.5-pro",
             "gemini-3.6-flash"
         ],
         "default_url": "https://generativelanguage.googleapis.com"
@@ -83,9 +79,9 @@ PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
         "default_url": "https://api.groq.com/openai/v1"
     },
     "OpenRouter (Multi-Proveedor)": {
-        "default_model": "google/gemini-2.5-flash",
+        "default_model": "google/gemini-3.6-flash",
         "models": [
-            "google/gemini-2.5-flash",
+            "google/gemini-3.6-flash",
             "anthropic/claude-3.5-sonnet",
             "openai/gpt-4o-mini",
             "deepseek/deepseek-chat"
@@ -1467,10 +1463,11 @@ def evaluate_open_position_ai_direct(
     api_key: str,
     model_name: str = DEFAULT_GEMINI_MODEL,
     base_url: str = "",
-    thinking_budget: Optional[int] = 128
+    thinking_budget: Optional[int] = 128,
+    past_trades: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
-    Evalúa una posición abierta individual en tiempo real mediante IA.
+    Evalúa una posición abierta individual en tiempo real mediante IA con inyección de memoria histórica del par.
     """
     ticket = position_info.get("ticket", 0)
     symbol = position_info.get("symbol", "UNKNOWN")
@@ -1512,6 +1509,19 @@ def evaluate_open_position_ai_direct(
     if not candlestick_summary:
         candlestick_summary = "Patrón de Vela: Estructura normal [NEUTRAL]"
 
+    # Historial de trades específicos de este par
+    if not past_trades:
+        history_summary = "Sin operaciones previas registradas"
+    else:
+        hist_parts = []
+        for t in past_trades[:3]:
+            out = t.get("outcome", {})
+            res = out.get("result", "N/A")
+            pnl_r = float(out.get("pnl_r", 0.0))
+            pnl_u = float(out.get("pnl_usd", 0.0))
+            hist_parts.append(f"{t.get('signal', 'ORD')}->{res}({pnl_r:+.1f}R/${pnl_u:+.2f})")
+        history_summary = " | ".join(hist_parts) if hist_parts else "Sin operaciones previas registradas"
+
     system_instruction = (
         "Eres un Gestor Cuantitativo de Posiciones Abiertas y Salidas de Emergencia en Forex.\n"
         "Tu misión es decidir si una operación activa debe MANTENERSE ('HOLD'), AJUSTAR SL/TP ('MODIFY_SLTP') o CERRARSE INMEDIATAMENTE ('EARLY_CLOSE').\n\n"
@@ -1527,7 +1537,8 @@ def evaluate_open_position_ai_direct(
         f"ESTADO DE POSICIÓN ACTIVA #{ticket} ({clean_symbol}):\n"
         f"- Tipo: {pos_type} | Volumen: {volume} lotes | Precio Entrada: {open_price}\n"
         f"- Precio Actual: {current_price} | Flotante: ${profit_usd:+.2f} USD ({profit_pips:+.1f} pips)\n"
-        f"- SL Actual: {current_sl} | TP Actual: {current_tp}\n\n"
+        f"- SL Actual: {current_sl} | TP Actual: {current_tp}\n"
+        f"- Historial Previo ({clean_symbol}): {history_summary}\n\n"
         f"MÉTRICAS DE MERCADO Y ESTRUCTURA:\n"
         f"- EMA 200 Macro: {ema_trend:.5f} | ATR: {current_atr:.5f} | Spread: {spread_pips:.1f} pips\n"
         f"- PATRÓN DE VELAS RECIENTE: {candlestick_summary}\n"
@@ -1724,12 +1735,13 @@ def evaluate_batch_open_positions_ai(
     api_key: str = "",
     model_name: str = DEFAULT_GEMINI_MODEL,
     base_url: str = "",
-    thinking_budget: Optional[int] = 100
+    thinking_budget: Optional[int] = 100,
+    past_trades_by_symbol: Optional[Dict[str, List[Dict[str, Any]]]] = None
 ) -> Dict[str, Dict[str, Any]]:
     """
     Evalúa un LOTE de posiciones abiertas en una ÚNICA petición HTTP a la IA.
     Evita saturación de rate-limits y distribuye las acciones ('HOLD', 'MODIFY_SLTP', 'EARLY_CLOSE')
-    a cada posición activa identificada por su ticket/símbolo.
+    a cada posición activa identificada por su ticket/símbolo, inyectando la memoria histórica de cada par.
     """
     if not positions_list:
         return {}
@@ -1792,10 +1804,30 @@ def evaluate_batch_open_positions_ai(
         macro = m_ctx.get("macro_summary", "Estructura estable")
         news = m_ctx.get("news_summary", "Sin noticias críticas")
 
+        # Historial de trades del par
+        trades_for_sym = []
+        if past_trades_by_symbol:
+            trades_for_sym = past_trades_by_symbol.get(sym) or past_trades_by_symbol.get(clean_sym) or []
+        if not trades_for_sym and "past_trades" in item:
+            trades_for_sym = item.get("past_trades", [])
+
+        if trades_for_sym:
+            hist_parts = []
+            for t in trades_for_sym[:3]:
+                out = t.get("outcome", {})
+                res = out.get("result", "N/A")
+                pnl_r = float(out.get("pnl_r", 0.0))
+                pnl_u = float(out.get("pnl_usd", 0.0))
+                hist_parts.append(f"{t.get('signal', 'ORD')}->{res}({pnl_r:+.1f}R/${pnl_u:+.2f})")
+            hist_str = f"Historial {clean_sym}: " + " | ".join(hist_parts)
+        else:
+            hist_str = f"Historial {clean_sym}: Sin operaciones previas"
+
         prompt_items.append(
             f"{idx}. [Ticket #{t_id} | {clean_sym}]\n"
             f"   - Tipo: {p_type} | Entrada: {open_px} | Actual: {cur_px} | Flotante: ${pnl_usd:+.2f} ({pnl_pips:+.1f} pips)\n"
-            f"   - SL: {cur_sl} | TP: {cur_tp} | Vela: {candle} | Macro: {macro} | {news}"
+            f"   - SL: {cur_sl} | TP: {cur_tp} | Vela: {candle} | Macro: {macro} | {news}\n"
+            f"   - {hist_str}"
         )
 
     user_content = "EVALÚA LAS SIGUIENTES POSICIONES ACTIVAS:\n\n" + "\n\n".join(prompt_items)
@@ -2011,11 +2043,12 @@ class AIPositionBatchCoordinator:
         api_key: str,
         model_name: str = DEFAULT_GEMINI_MODEL,
         base_url: str = "",
-        thinking_budget: Optional[int] = 128
+        thinking_budget: Optional[int] = 128,
+        past_trades: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         if not api_key or not api_key.strip():
             return evaluate_open_position_ai_direct(
-                account_info, position_info, market_context, api_key, model_name, base_url, thinking_budget
+                account_info, position_info, market_context, api_key, model_name, base_url, thinking_budget, past_trades
             )
 
         event = threading.Event()
@@ -2027,6 +2060,7 @@ class AIPositionBatchCoordinator:
             "model_name": model_name,
             "base_url": base_url,
             "thinking_budget": thinking_budget,
+            "past_trades": past_trades,
             "event": event,
             "result": None
         }
@@ -2043,7 +2077,7 @@ class AIPositionBatchCoordinator:
             return item["result"]
 
         return evaluate_open_position_ai_direct(
-            account_info, position_info, market_context, api_key, model_name, base_url, thinking_budget
+            account_info, position_info, market_context, api_key, model_name, base_url, thinking_budget, past_trades
         )
 
     def _flush(self) -> None:
@@ -2060,7 +2094,8 @@ class AIPositionBatchCoordinator:
             try:
                 it["result"] = evaluate_open_position_ai_direct(
                     it["account_info"], it["position_info"], it["market_context"],
-                    it["api_key"], it["model_name"], it["base_url"], it["thinking_budget"]
+                    it["api_key"], it["model_name"], it["base_url"], it["thinking_budget"],
+                    it.get("past_trades")
                 )
             except Exception as e:
                 it["result"] = {
@@ -2077,7 +2112,14 @@ class AIPositionBatchCoordinator:
             return
 
         first = items_to_process[0]
-        pos_list = [{"position_info": it["position_info"], "market_context": it["market_context"]} for it in items_to_process]
+        pos_list = [
+            {
+                "position_info": it["position_info"],
+                "market_context": it["market_context"],
+                "past_trades": it.get("past_trades", [])
+            }
+            for it in items_to_process
+        ]
         try:
             batch_res = evaluate_batch_open_positions_ai(
                 account_info=first["account_info"],
@@ -2127,7 +2169,8 @@ def evaluate_open_position_ai(
     model_name: str = DEFAULT_GEMINI_MODEL,
     base_url: str = "",
     thinking_budget: Optional[int] = 128,
-    use_batch_coordinator: bool = True
+    use_batch_coordinator: bool = True,
+    past_trades: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     Evalúa una posición abierta en tiempo real mediante IA con batching automático contra 429.
@@ -2140,7 +2183,8 @@ def evaluate_open_position_ai(
             api_key=api_key,
             model_name=model_name,
             base_url=base_url,
-            thinking_budget=thinking_budget
+            thinking_budget=thinking_budget,
+            past_trades=past_trades
         )
     return evaluate_open_position_ai_direct(
         account_info=account_info,
@@ -2149,7 +2193,8 @@ def evaluate_open_position_ai(
         api_key=api_key,
         model_name=model_name,
         base_url=base_url,
-        thinking_budget=thinking_budget
+        thinking_budget=thinking_budget,
+        past_trades=past_trades
     )
 
 

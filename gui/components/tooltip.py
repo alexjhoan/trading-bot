@@ -22,6 +22,10 @@ class ToolTip:
         if self.tip_window:
             self._update_text()
 
+    def update_text(self, text: str) -> None:
+        """Alias para set_text."""
+        self.set_text(text)
+
     def _on_enter(self, event=None) -> None:
         self._cancel_schedule()
         if not self.text:

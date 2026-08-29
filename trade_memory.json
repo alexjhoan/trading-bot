@@ -1,604 +1,5 @@
 [
   {
-    "trade_id": 483493319,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "entry_price": 1.36344,
-    "sl": 1.36275,
-    "tp": 1.36497,
-    "volume": 0.02,
-    "ai_opinion": "Ejecución según análisis cuantitativo (Fallback IA: The read operation timed out)",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 10:25:17"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.97,
-      "pnl_usd": -1.42,
-      "exit_reason": "[sl 1.36275]"
-    }
-  },
-  {
-    "trade_id": 483506967,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "entry_price": 1.36344,
-    "sl": 1.3627,
-    "tp": 1.36489,
-    "volume": 0.02,
-    "ai_opinion": "Ejecución según análisis cuantitativo (Fallback IA: The read operation timed out)",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 10:35:17"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.14,
-      "pnl_usd": -0.2,
-      "exit_reason": "Bot_Invalidacion_EMA200"
-    },
-    "position_evaluations": [
-      {
-        "time": "2026-08-25 10:45:02",
-        "action": "HOLD",
-        "opinion": "La posición en GBPUSD esta en ligero beneficio (+1.4 pips). El precio actual esta testeando la EMA 200 macro. Como la ganancia no supera los 10 pips para un breakeven y no hay noticias ni invalidacion violenta, se mantiene la operacion con la gestion de riesgo original.",
-        "close_reason": "",
-        "profit_pips": 1.4,
-        "profit_usd": 0.28
-      },
-      {
-        "time": "2026-08-25 10:55:03",
-        "action": "HOLD",
-        "opinion": "La posicion esta practicamente en el punto de entrada con una perdida minima de 0.6 pips. El precio se encuentra testeando la EMA 200 macro pero no hay confirmacion de invalidez ni noticias de alto impacto. Se mantiene la operacion dentro de la tolerancia de riesgo esperada.",
-        "close_reason": "",
-        "profit_pips": -0.6,
-        "profit_usd": -0.12
-      }
-    ],
-    "last_ai_management": {
-      "time": "2026-08-25 10:55:03",
-      "action": "HOLD",
-      "opinion": "La posicion esta practicamente en el punto de entrada con una perdida minima de 0.6 pips. El precio se encuentra testeando la EMA 200 macro pero no hay confirmacion de invalidez ni noticias de alto impacto. Se mantiene la operacion dentro de la tolerancia de riesgo esperada.",
-      "close_reason": "",
-      "profit_pips": -0.6,
-      "profit_usd": -0.12
-    }
-  },
-  {
-    "trade_id": 483477711,
-    "symbol": "EURAUD",
-    "signal": "POSITION",
-    "ai_opinion": "La posición en corto en EURAUD mantiene una ganancia de +8.2 pips alcanzando la EMA200 macro. Como la ganancia aún no supera holgadamente los 10 pips ni se detecta una invalidez en la estructura o noticias de alto impacto, se mantiene la posición respetando el SL original a BE y el TP técnico definido.",
-    "position_evaluations": [
-      {
-        "time": "2026-08-25 10:45:11",
-        "action": "HOLD",
-        "opinion": "La posición en corto en EURAUD mantiene una ganancia de +8.2 pips alcanzando la EMA200 macro. Como la ganancia aún no supera holgadamente los 10 pips ni se detecta una invalidez en la estructura o noticias de alto impacto, se mantiene la posición respetando el SL original a BE y el TP técnico definido.",
-        "close_reason": "",
-        "profit_pips": 8.2,
-        "profit_usd": 1.17
-      },
-      {
-        "time": "2026-08-25 10:55:22",
-        "action": "HOLD",
-        "opinion": "La posicion en venta sigue en terreno positivo (+5 pips) y la estructura del precio permanece intacta. No hay necesidad de cerrar ni ajustar SL/TP aun.",
-        "close_reason": "",
-        "profit_pips": 5.0,
-        "profit_usd": 0.72
-      }
-    ],
-    "last_ai_management": {
-      "time": "2026-08-25 10:55:22",
-      "action": "HOLD",
-      "opinion": "La posicion en venta sigue en terreno positivo (+5 pips) y la estructura del precio permanece intacta. No hay necesidad de cerrar ni ajustar SL/TP aun.",
-      "close_reason": "",
-      "profit_pips": 5.0,
-      "profit_usd": 0.72
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.07,
-      "pnl_usd": -0.1,
-      "exit_reason": "[sl 1.63100]"
-    }
-  },
-  {
-    "trade_id": 1787670323,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "score": 2,
-    "ai_opinion": "RECHAZADO: PSYCHOLOGICAL_LEVEL",
-    "ai_confidence": 0.45,
-    "outcome": {
-      "status": "REJECTED_BY_AI",
-      "result": "BLOCKED"
-    }
-  },
-  {
-    "trade_id": 483542993,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "entry_price": 1.3635,
-    "sl": 1.36278,
-    "tp": 1.36497,
-    "volume": 0.02,
-    "ai_opinion": "Señal alineada con contexto macro y spread óptimo. TP colocado justo antes del nivel institucional psicológico 1.36500. R:R de 1:2.0 adecuado.",
-    "ai_confidence": 0.85,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 11:10:13"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.29,
-      "pnl_usd": -0.42,
-      "exit_reason": "Bot_Invalidacion_EMA200"
-    },
-    "position_evaluations": [
-      {
-        "time": "2026-08-25 11:15:04",
-        "action": "HOLD",
-        "opinion": "La posición BUY se encuentra prácticamente en punto de entrada (-1.8 pips) y justo en el nivel clave de la EMA 200 Macro (1.36332). El retroceso actual es una fluctuación normal dentro de los márgenes de tolerancia sin noticias críticas inminentes. Se recomienda mantener la operación con los parámetros actuales.",
-        "close_reason": "",
-        "profit_pips": -1.8,
-        "profit_usd": -0.36
-      }
-    ],
-    "last_ai_management": {
-      "time": "2026-08-25 11:15:04",
-      "action": "HOLD",
-      "opinion": "La posición BUY se encuentra prácticamente en punto de entrada (-1.8 pips) y justo en el nivel clave de la EMA 200 Macro (1.36332). El retroceso actual es una fluctuación normal dentro de los márgenes de tolerancia sin noticias críticas inminentes. Se recomienda mantener la operación con los parámetros actuales.",
-      "close_reason": "",
-      "profit_pips": -1.8,
-      "profit_usd": -0.36
-    }
-  },
-  {
-    "trade_id": 483546986,
-    "symbol": "AUDUSD",
-    "signal": "BUY",
-    "entry_price": 0.7154,
-    "sl": 0.71467,
-    "tp": 0.71686,
-    "volume": 0.02,
-    "ai_opinion": "Señal alineada con macro estructura estable, spread óptimo y sin noticias de alto impacto cercanas. Buen R:R por encima del nivel clave de 0.71500.",
-    "ai_confidence": 0.85,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 11:15:04"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "WIN",
-      "pnl_r": 1.45,
-      "pnl_usd": 2.1,
-      "exit_reason": "[sl 0.71645]"
-    },
-    "position_evaluations": [
-      {
-        "time": "2026-08-25 11:54:00",
-        "action": "HOLD",
-        "opinion": "La posición en BUY mantiene flotante positivo con estructura neutral y sin señales opuestas. Se mantiene la orden abierta según las reglas cuantificadas.",
-        "close_reason": "",
-        "profit_pips": 4.0,
-        "profit_usd": 0.8
-      },
-      {
-        "time": "2026-08-25 12:05:04",
-        "action": "HOLD",
-        "opinion": "La posición en BUY mantiene un flotante positivo (+4.6 pips). No se detectan patrones de reversión bajista ni eventos de alto impacto que invaliden la estructura. Se mantiene la posición sin cambios según las reglas.",
-        "close_reason": "",
-        "profit_pips": 4.6,
-        "profit_usd": 0.92
-      },
-      {
-        "time": "2026-08-25 12:15:04",
-        "action": "HOLD",
-        "opinion": "La posición en BUY mantiene un flotante positivo de +2.4 pips. Aunque la vela actual es neutral, la estructura respeta el SL original y no existen patrones de reversión opuestos ni noticias críticas. Se mantiene la orden abierta según las reglas estrictas de gestión.",
-        "close_reason": "",
-        "profit_pips": 2.4,
-        "profit_usd": 0.48
-      },
-      {
-        "time": "2026-08-25 12:30:04",
-        "action": "HOLD",
-        "opinion": "La posición BUY se encuentra en leve beneficio (+1.2 pips) y no existen patrones de reversión opuestos ni eventos fundamentales que invaliden la estructura. El patrón de velas actual es neutral. Se debe mantener la operación abierta según las reglas estrictas de gestión.",
-        "close_reason": "",
-        "profit_pips": 1.2,
-        "profit_usd": 0.24
-      },
-      {
-        "time": "2026-08-25 12:45:05",
-        "action": "HOLD",
-        "opinion": "La posicion BUY esta levemente en positivo (+1.8 pips) y cotizando justo en la EMA 200 Macro (0.71558). La estructura de velas reciente es neutral y no muestra un patron de reversion bajista que invalide la entrada. Sin noticias de impacto inmediato, se mantiene la operacion ('HOLD') esperando la reaccion alcista esperada.",
-        "close_reason": "",
-        "profit_pips": 1.8,
-        "profit_usd": 0.36
-      }
-    ],
-    "last_ai_management": {
-      "time": "2026-08-25 12:45:05",
-      "action": "HOLD",
-      "opinion": "La posicion BUY esta levemente en positivo (+1.8 pips) y cotizando justo en la EMA 200 Macro (0.71558). La estructura de velas reciente es neutral y no muestra un patron de reversion bajista que invalide la entrada. Sin noticias de impacto inmediato, se mantiene la operacion ('HOLD') esperando la reaccion alcista esperada.",
-      "close_reason": "",
-      "profit_pips": 1.8,
-      "profit_usd": 0.36
-    }
-  },
-  {
-    "trade_id": 483575831,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "entry_price": 1.3633899999999999,
-    "sl": 1.36268,
-    "tp": 1.36487,
-    "volume": 0.02,
-    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 11:40:05"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "WIN",
-      "pnl_r": 0.07,
-      "pnl_usd": 0.1,
-      "exit_reason": "Bot_Invalidacion_EMA200"
-    }
-  },
-  {
-    "trade_id": 483585232,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "entry_price": 1.36359,
-    "sl": 1.3628,
-    "tp": 1.36499,
-    "volume": 0.02,
-    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 11:50:05"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.43,
-      "pnl_usd": -0.62,
-      "exit_reason": "Bot_Invalidacion_EMA200"
-    },
-    "position_evaluations": [
-      {
-        "time": "2026-08-25 11:54:10",
-        "action": "HOLD",
-        "opinion": "Posicion BUY estable en punto de entrada justo sobre EMA 200. Sin patron de reversion en contra ni noticias de impacto, se mantiene operacion hacia el TP establecido.",
-        "close_reason": "",
-        "profit_pips": 1.0,
-        "profit_usd": 0.2
-      },
-      {
-        "time": "2026-08-25 12:05:14",
-        "action": "HOLD",
-        "opinion": "La posición en compra (BUY) se mantiene en terreno positivo (+1.7 pips) con una estructura neutral. No existe ningún patrón de reversión bajista opuesto que justifique una salida anticipada, y el beneficio actual no alcanza el umbral de >10 pips para un ajuste de SL/TP. Se mantiene la orden según el plan operativo.",
-        "close_reason": "",
-        "profit_pips": 1.7,
-        "profit_usd": 0.34
-      },
-      {
-        "time": "2026-08-25 12:20:04",
-        "action": "HOLD",
-        "opinion": "La posicion BUY se encuentra apenas a -3 pips de la entrada y probando el soporte dinamico de la EMA 200 Macro. El patron actual es neutral y no muestra invalidacion bajista ni reversal contrario fuerte, por lo cual corresponde mantener la orden ('HOLD') respetando el SL original.",
-        "close_reason": "",
-        "profit_pips": -3.0,
-        "profit_usd": -0.6
-      },
-      {
-        "time": "2026-08-25 12:35:12",
-        "action": "HOLD",
-        "opinion": "La posición en compra (BUY) se mantiene en leve beneficio flotante (+1.1 pips) con una estructura de velas neutral cerca de la EMA 200. No existe ningún patrón de reversión opuesto que justifique una salida anticipada, por lo que se mantiene la orden según el plan original.",
-        "close_reason": "",
-        "profit_pips": 1.1,
-        "profit_usd": 0.22
-      },
-      {
-        "time": "2026-08-25 12:45:07",
-        "action": "HOLD",
-        "opinion": "La posición BUY se mantiene en un estado neutral ligeramente positivo (+0.8 pips) sobre la EMA 200 Macro. No existen patrones de reversión bajista opuestos que justifiquen un cierre anticipado ni beneficio suficiente (>10 pips) para modificar el SL a Break-Even. Se mantiene la orden activa.",
-        "close_reason": "",
-        "profit_pips": 0.8,
-        "profit_usd": 0.16
-      }
-    ],
-    "last_ai_management": {
-      "time": "2026-08-25 12:45:07",
-      "action": "HOLD",
-      "opinion": "La posición BUY se mantiene en un estado neutral ligeramente positivo (+0.8 pips) sobre la EMA 200 Macro. No existen patrones de reversión bajista opuestos que justifiquen un cierre anticipado ni beneficio suficiente (>10 pips) para modificar el SL a Break-Even. Se mantiene la orden activa.",
-      "close_reason": "",
-      "profit_pips": 0.8,
-      "profit_usd": 0.16
-    }
-  },
-  {
-    "trade_id": 483590771,
-    "symbol": "EURAUD",
-    "signal": "SELL",
-    "entry_price": 1.63091,
-    "sl": 1.63192,
-    "tp": 1.62886,
-    "volume": 0.02,
-    "ai_opinion": "Operación aprobada. Spread muy bajo (0.3 pips), sin noticias de alto impacto cercanas y la relación riesgo-beneficio es favorable (1:2.0). El TP a 1.62886 sobrepasa de forma segura el nivel psicológico de 1.63000 con espacio suficiente.",
-    "ai_confidence": 0.82,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 11:55:04"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.04,
-      "pnl_usd": -0.06,
-      "exit_reason": "Bot_Invalidacion_EMA200"
-    },
-    "position_evaluations": [
-      {
-        "time": "2026-08-25 12:00:22",
-        "action": "HOLD",
-        "opinion": "La posición de venta mantiene un flotante positivo de +4.5 pips. El patrón de velas actual es neutral y la estructura macro está alineada con el precio en la EMA 200 sin señales de reversión alcista fuerte, por lo que se mantiene la orden abierta según las reglas.",
-        "close_reason": "",
-        "profit_pips": 4.5,
-        "profit_usd": 0.64
-      },
-      {
-        "time": "2026-08-25 12:02:15",
-        "action": "HOLD",
-        "opinion": "La posición SELL se encuentra en flotante positivo (+5.2 pips) y la estructura de mercado se mantiene neutral sobre la EMA 200 sin patrones de reversión alcista que amenacen la operación. Corresponde MANTENER la orden activa hacia el TP objetivo.",
-        "close_reason": "",
-        "profit_pips": 5.2,
-        "profit_usd": 0.74
-      },
-      {
-        "time": "2026-08-25 12:15:05",
-        "action": "HOLD",
-        "opinion": "La posicion SELL se mantiene en beneficio flotante (+1.8 pips) con la EMA 200 actuando como nivel dinamico clave y una estructura neutral sin patrones de reversion alcista en contra. Se mantiene el plan original.",
-        "close_reason": "",
-        "profit_pips": 1.8,
-        "profit_usd": 0.26
-      },
-      {
-        "time": "2026-08-25 12:30:03",
-        "action": "HOLD",
-        "opinion": "La posición SELL se encuentra en punto de entrada con flotante neutro. El precio está testeando la EMA 200 macro y no existe patrón de reversión alcista en contra de la operación. Se mantiene la posición respetando los parámetros iniciales.",
-        "close_reason": "",
-        "profit_pips": -0.1,
-        "profit_usd": -0.01
-      },
-      {
-        "time": "2026-08-25 12:40:17",
-        "action": "HOLD",
-        "opinion": "La posición en SELL se encuentra en precio de entrada (0.0 pips) con estructura neutral y sin señales opuestas. Se mantiene la orden abierta con los parámetros iniciales.",
-        "close_reason": "",
-        "profit_pips": 0.0,
-        "profit_usd": 0.0
-      }
-    ],
-    "last_ai_management": {
-      "time": "2026-08-25 12:40:17",
-      "action": "HOLD",
-      "opinion": "La posición en SELL se encuentra en precio de entrada (0.0 pips) con estructura neutral y sin señales opuestas. Se mantiene la orden abierta con los parámetros iniciales.",
-      "close_reason": "",
-      "profit_pips": 0.0,
-      "profit_usd": 0.0
-    }
-  },
-  {
-    "trade_id": 1787677210,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "score": 2,
-    "ai_opinion": "RECHAZADO: PSYCHOLOGICAL_LEVEL",
-    "ai_confidence": 0.45,
-    "outcome": {
-      "status": "REJECTED_BY_AI",
-      "result": "BLOCKED"
-    }
-  },
-  {
-    "trade_id": 483664948,
-    "symbol": "GBPUSD",
-    "signal": "BUY",
-    "entry_price": 1.36362,
-    "sl": 1.36289,
-    "tp": 1.36508,
-    "volume": 0.02,
-    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 13:05:05"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "WIN",
-      "pnl_r": 2.02,
-      "pnl_usd": 2.92,
-      "exit_reason": "[tp 1.36508]"
-    }
-  },
-  {
-    "trade_id": 483672585,
-    "symbol": "NZDUSD",
-    "signal": "BUY",
-    "entry_price": 0.59669,
-    "sl": 0.5961,
-    "tp": 0.59784,
-    "volume": 0.05,
-    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 13:10:04"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "WIN",
-      "pnl_r": 1.98,
-      "pnl_usd": 5.75,
-      "exit_reason": "[tp 0.59784]"
-    }
-  },
-  {
-    "trade_id": 483842791,
-    "symbol": "EURUSD",
-    "signal": "BUY",
-    "entry_price": 1.16702,
-    "sl": 1.16657,
-    "tp": 1.16792,
-    "volume": 0.05,
-    "ai_opinion": "",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 15:40:01"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "WIN",
-      "pnl_r": 2.0,
-      "pnl_usd": 4.5,
-      "exit_reason": "[tp 1.16792]"
-    }
-  },
-  {
-    "trade_id": 483903349,
-    "symbol": "USDCAD",
-    "signal": "SELL",
-    "entry_price": 1.38377,
-    "sl": 1.3849,
-    "tp": 1.38151,
-    "volume": 0.02,
-    "ai_opinion": "",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-25 16:40:01"
-    },
-    "outcome": {
-      "status": "OPEN",
-      "result": "PENDING"
-    }
-  },
-  {
-    "trade_id": 484305861,
-    "symbol": "USDJPY",
-    "signal": "SELL",
-    "entry_price": 159.042,
-    "sl": 159.108,
-    "tp": 158.91,
-    "volume": 0.04,
-    "ai_opinion": "",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-26 02:05:02"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -1.01,
-      "pnl_usd": -1.68,
-      "exit_reason": "[sl 159.108]"
-    }
-  },
-  {
-    "trade_id": 484310158,
-    "symbol": "EURJPY",
-    "signal": "SELL",
-    "entry_price": 185.511,
-    "sl": 185.577,
-    "tp": 185.379,
-    "volume": 0.04,
-    "ai_opinion": "",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-26 02:10:01"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -1.0,
-      "pnl_usd": -1.66,
-      "exit_reason": "[sl 185.577]"
-    }
-  },
-  {
-    "trade_id": 484332631,
-    "symbol": "AUDJPY",
-    "signal": "BUY",
-    "entry_price": 114.156,
-    "sl": 114.091,
-    "tp": 114.286,
-    "volume": 0.04,
-    "ai_opinion": "",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-26 02:35:02"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "WIN",
-      "pnl_r": 1.99,
-      "pnl_usd": 3.27,
-      "exit_reason": "[tp 114.286]"
-    }
-  },
-  {
-    "trade_id": 484494192,
-    "symbol": "USDJPY",
-    "signal": "SELL",
-    "entry_price": 159.053,
-    "sl": 159.114,
-    "tp": 158.931,
-    "volume": 0.04,
-    "ai_opinion": "",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-26 05:10:02"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.05,
-      "pnl_usd": -0.08,
-      "exit_reason": "[sl 159.053]"
-    }
-  },
-  {
     "trade_id": 484621011,
     "symbol": "USDJPY",
     "signal": "SELL",
@@ -3013,8 +2414,11 @@
       "time": "2026-08-27 08:20:11"
     },
     "outcome": {
-      "status": "OPEN",
-      "result": "PENDING"
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.97,
+      "pnl_usd": -1.41,
+      "exit_reason": "[sl 159.303]"
     }
   },
   {
@@ -3083,6 +2487,2475 @@
       "result": "LOSS",
       "pnl_r": -0.73,
       "pnl_usd": -1.11,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 486316484,
+    "symbol": "USDJPY",
+    "signal": "BUY",
+    "entry_price": 159.374,
+    "sl": 159.318,
+    "tp": 159.489,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 10:25:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.66,
+      "pnl_usd": -0.95,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 486364879,
+    "symbol": "CADJPY",
+    "signal": "BUY",
+    "entry_price": 114.902,
+    "sl": 114.863,
+    "tp": 115.031,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 11:05:20"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.29,
+      "pnl_usd": 3.24,
+      "exit_reason": "[tp 115.031]"
+    }
+  },
+  {
+    "trade_id": 486370605,
+    "symbol": "GBPNZD",
+    "signal": "SELL",
+    "entry_price": 2.2843,
+    "sl": 2.28505,
+    "tp": 2.28325,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 11:10:24"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.29,
+      "pnl_usd": -1.83,
+      "exit_reason": "[sl 2.28505]"
+    }
+  },
+  {
+    "trade_id": 486486101,
+    "symbol": "CADCHF",
+    "signal": "SELL",
+    "entry_price": 0.58029,
+    "sl": 0.58082,
+    "tp": 0.57917,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 12:50:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.18,
+      "pnl_usd": -0.25,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 486560980,
+    "symbol": "USDCHF",
+    "signal": "SELL",
+    "entry_price": 0.80432,
+    "sl": 0.80486,
+    "tp": 0.80318,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 14:00:22"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.67,
+      "pnl_usd": -2.34,
+      "exit_reason": "[sl 0.80486]"
+    }
+  },
+  {
+    "trade_id": 486567596,
+    "symbol": "NZDUSD",
+    "signal": "BUY",
+    "entry_price": 0.59484,
+    "sl": 0.59426,
+    "tp": 0.59594,
+    "volume": 0.05,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 14:06:27"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.32,
+      "pnl_usd": -0.9,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 486616303,
+    "symbol": "NZDUSD",
+    "signal": "BUY",
+    "entry_price": 0.59482,
+    "sl": 0.59427,
+    "tp": 0.59595,
+    "volume": 0.05,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 14:50:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.89,
+      "pnl_usd": -5.25,
+      "exit_reason": "[sl 0.59427]"
+    }
+  },
+  {
+    "trade_id": 486639806,
+    "symbol": "GBPUSD",
+    "signal": "BUY",
+    "entry_price": 1.35893,
+    "sl": 1.35849,
+    "tp": 1.35987,
+    "volume": 0.03,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 15:10:24"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.48,
+      "pnl_usd": -0.66,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 1787878680,
+    "symbol": "EURJPY",
+    "signal": "SELL",
+    "score": 3,
+    "ai_opinion": "RECHAZADO: MACRO_DIVERGENCE",
+    "ai_confidence": 0.15,
+    "outcome": {
+      "status": "REJECTED_BY_AI",
+      "result": "BLOCKED"
+    }
+  },
+  {
+    "trade_id": 1787878692,
+    "symbol": "AUDNZD",
+    "signal": "SELL",
+    "score": 3,
+    "ai_opinion": "RECHAZADO: MACRO_DIVERGENCE",
+    "ai_confidence": 0.35,
+    "outcome": {
+      "status": "REJECTED_BY_AI",
+      "result": "BLOCKED"
+    }
+  },
+  {
+    "trade_id": 486924470,
+    "symbol": "AUDNZD",
+    "signal": "SELL",
+    "entry_price": 1.20835,
+    "sl": 1.20886,
+    "tp": 1.20724,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 21:00:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.11,
+      "pnl_usd": 0.14,
+      "exit_reason": "[sl 1.20829]"
+    }
+  },
+  {
+    "trade_id": 486929103,
+    "symbol": "USDJPY",
+    "signal": "SELL",
+    "entry_price": 159.365,
+    "sl": 159.411,
+    "tp": 159.258,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 21:05:23"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.08,
+      "pnl_usd": -0.1,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 1787884212,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "score": 3,
+    "ai_opinion": "RECHAZADO: Conflicto macro: Dirección BUY en contra de la tendencia principal D1 Bajista.",
+    "ai_confidence": 0.35,
+    "outcome": {
+      "status": "REJECTED_BY_AI",
+      "result": "BLOCKED"
+    }
+  },
+  {
+    "trade_id": 486992049,
+    "symbol": "EURJPY",
+    "signal": "BUY",
+    "entry_price": 185.685,
+    "sl": 185.635,
+    "tp": 185.785,
+    "volume": 0.04,
+    "ai_opinion": "Operación a favor de la tendencia principal D1 y H4 con spread extremadamente bajo y sin riesgo de noticias. Se reduce ligeramente el lote debido al historial reciente de rachas negativas en este par.",
+    "ai_confidence": 0.82,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 22:30:12"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.51,
+      "pnl_usd": 0.65,
+      "exit_reason": "[sl 185.712]"
+    }
+  },
+  {
+    "trade_id": 487036363,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.181,
+    "sl": 198.132,
+    "tp": 198.285,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-27 23:40:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.98,
+      "pnl_usd": -1.25,
+      "exit_reason": "[sl 198.132]"
+    }
+  },
+  {
+    "trade_id": 487092649,
+    "symbol": "AUDNZD",
+    "signal": "SELL",
+    "entry_price": 1.20824,
+    "sl": 1.20873,
+    "tp": 1.20714,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 01:00:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.08,
+      "pnl_usd": 0.1,
+      "exit_reason": "[sl 1.20820]"
+    }
+  },
+  {
+    "trade_id": 487123444,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.163,
+    "sl": 198.112,
+    "tp": 198.271,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 01:40:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.97,
+      "pnl_usd": -1.28,
+      "exit_reason": "[sl 198.112]"
+    }
+  },
+  {
+    "trade_id": 487123446,
+    "symbol": "AUDJPY",
+    "signal": "BUY",
+    "entry_price": 114.762,
+    "sl": 114.709,
+    "tp": 114.868,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 01:40:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.5,
+      "pnl_usd": 3.31,
+      "exit_reason": "[sl 114.894]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:00:07",
+        "action": "HOLD",
+        "opinion": "La posición se encuentra en punto de entrada justo en la EMA 200 sin señales de reversión fuerte. Corresponde mantener la operación ajustada a los parámetros iniciales.",
+        "close_reason": "",
+        "profit_pips": 0.2,
+        "profit_usd": 0.05
+      },
+      {
+        "time": "2026-08-28 03:15:06",
+        "action": "HOLD",
+        "opinion": "Mantener posición ya que el precio se encuentra testeando el soporte dinámico de la EMA 200 y el drawdown actual es mínimo dentro de la volatilidad esperada por ATR.",
+        "close_reason": "",
+        "profit_pips": -1.1,
+        "profit_usd": -0.28
+      },
+      {
+        "time": "2026-08-28 03:25:07",
+        "action": "HOLD",
+        "opinion": "Posición en leve Drawdown sobre nivel dinámico de soporte EMA 200. Se recomienda mantener el plan inicial.",
+        "close_reason": "",
+        "profit_pips": -2.1,
+        "profit_usd": -0.53
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:25:07",
+      "action": "HOLD",
+      "opinion": "Posición en leve Drawdown sobre nivel dinámico de soporte EMA 200. Se recomienda mantener el plan inicial.",
+      "close_reason": "",
+      "profit_pips": -2.1,
+      "profit_usd": -0.53
+    }
+  },
+  {
+    "trade_id": 487138369,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.162,
+    "sl": 198.097,
+    "tp": 198.25,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 02:00:20"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.27,
+      "pnl_usd": -1.63,
+      "exit_reason": "[sl 198.097]"
+    }
+  },
+  {
+    "trade_id": 487168162,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.154,
+    "sl": 198.103,
+    "tp": 198.253,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 02:30:22"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.06,
+      "pnl_usd": -1.33,
+      "exit_reason": "[sl 198.103]"
+    }
+  },
+  {
+    "trade_id": 487176192,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.72,
+    "sl": 216.659,
+    "tp": 216.806,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 02:40:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.24,
+      "pnl_usd": -1.53,
+      "exit_reason": "[sl 216.659]"
+    }
+  },
+  {
+    "trade_id": 487176198,
+    "symbol": "EURJPY",
+    "signal": "BUY",
+    "entry_price": 185.707,
+    "sl": 185.656,
+    "tp": 185.803,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 02:40:22"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.4,
+      "pnl_usd": -0.5,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:10:09",
+        "action": "HOLD",
+        "opinion": "La posicion esta cerca del SL pero se mantiene sobre la EMA 200 sin señales de cambio estructural severo. Mantener respetando la gestion de riesgo original.",
+        "close_reason": "",
+        "profit_pips": -3.6,
+        "profit_usd": -0.9
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:10:09",
+      "action": "HOLD",
+      "opinion": "La posicion esta cerca del SL pero se mantiene sobre la EMA 200 sin señales de cambio estructural severo. Mantener respetando la gestion de riesgo original.",
+      "close_reason": "",
+      "profit_pips": -3.6,
+      "profit_usd": -0.9
+    }
+  },
+  {
+    "trade_id": 487181309,
+    "symbol": "USDJPY",
+    "signal": "BUY",
+    "entry_price": 159.441,
+    "sl": 159.403,
+    "tp": 159.55,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 02:46:20"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.21,
+      "pnl_usd": 2.73,
+      "exit_reason": "[tp 159.550]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:05:10",
+        "action": "HOLD",
+        "opinion": "Mantener posición ya que el precio se encuentra consolidando en la EMA 200 sin invalidación estructural.",
+        "close_reason": "",
+        "profit_pips": 0.2,
+        "profit_usd": 0.05
+      },
+      {
+        "time": "2026-08-28 03:20:06",
+        "action": "HOLD",
+        "opinion": "La posición BUY se encuentra en beneficio (+5.0 pips) y no hay señales ni patrones de reversión opuestos que justifiquen una salida anticipada. Se mantiene la operación bajo la estrategia cuantitativa estipulada.",
+        "close_reason": "",
+        "profit_pips": 5.0,
+        "profit_usd": 1.25
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:20:06",
+      "action": "HOLD",
+      "opinion": "La posición BUY se encuentra en beneficio (+5.0 pips) y no hay señales ni patrones de reversión opuestos que justifiquen una salida anticipada. Se mantiene la operación bajo la estrategia cuantitativa estipulada.",
+      "close_reason": "",
+      "profit_pips": 5.0,
+      "profit_usd": 1.25
+    }
+  },
+  {
+    "trade_id": 487096793,
+    "symbol": "AUDNZD",
+    "signal": "POSITION",
+    "ai_opinion": "La posición se mueve a favor con el precio cruzando la EMA 200 hacia abajo. Se sugiere mover el SL a Break-Even para proteger el capital mientras busca el TP.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:00:07",
+        "action": "MODIFY_SLTP",
+        "opinion": "La posición se mueve a favor con el precio cruzando la EMA 200 hacia abajo. Se sugiere mover el SL a Break-Even para proteger el capital mientras busca el TP.",
+        "close_reason": "",
+        "profit_pips": 1.9,
+        "profit_usd": 0.45
+      },
+      {
+        "time": "2026-08-28 03:15:06",
+        "action": "HOLD",
+        "opinion": "El riesgo de esta operación ya está neutralizado en Break-Even (1.20796) mientras el precio continúa cayendo hacia el TP objetivo.",
+        "close_reason": "",
+        "profit_pips": 2.4,
+        "profit_usd": 0.57
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:15:06",
+      "action": "HOLD",
+      "opinion": "El riesgo de esta operación ya está neutralizado en Break-Even (1.20796) mientras el precio continúa cayendo hacia el TP objetivo.",
+      "close_reason": "",
+      "profit_pips": 2.4,
+      "profit_usd": 0.57
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": 0.0,
+      "pnl_usd": 0.0,
+      "exit_reason": "[sl 1.20796]"
+    }
+  },
+  {
+    "trade_id": 487207787,
+    "symbol": "CADJPY",
+    "signal": "BUY",
+    "entry_price": 115.107,
+    "sl": 115.056,
+    "tp": 115.206,
+    "volume": 0.04,
+    "ai_opinion": "Buen contexto macroeconómico con estructura alcista en D1 y H4. Spread bajo y sin eventos de noticias cercanos. Ratio R:R adecuado.",
+    "ai_confidence": 0.85,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:05:07"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.07,
+      "pnl_usd": 2.48,
+      "exit_reason": "[tp 115.206]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:10:09",
+        "action": "HOLD",
+        "opinion": "Operacion a favor de la tendencia sobre la EMA 200 con flotante positivo leve. Continuar con la posicion.",
+        "close_reason": "",
+        "profit_pips": 1.2,
+        "profit_usd": 0.3
+      },
+      {
+        "time": "2026-08-28 03:25:07",
+        "action": "HOLD",
+        "opinion": "La tendencia de corto plazo apoya la entrada en BUY. Se mantiene la posición en búsqueda del objetivo.",
+        "close_reason": "",
+        "profit_pips": 1.3,
+        "profit_usd": 0.33
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:25:07",
+      "action": "HOLD",
+      "opinion": "La tendencia de corto plazo apoya la entrada en BUY. Se mantiene la posición en búsqueda del objetivo.",
+      "close_reason": "",
+      "profit_pips": 1.3,
+      "profit_usd": 0.33
+    }
+  },
+  {
+    "trade_id": 487207791,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.635,
+    "sl": 216.594,
+    "tp": 216.744,
+    "volume": 0.04,
+    "ai_opinion": "Estructura alcista sólida alineada con marco temporal superior. Spread operativo aceptable sin noticias relevantes.",
+    "ai_confidence": 0.8,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:05:07"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.59,
+      "pnl_usd": -0.7,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:10:09",
+        "action": "HOLD",
+        "opinion": "El precio muestra soporte en la EMA 200 con rendimiento positivo inicial. Sin razones estructurales para salir.",
+        "close_reason": "",
+        "profit_pips": 1.3,
+        "profit_usd": 0.33
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:10:09",
+      "action": "HOLD",
+      "opinion": "El precio muestra soporte en la EMA 200 con rendimiento positivo inicial. Sin razones estructurales para salir.",
+      "close_reason": "",
+      "profit_pips": 1.3,
+      "profit_usd": 0.33
+    }
+  },
+  {
+    "trade_id": 487130662,
+    "symbol": "AUDNZD",
+    "signal": "POSITION",
+    "ai_opinion": "Asegurar el riesgo moviendo el Stop Loss al precio de entrada dado el progreso a favor (+5.3 pips).",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:05:10",
+        "action": "MODIFY_SLTP",
+        "opinion": "Asegurar el riesgo moviendo el Stop Loss al precio de entrada dado el progreso a favor (+5.3 pips).",
+        "close_reason": "",
+        "profit_pips": 5.3,
+        "profit_usd": 1.26
+      },
+      {
+        "time": "2026-08-28 03:15:13",
+        "action": "HOLD",
+        "opinion": "La posicion SELL en AUDNZD se mueve favorablemente hacia el TP con SL en Break-Even. La estructura bajista sigue intacta y cruzando la EMA 200 a favor.",
+        "close_reason": "",
+        "profit_pips": 4.8,
+        "profit_usd": 1.12
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:15:13",
+      "action": "HOLD",
+      "opinion": "La posicion SELL en AUDNZD se mueve favorablemente hacia el TP con SL en Break-Even. La estructura bajista sigue intacta y cruzando la EMA 200 a favor.",
+      "close_reason": "",
+      "profit_pips": 4.8,
+      "profit_usd": 1.12
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.23,
+      "pnl_usd": 0.29,
+      "exit_reason": "[sl 1.20807]"
+    }
+  },
+  {
+    "trade_id": 487176194,
+    "symbol": "AUDJPY",
+    "signal": "POSITION",
+    "ai_opinion": "Permitir que el precio busque el TP proyectado ya que muestra desarrollo alcista a favor de la estructura.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:05:10",
+        "action": "HOLD",
+        "opinion": "Permitir que el precio busque el TP proyectado ya que muestra desarrollo alcista a favor de la estructura.",
+        "close_reason": "",
+        "profit_pips": 2.2,
+        "profit_usd": 0.58
+      },
+      {
+        "time": "2026-08-28 03:15:13",
+        "action": "HOLD",
+        "opinion": "La posicion en AUDJPY esta orbitando alrededor de la EMA 200 y el precio de entrada. Mantiene estructura alcista sin señales de invalidez. Se mantiene el plan original.",
+        "close_reason": "",
+        "profit_pips": 0.2,
+        "profit_usd": 0.03
+      },
+      {
+        "time": "2026-08-28 03:25:16",
+        "action": "HOLD",
+        "opinion": "La posición BUY se encuentra en precio de entrada justo por encima de la EMA 200, manteniendo intacta la estructura alcista sin señales de reversión opuesta.",
+        "close_reason": "",
+        "profit_pips": -0.1,
+        "profit_usd": -0.23
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:25:16",
+      "action": "HOLD",
+      "opinion": "La posición BUY se encuentra en precio de entrada justo por encima de la EMA 200, manteniendo intacta la estructura alcista sin señales de reversión opuesta.",
+      "close_reason": "",
+      "profit_pips": -0.1,
+      "profit_usd": -0.23
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.92,
+      "pnl_usd": 3.61,
+      "exit_reason": "[sl 114.894]"
+    }
+  },
+  {
+    "trade_id": 487201146,
+    "symbol": "EURJPY",
+    "signal": "POSITION",
+    "ai_opinion": "Mantener orden a la espera de movimiento direccional desde el nivel de soporte de la EMA 200.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:05:10",
+        "action": "HOLD",
+        "opinion": "Mantener orden a la espera de movimiento direccional desde el nivel de soporte de la EMA 200.",
+        "close_reason": "",
+        "profit_pips": 0.0,
+        "profit_usd": 0.0
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:05:10",
+      "action": "HOLD",
+      "opinion": "Mantener orden a la espera de movimiento direccional desde el nivel de soporte de la EMA 200.",
+      "close_reason": "",
+      "profit_pips": 0.0,
+      "profit_usd": 0.0
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.38,
+      "pnl_usd": -0.45,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487176196,
+    "symbol": "AUDNZD",
+    "signal": "POSITION",
+    "ai_opinion": "La posición en AUDNZD está prácticamente en el precio de entrada y alineada con el sesgo reciente del par. Se mantiene la gestión cuantitativa original.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:05:25",
+        "action": "HOLD",
+        "opinion": "La posición en AUDNZD está prácticamente en el precio de entrada y alineada con el sesgo reciente del par. Se mantiene la gestión cuantitativa original.",
+        "close_reason": "",
+        "profit_pips": -0.2,
+        "profit_usd": 0.0
+      },
+      {
+        "time": "2026-08-28 03:15:17",
+        "action": "HOLD",
+        "opinion": "La posicion en AUDNZD tiene un flotante negativo minimo de 0.3 pips y se mantiene por debajo de la EMA 200. La estructura de venta sigue siendo valida.",
+        "close_reason": "",
+        "profit_pips": -0.3,
+        "profit_usd": -0.14
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:15:17",
+      "action": "HOLD",
+      "opinion": "La posicion en AUDNZD tiene un flotante negativo minimo de 0.3 pips y se mantiene por debajo de la EMA 200. La estructura de venta sigue siendo valida.",
+      "close_reason": "",
+      "profit_pips": -0.3,
+      "profit_usd": -0.14
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.02,
+      "pnl_usd": -1.26,
+      "exit_reason": "[sl 1.20819]"
+    }
+  },
+  {
+    "trade_id": 487201153,
+    "symbol": "USDJPY",
+    "signal": "POSITION",
+    "ai_opinion": "USDJPY está superando la EMA 200 con pips a favor (+3.4 pips). Se recomienda asegurar la posición moviendo el Stop Loss a Break-Even (159.415).",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:05:25",
+        "action": "MODIFY_SLTP",
+        "opinion": "USDJPY está superando la EMA 200 con pips a favor (+3.4 pips). Se recomienda asegurar la posición moviendo el Stop Loss a Break-Even (159.415).",
+        "close_reason": "",
+        "profit_pips": 3.4,
+        "profit_usd": 0.7
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:05:25",
+      "action": "MODIFY_SLTP",
+      "opinion": "USDJPY está superando la EMA 200 con pips a favor (+3.4 pips). Se recomienda asegurar la posición moviendo el Stop Loss a Break-Even (159.415).",
+      "close_reason": "",
+      "profit_pips": 3.4,
+      "profit_usd": 0.7
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 1.62,
+      "pnl_usd": 1.93,
+      "exit_reason": "[tp 159.492]"
+    }
+  },
+  {
+    "trade_id": 487213409,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.61828,
+    "sl": 1.61873,
+    "tp": 1.6175,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución cuantitativa (Fallback Lote: Object of type DataFrame is not JSON serializable)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:10:08"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.08,
+      "pnl_usd": -1.29,
+      "exit_reason": "[sl 1.61873]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:15:06",
+        "action": "HOLD",
+        "opinion": "La estructura de la entrada en SELL está funcionando correctamente tras rebotar en la EMA 200. Historial muy favorable en este par para operaciones de venta.",
+        "close_reason": "",
+        "profit_pips": 0.8,
+        "profit_usd": 0.23
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:15:06",
+      "action": "HOLD",
+      "opinion": "La estructura de la entrada en SELL está funcionando correctamente tras rebotar en la EMA 200. Historial muy favorable en este par para operaciones de venta.",
+      "close_reason": "",
+      "profit_pips": 0.8,
+      "profit_usd": 0.23
+    }
+  },
+  {
+    "trade_id": 487208166,
+    "symbol": "USDJPY",
+    "signal": "POSITION",
+    "ai_opinion": "Movimiento alineado con la EMA 200 y desarrollo inicial favorable. Se mantiene la estrategia actual.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:10:09",
+        "action": "HOLD",
+        "opinion": "Movimiento alineado con la EMA 200 y desarrollo inicial favorable. Se mantiene la estrategia actual.",
+        "close_reason": "",
+        "profit_pips": 1.0,
+        "profit_usd": 0.19
+      },
+      {
+        "time": "2026-08-28 03:20:10",
+        "action": "HOLD",
+        "opinion": "La posición en compra (BUY) se mantiene en terreno positivo (+4.3 pips). No se observa ninguna estructura ni patrón de velas opuesto que invalide la operación. Se mantiene la orden activa hacia el TP objetivo.",
+        "close_reason": "",
+        "profit_pips": 4.3,
+        "profit_usd": 0.81
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:20:10",
+      "action": "HOLD",
+      "opinion": "La posición en compra (BUY) se mantiene en terreno positivo (+4.3 pips). No se observa ninguna estructura ni patrón de velas opuesto que invalide la operación. Se mantiene la orden activa hacia el TP objetivo.",
+      "close_reason": "",
+      "profit_pips": 4.3,
+      "profit_usd": 0.81
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.81,
+      "pnl_usd": 3.35,
+      "exit_reason": "[sl 159.627]"
+    }
+  },
+  {
+    "trade_id": 487186246,
+    "symbol": "EURJPY",
+    "signal": "POSITION",
+    "ai_opinion": "La posición BUY se mantiene por encima de la EMA 200 (185.671) actuando como soporte dinámico. No existen patrones de reversión bajista opuestos que justifiquen un cierre prematuro.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:10:14",
+        "action": "HOLD",
+        "opinion": "La posición BUY se mantiene por encima de la EMA 200 (185.671) actuando como soporte dinámico. No existen patrones de reversión bajista opuestos que justifiquen un cierre prematuro.",
+        "close_reason": "",
+        "profit_pips": -2.9,
+        "profit_usd": -0.8
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:10:14",
+      "action": "HOLD",
+      "opinion": "La posición BUY se mantiene por encima de la EMA 200 (185.671) actuando como soporte dinámico. No existen patrones de reversión bajista opuestos que justifiquen un cierre prematuro.",
+      "close_reason": "",
+      "profit_pips": -2.9,
+      "profit_usd": -0.8
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.32,
+      "pnl_usd": -0.4,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487207941,
+    "symbol": "EURJPY",
+    "signal": "POSITION",
+    "ai_opinion": "La posición BUY se mantiene por encima de la EMA 200 Macro (185.671). Con un flotante mínimo de -0.4 pips y ausencia de patrones de reversión opuestos en estructura neutral, no existe justificación para un cierre anticipado. Se mantiene el plan original.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:10:18",
+        "action": "HOLD",
+        "opinion": "La posición BUY se mantiene por encima de la EMA 200 Macro (185.671). Con un flotante mínimo de -0.4 pips y ausencia de patrones de reversión opuestos en estructura neutral, no existe justificación para un cierre anticipado. Se mantiene el plan original.",
+        "close_reason": "",
+        "profit_pips": -0.4,
+        "profit_usd": -0.3
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:10:18",
+      "action": "HOLD",
+      "opinion": "La posición BUY se mantiene por encima de la EMA 200 Macro (185.671). Con un flotante mínimo de -0.4 pips y ausencia de patrones de reversión opuestos en estructura neutral, no existe justificación para un cierre anticipado. Se mantiene el plan original.",
+      "close_reason": "",
+      "profit_pips": -0.4,
+      "profit_usd": -0.3
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.08,
+      "pnl_usd": 0.1,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487213411,
+    "symbol": "AUDJPY",
+    "signal": "POSITION",
+    "ai_opinion": "La posicion en AUDJPY muestra ganancias ligeras y se mantiene dentro de la estructura esperada cerca de la EMA 200. No hay senales de cambio estructural opuesto.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:15:17",
+        "action": "HOLD",
+        "opinion": "La posicion en AUDJPY muestra ganancias ligeras y se mantiene dentro de la estructura esperada cerca de la EMA 200. No hay senales de cambio estructural opuesto.",
+        "close_reason": "",
+        "profit_pips": 1.3,
+        "profit_usd": 0.35
+      },
+      {
+        "time": "2026-08-28 03:25:21",
+        "action": "HOLD",
+        "opinion": "La posición BUY se mantiene en terreno positivo (+1.4 pips) y por encima de la EMA 200 macro (114.741). No existen patrones de reversión bajista ni eventos de alto impacto que justifiquen una salida anticipada, por lo que se respeta la estrategia original.",
+        "close_reason": "",
+        "profit_pips": 1.4,
+        "profit_usd": 0.1
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:25:21",
+      "action": "HOLD",
+      "opinion": "La posición BUY se mantiene en terreno positivo (+1.4 pips) y por encima de la EMA 200 macro (114.741). No existen patrones de reversión bajista ni eventos de alto impacto que justifiquen una salida anticipada, por lo que se respeta la estrategia original.",
+      "close_reason": "",
+      "profit_pips": 1.4,
+      "profit_usd": 0.1
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 3.34,
+      "pnl_usd": 3.93,
+      "exit_reason": "[sl 114.894]"
+    }
+  },
+  {
+    "trade_id": 487222660,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.61852,
+    "sl": 1.61902,
+    "tp": 1.61779,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución cuantitativa (Fallback Lote: Object of type DataFrame is not JSON serializable)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:20:11"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.23,
+      "pnl_usd": -1.44,
+      "exit_reason": "[sl 1.61902]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:25:07",
+        "action": "HOLD",
+        "opinion": "Buena alineación con la fuerza vendedora. Historial favorable en el par bajo este mismo patrón. Mantener.",
+        "close_reason": "",
+        "profit_pips": 0.9,
+        "profit_usd": 0.29
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:25:07",
+      "action": "HOLD",
+      "opinion": "Buena alineación con la fuerza vendedora. Historial favorable en el par bajo este mismo patrón. Mantener.",
+      "close_reason": "",
+      "profit_pips": 0.9,
+      "profit_usd": 0.29
+    }
+  },
+  {
+    "trade_id": 487222663,
+    "symbol": "GBPCHF",
+    "signal": "BUY",
+    "entry_price": 1.09364,
+    "sl": 1.09316,
+    "tp": 1.09457,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución cuantitativa (Fallback Lote: Object of type DataFrame is not JSON serializable)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:20:11"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.01,
+      "pnl_usd": -1.19,
+      "exit_reason": "[sl 1.09316]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:25:07",
+        "action": "HOLD",
+        "opinion": "Mantener la orden activa ya que el precio cotiza justo en la EMA 200 sin señales de reversión contraria o invalida de la tesis.",
+        "close_reason": "",
+        "profit_pips": 0.3,
+        "profit_usd": 0.07
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:25:07",
+      "action": "HOLD",
+      "opinion": "Mantener la orden activa ya que el precio cotiza justo en la EMA 200 sin señales de reversión contraria o invalida de la tesis.",
+      "close_reason": "",
+      "profit_pips": 0.3,
+      "profit_usd": 0.07
+    }
+  },
+  {
+    "trade_id": 487227231,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.643,
+    "sl": 216.592,
+    "tp": 216.733,
+    "volume": 0.04,
+    "ai_opinion": "Buen contexto técnico con vela envolvente alcista en soporte y macro alineada. R:R adecuado.",
+    "ai_confidence": 0.82,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:25:07"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.11,
+      "pnl_usd": -1.3,
+      "exit_reason": "[sl 216.592]"
+    }
+  },
+  {
+    "trade_id": 487227238,
+    "symbol": "EURJPY",
+    "signal": "BUY",
+    "entry_price": 185.706,
+    "sl": 185.652,
+    "tp": 185.793,
+    "volume": 0.04,
+    "ai_opinion": "Condiciones operativas óptimas. Spread bajo, sin eventos de alto impacto cercanos y alineación macroeconómica en D1 y H4.",
+    "ai_confidence": 0.85,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:25:07"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.15,
+      "pnl_usd": -1.35,
+      "exit_reason": "[sl 185.652]"
+    }
+  },
+  {
+    "trade_id": 487222654,
+    "symbol": "CADJPY",
+    "signal": "POSITION",
+    "ai_opinion": "El precio cotiza por encima del nivel de entrada y coincidiendo con la EMA 200. El desarrollo del trade es incipiente y no muestra invalidador de la tesis.",
+    "position_evaluations": [
+      {
+        "time": "2026-08-28 03:25:16",
+        "action": "HOLD",
+        "opinion": "El precio cotiza por encima del nivel de entrada y coincidiendo con la EMA 200. El desarrollo del trade es incipiente y no muestra invalidador de la tesis.",
+        "close_reason": "",
+        "profit_pips": 0.4,
+        "profit_usd": 0.1
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-08-28 03:25:16",
+      "action": "HOLD",
+      "opinion": "El precio cotiza por encima del nivel de entrada y coincidiendo con la EMA 200. El desarrollo del trade es incipiente y no muestra invalidador de la tesis.",
+      "close_reason": "",
+      "profit_pips": 0.4,
+      "profit_usd": 0.1
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 1.03,
+      "pnl_usd": 1.2,
+      "exit_reason": "[tp 115.164]"
+    }
+  },
+  {
+    "trade_id": 487237621,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.633,
+    "sl": 216.606,
+    "tp": 216.741,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:35:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.22,
+      "pnl_usd": -0.25,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487243552,
+    "symbol": "EURCHF",
+    "signal": "BUY",
+    "entry_price": 0.9373,
+    "sl": 0.93685,
+    "tp": 0.93823,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:40:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.4,
+      "pnl_usd": -0.45,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487243556,
+    "symbol": "AUDCHF",
+    "signal": "BUY",
+    "entry_price": 0.57923,
+    "sl": 0.57878,
+    "tp": 0.58016,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:40:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.98,
+      "pnl_usd": -1.12,
+      "exit_reason": "[sl 0.57878]"
+    }
+  },
+  {
+    "trade_id": 487249878,
+    "symbol": "CADCHF",
+    "signal": "BUY",
+    "entry_price": 0.58098,
+    "sl": 0.58048,
+    "tp": 0.58186,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:46:58"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.0,
+      "pnl_usd": -1.14,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487253821,
+    "symbol": "EURUSD",
+    "signal": "SELL",
+    "entry_price": 1.16468,
+    "sl": 1.16507,
+    "tp": 1.16393,
+    "volume": 0.03,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 03:50:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.45,
+      "pnl_usd": 0.51,
+      "exit_reason": "[sl 1.16451]"
+    }
+  },
+  {
+    "trade_id": 487267996,
+    "symbol": "USDCHF",
+    "signal": "BUY",
+    "entry_price": 0.80469,
+    "sl": 0.80425,
+    "tp": 0.80557,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 04:05:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.36,
+      "pnl_usd": -0.4,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487281936,
+    "symbol": "USDCHF",
+    "signal": "BUY",
+    "entry_price": 0.80458,
+    "sl": 0.80419,
+    "tp": 0.80548,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 04:20:24"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.05,
+      "pnl_usd": -0.05,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487281937,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.61846,
+    "sl": 1.61882,
+    "tp": 1.61768,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 04:20:24"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.96,
+      "pnl_usd": -1.04,
+      "exit_reason": "[sl 1.61882]"
+    }
+  },
+  {
+    "trade_id": 487281946,
+    "symbol": "AUDCHF",
+    "signal": "BUY",
+    "entry_price": 0.57895,
+    "sl": 0.57852,
+    "tp": 0.57981,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 04:20:24"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.28,
+      "pnl_usd": -0.3,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487292687,
+    "symbol": "GBPNZD",
+    "signal": "SELL",
+    "entry_price": 2.2811,
+    "sl": 2.28147,
+    "tp": 2.28012,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 04:31:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.83,
+      "pnl_usd": -0.88,
+      "exit_reason": "[sl 2.28147]"
+    }
+  },
+  {
+    "trade_id": 487425555,
+    "symbol": "EURUSD",
+    "signal": "SELL",
+    "entry_price": 1.16458,
+    "sl": 1.16491,
+    "tp": 1.16386,
+    "volume": 0.03,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 06:35:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.4,
+      "pnl_usd": -0.42,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487473755,
+    "symbol": "EURUSD",
+    "signal": "SELL",
+    "entry_price": 1.1646,
+    "sl": 1.16498,
+    "tp": 1.16387,
+    "volume": 0.03,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 07:20:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.25,
+      "pnl_usd": -0.27,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487484347,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.61839,
+    "sl": 1.6188,
+    "tp": 1.61751,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 07:30:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.47,
+      "pnl_usd": -0.58,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487504971,
+    "symbol": "EURUSD",
+    "signal": "SELL",
+    "entry_price": 1.16453,
+    "sl": 1.16496,
+    "tp": 1.16373,
+    "volume": 0.03,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 07:50:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 0.07,
+      "pnl_usd": 0.09,
+      "exit_reason": "[sl 1.16450]"
+    }
+  },
+  {
+    "trade_id": 487509327,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.61853,
+    "sl": 1.61884,
+    "tp": 1.61755,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 07:55:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.75,
+      "pnl_usd": -0.92,
+      "exit_reason": "[sl 1.61884]"
+    }
+  },
+  {
+    "trade_id": 487526415,
+    "symbol": "USDCHF",
+    "signal": "SELL",
+    "entry_price": 0.8043,
+    "sl": 0.80482,
+    "tp": 0.80335,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:10:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.45,
+      "pnl_usd": -0.55,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487540533,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.8,
+    "sl": 216.748,
+    "tp": 216.898,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:20:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.04,
+      "pnl_usd": -1.3,
+      "exit_reason": "[sl 216.748]"
+    }
+  },
+  {
+    "trade_id": 487540536,
+    "symbol": "EURJPY",
+    "signal": "BUY",
+    "entry_price": 185.855,
+    "sl": 185.801,
+    "tp": 185.951,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:20:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.08,
+      "pnl_usd": -1.35,
+      "exit_reason": "[sl 185.801]"
+    }
+  },
+  {
+    "trade_id": 487548786,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.47,
+    "sl": 198.427,
+    "tp": 198.577,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:25:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.91,
+      "pnl_usd": -1.13,
+      "exit_reason": "[sl 198.427]"
+    }
+  },
+  {
+    "trade_id": 487556340,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.711,
+    "sl": 216.665,
+    "tp": 216.812,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:30:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.35,
+      "pnl_usd": -0.43,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487556344,
+    "symbol": "USDCAD",
+    "signal": "SELL",
+    "entry_price": 1.38535,
+    "sl": 1.38588,
+    "tp": 1.38462,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:30:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.47,
+      "pnl_usd": -1.79,
+      "exit_reason": "[sl 1.38588]"
+    }
+  },
+  {
+    "trade_id": 487556346,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.417,
+    "sl": 198.364,
+    "tp": 198.511,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:30:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 1.93,
+      "pnl_usd": 2.36,
+      "exit_reason": "[tp 198.511]"
+    }
+  },
+  {
+    "trade_id": 487556348,
+    "symbol": "EURCHF",
+    "signal": "SELL",
+    "entry_price": 0.93644,
+    "sl": 0.93698,
+    "tp": 0.93551,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:30:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.34,
+      "pnl_usd": -0.42,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487563695,
+    "symbol": "AUDCHF",
+    "signal": "SELL",
+    "entry_price": 0.5787,
+    "sl": 0.57923,
+    "tp": 0.57779,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:35:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.31,
+      "pnl_usd": -0.37,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487563696,
+    "symbol": "CADJPY",
+    "signal": "BUY",
+    "entry_price": 115.17,
+    "sl": 115.119,
+    "tp": 115.26,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:35:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 1.91,
+      "pnl_usd": 2.26,
+      "exit_reason": "[tp 115.260]"
+    }
+  },
+  {
+    "trade_id": 487563702,
+    "symbol": "EURJPY",
+    "signal": "BUY",
+    "entry_price": 185.799,
+    "sl": 185.755,
+    "tp": 185.896,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:35:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 2.06,
+      "pnl_usd": 2.43,
+      "exit_reason": "[tp 185.896]"
+    }
+  },
+  {
+    "trade_id": 487571539,
+    "symbol": "CADCHF",
+    "signal": "SELL",
+    "entry_price": 0.58061,
+    "sl": 0.58101,
+    "tp": 0.5796,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:42:09"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.02,
+      "pnl_usd": -0.02,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487581129,
+    "symbol": "GBPCHF",
+    "signal": "SELL",
+    "entry_price": 1.09213,
+    "sl": 1.09262,
+    "tp": 1.09121,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:50:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.11,
+      "pnl_usd": -1.29,
+      "exit_reason": "[sl 1.09262]"
+    }
+  },
+  {
+    "trade_id": 487581130,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.752,
+    "sl": 216.706,
+    "tp": 216.844,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:50:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.99,
+      "pnl_usd": -1.15,
+      "exit_reason": "[sl 216.706]"
+    }
+  },
+  {
+    "trade_id": 487588280,
+    "symbol": "USDCHF",
+    "signal": "SELL",
+    "entry_price": 0.80407,
+    "sl": 0.80466,
+    "tp": 0.80325,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 08:55:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.32,
+      "pnl_usd": -0.37,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487596965,
+    "symbol": "USDJPY",
+    "signal": "BUY",
+    "entry_price": 159.58,
+    "sl": 159.531,
+    "tp": 159.678,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:00:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": 0.0,
+      "pnl_usd": 0.0,
+      "exit_reason": "[sl 159.584]"
+    }
+  },
+  {
+    "trade_id": 487596971,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.521,
+    "sl": 198.48,
+    "tp": 198.627,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:00:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.85,
+      "pnl_usd": -1.05,
+      "exit_reason": "[sl 198.480]"
+    }
+  },
+  {
+    "trade_id": 487596980,
+    "symbol": "GBPNZD",
+    "signal": "BUY",
+    "entry_price": 2.2833,
+    "sl": 2.28278,
+    "tp": 2.28434,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:00:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.12,
+      "pnl_usd": -1.38,
+      "exit_reason": "[sl 2.28278]"
+    }
+  },
+  {
+    "trade_id": 487604731,
+    "symbol": "NZDUSD",
+    "signal": "SELL",
+    "entry_price": 0.595,
+    "sl": 0.59558,
+    "tp": 0.59411,
+    "volume": 0.05,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:05:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.44,
+      "pnl_usd": -3.5,
+      "exit_reason": "[sl 0.59558]"
+    }
+  },
+  {
+    "trade_id": 487604740,
+    "symbol": "GBPNZD",
+    "signal": "BUY",
+    "entry_price": 2.28288,
+    "sl": 2.28221,
+    "tp": 2.28374,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:05:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.31,
+      "pnl_usd": -1.59,
+      "exit_reason": "[sl 2.28221]"
+    }
+  },
+  {
+    "trade_id": 487612560,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.492,
+    "sl": 198.447,
+    "tp": 198.588,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:10:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.0,
+      "pnl_usd": -1.18,
+      "exit_reason": "[sl 198.447]"
+    }
+  },
+  {
+    "trade_id": 487619423,
+    "symbol": "GBPNZD",
+    "signal": "BUY",
+    "entry_price": 2.28319,
+    "sl": 2.28272,
+    "tp": 2.28422,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:15:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.03,
+      "pnl_usd": -1.24,
+      "exit_reason": "[sl 2.28272]"
+    }
+  },
+  {
+    "trade_id": 487627346,
+    "symbol": "GBPNZD",
+    "signal": "BUY",
+    "entry_price": 2.28281,
+    "sl": 2.28239,
+    "tp": 2.28389,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:20:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.85,
+      "pnl_usd": -1.0,
+      "exit_reason": "[sl 2.28239]"
+    }
+  },
+  {
+    "trade_id": 487639551,
+    "symbol": "USDCHF",
+    "signal": "SELL",
+    "entry_price": 0.80418,
+    "sl": 0.80462,
+    "tp": 0.80327,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:30:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.33,
+      "pnl_usd": -0.37,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487639555,
+    "symbol": "GBPNZD",
+    "signal": "BUY",
+    "entry_price": 2.28288,
+    "sl": 2.28244,
+    "tp": 2.28385,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:30:25"
+    },
+    "outcome": {
+      "status": "OPEN",
+      "result": "PENDING"
+    }
+  },
+  {
+    "trade_id": 487642004,
+    "symbol": "GBPNZD",
+    "signal": "BUY",
+    "entry_price": 2.2824400000000002,
+    "sl": 2.28163,
+    "tp": 2.28442,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:33:02"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.27,
+      "pnl_usd": -0.3,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487646931,
+    "symbol": "EURJPY",
+    "signal": "BUY",
+    "entry_price": 185.858,
+    "sl": 185.824,
+    "tp": 185.956,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:36:43"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.77,
+      "pnl_usd": -0.85,
+      "exit_reason": "[sl 185.824]"
+    }
+  },
+  {
+    "trade_id": 487666629,
+    "symbol": "CADJPY",
+    "signal": "BUY",
+    "entry_price": 115.191,
+    "sl": 115.149,
+    "tp": 115.275,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:50:25"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.03,
+      "pnl_usd": -1.1,
+      "exit_reason": "[sl 115.149]"
+    }
+  },
+  {
+    "trade_id": 487672699,
+    "symbol": "EURJPY",
+    "signal": "BUY",
+    "entry_price": 185.825,
+    "sl": 185.788,
+    "tp": 185.908,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:55:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.97,
+      "pnl_usd": -0.98,
+      "exit_reason": "[sl 185.788]"
+    }
+  },
+  {
+    "trade_id": 487672701,
+    "symbol": "GBPJPY",
+    "signal": "BUY",
+    "entry_price": 216.751,
+    "sl": 216.705,
+    "tp": 216.825,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:55:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.19,
+      "pnl_usd": -1.2,
+      "exit_reason": "[sl 216.705]"
+    }
+  },
+  {
+    "trade_id": 487672703,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.442,
+    "sl": 198.394,
+    "tp": 198.514,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:55:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 1.78,
+      "pnl_usd": 1.8,
+      "exit_reason": "[tp 198.514]"
+    }
+  },
+  {
+    "trade_id": 487672715,
+    "symbol": "GBPNZD",
+    "signal": "BUY",
+    "entry_price": 2.28328,
+    "sl": 2.28213,
+    "tp": 2.28468,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 09:55:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.35,
+      "pnl_usd": -1.37,
+      "exit_reason": "[sl 2.28213]"
+    }
+  },
+  {
+    "trade_id": 487683843,
+    "symbol": "CHFJPY",
+    "signal": "BUY",
+    "entry_price": 198.544,
+    "sl": 198.403,
+    "tp": 198.52,
+    "volume": 0.04,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 10:00:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.61,
+      "pnl_usd": -0.6,
+      "exit_reason": "[tp 198.520]"
+    }
+  },
+  {
+    "trade_id": 487683869,
+    "symbol": "CADCHF",
+    "signal": "SELL",
+    "entry_price": 0.57987,
+    "sl": 0.58077,
+    "tp": 0.5796,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 10:00:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -2.29,
+      "pnl_usd": -2.24,
+      "exit_reason": "[sl 0.58077]"
+    }
+  },
+  {
+    "trade_id": 487683856,
+    "symbol": "EURCHF",
+    "signal": "SELL",
+    "entry_price": 0.93598,
+    "sl": 0.93699,
+    "tp": 0.93582,
+    "volume": 0.02,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 10:00:26"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -2.59,
+      "pnl_usd": -2.53,
+      "exit_reason": "[sl 0.93699]"
+    }
+  },
+  {
+    "trade_id": 487779147,
+    "symbol": "CADJPY",
+    "signal": "BUY",
+    "entry_price": 115.17,
+    "sl": 115.015,
+    "tp": 115.444,
+    "volume": 0.01,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 10:40:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.19,
+      "pnl_usd": -0.17,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487814234,
+    "symbol": "GBPUSD",
+    "signal": "SELL",
+    "entry_price": 1.3575,
+    "sl": 1.3581,
+    "tp": 1.35543,
+    "volume": 0.01,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 11:00:24"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "WIN",
+      "pnl_r": 4.32,
+      "pnl_usd": 3.86,
+      "exit_reason": "[sl 1.35363]"
+    }
+  },
+  {
+    "trade_id": 487840181,
+    "symbol": "EURAUD",
+    "signal": "SELL",
+    "entry_price": 1.61822,
+    "sl": 1.61943,
+    "tp": 1.61571,
+    "volume": 0.01,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 11:15:22"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.04,
+      "pnl_usd": -0.04,
+      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
+    }
+  },
+  {
+    "trade_id": 487874085,
+    "symbol": "CADJPY",
+    "signal": "BUY",
+    "entry_price": 115.157,
+    "sl": 115.011,
+    "tp": 115.437,
+    "volume": 0.01,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback Lote HTTP 429)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 5,
+      "strategy": "forex",
+      "time": "2026-08-28 11:40:21"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -0.2,
+      "pnl_usd": -0.18,
       "exit_reason": "Bot_Cambio_Tendencia_EMA200"
     }
   }

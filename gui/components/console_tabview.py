@@ -280,7 +280,13 @@ class ConsoleTabviewComponent(ctk.CTkFrame):
             return
 
         if tab_key in self.tab_tooltips:
-            self.tab_tooltips[tab_key].update_text(tooltip_text)
+            tt = self.tab_tooltips[tab_key]
+            if hasattr(tt, "set_text"):
+                tt.set_text(tooltip_text)
+            elif hasattr(tt, "update_text"):
+                tt.update_text(tooltip_text)
+            else:
+                tt.text = tooltip_text
         else:
             self.tab_tooltips[tab_key] = ToolTip(btn, text=tooltip_text)
 

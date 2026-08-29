@@ -1,12 +1,13 @@
 Todo:
   ☐ el lote minimo no se esta tomando de la divisa
   ☐ los lotes deben venir de la config del broker
-  ☐ tambien ver si el bot puede identificar una lateridad, xq he visto que entra en lateral y puede perder las entradas
+  ☐ tambien ver si el bot puede identificar una lateridad, xq he visto que entra en lateral y puede perder las
 
-  ☐ verificar que se este enviando el historial en las peticiones al api
 
-  ☐ las llamadas no concuerdan xq posiblemente el loop inicia en lo que yo paso el switch, entonces lo que hay que hacer es que agrupe los loop por tiempo en velas y asi asi un solo analicis de todo de los pares que corresponden a esas velas y en ese punto hay que hacer la llamada al api con todo, y cuando concuerden los tiempo ej 5m y 10m alli se agrupan esos tiempos se analizan y se manda a la IA
-
+  [] preguntar si es viable operar en tendencia lateral o mejor esperar tendencia y alli si entrar a operar de ser asi como puedo detectar tendencia?
+  [] calcular el lotaje automatico preguntar a la ia como lo puedo hacer para tener en cuenta el balance total
+  [] poner un aviso de cantidad minimo de pips preguntar a la IA de cuantos son las cantidad ideal de pips de SL por par ya que he visto que cada par tiene moviemientos diferentes de pips
+  [] xq no esta haciendo cierres en los puntos maximos donde inicia el retroceso? asi no haya tocado el tp
 
 prompt
  entonces te voy a facilitar los archivos que involucran esta funcionalidad, porfa puedes analizarlos y ayudarme a conseguir la falla, adicionamente no asumas, si necesitas mas archivos me lo comentas y con gusto te los facilito igual hazme todas las preguntas necesarias, ademas para evitar disparidad en el codigo, solo dime que secciones de codigo tengo que ajustar y lo cambio, ya que sin querer se pueden cambiar nombre de variables o funciones y se pueden dañar mas cosas

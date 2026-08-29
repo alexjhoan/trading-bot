@@ -196,88 +196,151 @@ class OrderExecutor:
 
     def close_position(self, position, reason: str = "EarlyExit") -> bool:
         """Cierra la posición y guarda el registro con PnL en el diario Markdown."""
-        symbol_info = mt5.symbol_info(position.symbol)
+        pos_obj = position
+        if isinstance(position, (int, str)):
+            try:
+                ticket_id = int(position)
+                positions = mt5.positions_get(ticket=ticket_id)
+                if positions and len(positions) > 0:
+                    pos_obj = positions[0]
+                else:
+                    print(f"⚠️ [MT5] No se encontró posición abierta con ticket #{ticket_id}")
+                    return False
+            except Exception as e:
+                print(f"❌ [MT5] Error resolviendo ticket #{position}: {e}")
+                return False
+
+        sym = getattr(pos_obj, "symbol", self.symbol)
+        symbol_info = mt5.symbol_info(sym)
         if symbol_info is None:
+            from core.data_loader import resolve_mt5_symbol
+            resolved = resolve_mt5_symbol(sym)
+            if resolved:
+                sym = resolved
+                symbol_info = mt5.symbol_info(sym)
+
+        if symbol_info is None:
+            print(f"❌ [MT5] No se pudo obtener symbol_info para cerrar posición #{getattr(pos_obj, 'ticket', position)}")
             return False
 
+        if not symbol_info.visible:
+            mt5.symbol_select(sym, True)
+            symbol_info = mt5.symbol_info(sym)
+
+        tick = mt5.symbol_info_tick(sym)
+        pos_type = getattr(pos_obj, "type", mt5.POSITION_TYPE_BUY)
         order_type = (
             mt5.ORDER_TYPE_SELL
-            if position.type == mt5.POSITION_TYPE_BUY
+            if pos_type == mt5.POSITION_TYPE_BUY
             else mt5.ORDER_TYPE_BUY
         )
-        price = symbol_info.bid if position.type == mt5.POSITION_TYPE_BUY else symbol_info.ask
+
+        if tick is not None:
+            price = tick.bid if pos_type == mt5.POSITION_TYPE_BUY else tick.ask
+        else:
+            price = symbol_info.bid if pos_type == mt5.POSITION_TYPE_BUY else symbol_info.ask
+
+        ticket_id = getattr(pos_obj, "ticket", int(position) if isinstance(position, (int, str)) else 0)
+        volume = float(getattr(pos_obj, "volume", 0.01))
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
-            "position": position.ticket,
-            "symbol": position.symbol,
-            "volume": position.volume,
+            "position": ticket_id,
+            "symbol": sym,
+            "volume": volume,
             "type": order_type,
             "price": price,
-            "deviation": 20,
+            "deviation": 25,
             "magic": 123456,
-            "comment": f"Bot_{reason}",
+            "comment": f"Bot_{reason}"[:31],
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": get_filling_mode(position.symbol),
+            "type_filling": get_filling_mode(sym),
         }
 
         result = mt5.order_send(request)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            pos_type_str = "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL"
-            pnl = position.profit + position.swap
+            pos_type_str = "BUY" if pos_type == mt5.POSITION_TYPE_BUY else "SELL"
+            pnl = float(getattr(pos_obj, "profit", 0.0)) + float(getattr(pos_obj, "swap", 0.0))
 
-            msg = f"🔒 Posición #{position.ticket} ({position.symbol}) cerrada por {reason} | PnL Final: ${pnl:+.2f}"
+            msg = f"🔒 Posición #{ticket_id} ({sym}) cerrada por {reason} | PnL Final: ${pnl:+.2f}"
             print(msg)
             self._log(msg, "SUCCESS" if pnl >= 0 else "WARNING")
 
             # Escribir en el Diario Markdown al cerrar la operación
-            self.journal.log_trade(
-                ticket=position.ticket,
-                symbol=position.symbol,
-                strategy_name=self.strategy_name,
-                order_type=pos_type_str,
-                volume=position.volume,
-                price_open=position.price_open,
-                price_close=price,
-                pnl=pnl,
-            )
+            try:
+                self.journal.log_trade(
+                    ticket=ticket_id,
+                    symbol=sym,
+                    strategy_name=self.strategy_name,
+                    order_type=pos_type_str,
+                    volume=volume,
+                    price_open=float(getattr(pos_obj, "price_open", price)),
+                    price_close=price,
+                    pnl=pnl,
+                )
+            except Exception as j_err:
+                print(f"⚠️ [JOURNAL] Error registrando cierre: {j_err}")
             return True
 
         ret_comment = result.comment if result else "No response"
-        print(f"❌ Error cerrando posición #{position.ticket}: {ret_comment}")
+        last_err = mt5.last_error()
+        print(f"❌ Error cerrando posición #{ticket_id} ({sym}): {ret_comment} | Last MT5 Error: {last_err}")
         return False
 
     def modify_sltp(self, position, new_sl: float, new_tp: float, reason: str = "Ajuste") -> bool:
         """Modifica los niveles de Stop Loss y Take Profit en MT5."""
-        symbol_info = mt5.symbol_info(position.symbol)
+        pos_obj = position
+        if isinstance(position, (int, str)):
+            try:
+                ticket_id = int(position)
+                positions = mt5.positions_get(ticket=ticket_id)
+                if positions and len(positions) > 0:
+                    pos_obj = positions[0]
+                else:
+                    print(f"⚠️ [MT5] No se encontró posición activa para modificar SL/TP con ticket #{ticket_id}")
+                    return False
+            except Exception as e:
+                print(f"❌ [MT5] Error resolviendo ticket #{position}: {e}")
+                return False
+
+        sym = getattr(pos_obj, "symbol", self.symbol)
+        symbol_info = mt5.symbol_info(sym)
         if symbol_info is None:
             return False
 
         digits = symbol_info.digits
-        sl_val = round(new_sl, digits) if new_sl > 0 else position.sl
-        tp_val = round(new_tp, digits) if new_tp > 0 else position.tp
+        curr_sl = getattr(pos_obj, "sl", 0.0)
+        curr_tp = getattr(pos_obj, "tp", 0.0)
+        sl_val = round(new_sl, digits) if new_sl > 0 else curr_sl
+        tp_val = round(new_tp, digits) if new_tp > 0 else curr_tp
+        ticket_id = getattr(pos_obj, "ticket", int(position) if isinstance(position, (int, str)) else 0)
 
         # Si no hay cambios reales significativos, omitir
-        if abs(sl_val - position.sl) < symbol_info.point and abs(tp_val - position.tp) < symbol_info.point:
+        if abs(sl_val - curr_sl) < symbol_info.point and abs(tp_val - curr_tp) < symbol_info.point:
             return True
 
         req = {
             "action": mt5.TRADE_ACTION_SLTP,
-            "position": position.ticket,
-            "symbol": position.symbol,
+            "position": ticket_id,
+            "symbol": sym,
             "sl": sl_val,
             "tp": tp_val,
         }
         res = mt5.order_send(req)
         if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-            msg = f"🛡️ [{reason.upper()}] Posición #{position.ticket} actualizada ➔ SL: {sl_val} | TP: {tp_val}"
+            msg = f"🛡️ [{reason.upper()}] Posición #{ticket_id} actualizada ➔ SL: {sl_val} | TP: {tp_val}"
             print(msg)
             self._log(msg, "SUCCESS")
             return True
         else:
             err_comment = res.comment if res else "Sin respuesta MT5"
-            print(f"⚠️ Error actualizando SL/TP en #{position.ticket}: {err_comment}")
+            last_err = mt5.last_error()
+            print(f"⚠️ Error actualizando SL/TP en #{ticket_id}: {err_comment} | Last MT5 Error: {last_err}")
             return False
+
+    def modify_order_sltp(self, position_or_ticket: Any, sl: float = 0.0, tp: float = 0.0, reason: str = "Ajuste") -> bool:
+        """Alias de compatibilidad para modify_sltp."""
+        return self.modify_sltp(position=position_or_ticket, new_sl=sl, new_tp=tp, reason=reason)
 
     def manage_position_with_strategy(self, position: Any, management_result: Dict[str, Any]) -> None:
         """
