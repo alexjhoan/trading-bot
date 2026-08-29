@@ -16,61 +16,21 @@ _HTF_TREND_CACHE: Dict[Tuple[str, int], Dict[str, Any]] = {}
 
 class ForexStrategy(BaseStrategy):
     """
-    ========================================================================================
-    RESUMEN EJECUTIVO Y DOCUMENTACIÓN TÉCNICA DE LA ESTRATEGIA CUANTITATIVA FOREX
-    ========================================================================================
+    Estrategia de Price Action + Fibonacci + Multi-Timeframe para pares Forex.
 
-    1. ESTRATEGIA DE ENTRADA (PRIMARY ENTRY):
-       - Tendencia Macro: Evaluada mediante la EMA de 200 períodos con un Buffer de Tolerancia
-         del 20% del ATR (14 períodos). El precio debe estar sobre la EMA (compras) o bajo la EMA (ventas).
-       - Filtro de Sobreextensión (Rango 50% de la EMA): Si el precio actual está excesivamente
-         alejado de la EMA 200 (distancia > 50% del rango de Swing actual o > 1.5x ATR), la entrada
-         se BLOQUEA preventivamente porque el impulso está agotado y es inminente un retroceso correctivo.
-       - Trigger Cuantitativo: Retroceso de Fibonacci >= 61.8% dentro de la estructura de Swings reciente.
-       - Puntuación de Confluencia (Score >= 2/3):
-         a) Tendencia Macro a favor con buffer de respiración (+1).
-         b) Volumen Institucional (Tick Volume > Media Móvil de Volumen 20) (+1).
-         c) Patrón de Vela de Reacción / Fuerza (Hammer, Shooting Star o cuerpo >= 50%) (+1).
-       - Filtro de Correlación de Pearson: Evita abrir pares correlacionados (r >= 0.70) en la misma dirección.
-       - Filtro de Horario: Solo opera dentro de las sesiones activas de las divisas del par (Londres/NY/Asia).
+    Entrada: tendencia EMA200 (buffer de entrada más estricto que el de invalidación) +
+    confirmación de tendencia en timeframe superior (M15/H1/H4 según el TF de entrada,
+    cacheada localmente por símbolo) + retroceso Fibonacci >= 61.8% + score de confluencia
+    >= 3/4 (tendencia, volumen, patrón de vela, estocástico). Filtro ADX bloquea entradas en
+    mercado lateral. Gestión de posición abierta: cierre prematuro por invalidación de EMA200,
+    cierre preventivo por agotamiento (RSI + patrón), trailing stop y extensión de TP por
+    ATR/Fibonacci. Reentradas (hasta 5) por escalera Fibonacci o pullback a EMA200.
 
-    2. ESTRATEGIA DE REENTRADA (RE-ENTRY ENGINE - HASTA 5 REENTRADAS):
-       Permite acumular posiciones a favor de la tendencia principal mediante DOS RUTAS:
-       - RUTA A (Escalera Fibo Progresiva - Descuento Profundo):
-         * Reentrada #1: Nivel Fibo 78.6% (0.786).
-         * Reentrada #2: Nivel Fibo 92.0% (0.920).
-         * Reentrada #3: Nivel Fibo 100.0% (1.000 / Origen del Swing).
-         * Reentrada #4: Nivel Fibo 132.0% (1.320 / Extensión).
-         * Reentrada #5: Nivel Fibo 161.8% (1.618 / Extensión).
-         Requiere que el precio mejore el precio de entrada de las órdenes precedentes.
-       - RUTA B (Pullback Dinámico a la EMA 200):
-         * Si el precio retrocede y testea la EMA 200 (dentro del buffer de tolerancia).
-         * Requiere vela de rechazo (Hammer o cuerpo >= 40%) en la dirección de la tendencia.
-         * Filtro Anti-Spam: Mínimo 3 velas o distancia >= 1.0x ATR de la última orden.
+    El filtro de correlación de pares y las reglas horarias de fin de jornada (16:00/16:15/16:50)
+    se aplican desde core/bot_worker.py y core/risk_manager.py, no dentro de esta clase.
 
-    3. ESTRATEGIA DE CIERRE PREMATURO (PREMATURE EXIT / INVALIDATION):
-       - Salida por Ruptura del 20% de la EMA:
-         Si una COMPRA fue abierta sobre la EMA y el precio cae rompiendo la EMA un 20% del ATR
-         por debajo (Precio < EMA200 - 0.20 * ATR) con confirmación bajista, se cierra de inmediato.
-         Si una VENTA fue abierta bajo la EMA y el precio sube rompiendo la EMA un 20% del ATR
-         por encima (Precio > EMA200 + 0.20 * ATR) con confirmación alcista, se cierra de inmediato.
-       - Salida Preventiva en Ganancia: Agotamiento extremo (RSI > 70 / < 28) con vela contraria fuerte.
-
-    4. CÁLCULO DE STOP LOSS (SL) Y TAKE PROFIT (TP):
-       - Cálculo Dinámico Basado en Volatilidad ATR (14):
-         * SL = Precio de Entrada +/- (ATR * 1.5)
-         * TP = Precio de Entrada -/+ (ATR * 3.0)  [Ratio Riesgo:Beneficio 1:2]
-       - Cálculo por Gestión de Riesgo Fijo Monetario:
-         * Pips SL = (Balance * %Riesgo) / (Lotaje * Valor del Pip)
-         * TP Pips = SL Pips * 2.0
-       - Trailing Stop Estructural: Se ajusta dinámicamente al mínimo/máximo de las últimas velas.
-
-    5. REGLAS HORARIAS DE FIN DE JORNADA (16:00 / 16:15 / 16:50):
-       - A partir de las 16:00: Bloqueo total de nuevas entradas y reentradas.
-       - A partir de las 16:15: Las operaciones en positivo mueven su SL a Break Even (precio de entrada).
-         Las operaciones en negativo se monitorean activamente; al superar 10% de ganancia, se protegen a BE.
-       - A las 16:50: Cierre forzoso de todas las órdenes abiertas para evitar swaps y spreads de medianoche.
-    ========================================================================================
+    Documentación técnica completa (lógica detallada de cada filtro) y la configuración de
+    indicadores equivalente para visualizar en MT5: core/strategies/FOREX_STRATEGY.md
     """
 
     name: str = "forex"
