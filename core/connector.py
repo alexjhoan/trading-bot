@@ -1,5 +1,7 @@
 from typing import Optional, Dict, Any, List, Tuple
 import MetaTrader5 as mt5
+import pandas as pd
+import pandas_ta as ta
 from core.config_manager import load_config
 
 
@@ -61,6 +63,36 @@ def get_all_symbol_specs(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     for sym in symbols:
         specs[sym] = get_symbol_specs(sym)
     return specs
+
+
+def get_symbol_atr_pips(symbol: str, timeframe: int = mt5.TIMEFRAME_M15, period: int = 14, bars: int = 100) -> float:
+    """
+    Calcula el ATR actual del símbolo (en Pips) usando velas recientes de MT5.
+    Se usa como piso dinámico de SL mínimo recomendado según la volatilidad real del par.
+    Retorna 0.0 si no hay datos suficientes o el símbolo/terminal no está disponible.
+    """
+    try:
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, bars)
+        if rates is None or len(rates) < period + 1:
+            return 0.0
+
+        df = pd.DataFrame(rates)
+        atr_series = ta.atr(high=df["high"], low=df["low"], close=df["close"], length=period)
+        if atr_series is None or atr_series.empty:
+            return 0.0
+
+        atr_value = float(atr_series.iloc[-1])
+        if atr_value <= 0 or pd.isna(atr_value):
+            return 0.0
+
+        info = mt5.symbol_info(symbol)
+        if info is None or info.point <= 0:
+            return 0.0
+
+        pip_size = info.point * 10.0 if info.digits in (3, 5) else info.point
+        return round(atr_value / pip_size, 1)
+    except Exception:
+        return 0.0
 
 def get_all_available_symbols() -> List[str]:
     """

@@ -48,6 +48,7 @@ class RiskConfig:
     rollover_start_utc: str = "21:30"     # Inicio de ventana de alto spread / rollover (UTC)
     rollover_end_utc: str = "22:30"       # Fin de ventana de alto spread / rollover (UTC)
     weekend_close_minutes_before: int = 15 # Minutos antes del cierre de mercado de viernes para cerrar todo
+    min_sl_atr_mult: float = 1.0          # Piso mínimo de SL = ATR actual * este multiplicador (evita SL más ajustado que el ruido normal del par)
 
 
     @property
@@ -68,13 +69,18 @@ class StrategyConfig:
 
     # 🟢 NUEVAS CONFIGURACIONES DE SESIÓN Y FILTRO
     use_session_filter: bool = True
-    ema_buffer_pct: float = 0.20  # Tolerancia de respiración para la EMA 200 (20% del ATR)
+    ema_buffer_pct: float = 0.20  # Tolerancia de respiración para la EMA 200 (20% del ATR) - usado para INVALIDAR posiciones abiertas
+    ema_entry_buffer_pct: float = 0.10  # Buffer más estricto usado solo para VALIDAR nuevas entradas (deja margen real antes de la línea de invalidación)
     max_reentries: int = 0  # Reentradas máximas permitidas por par (0 a 5, default: 0)
 
     # 🟢 FILTRO DE CORRELACIÓN DE PARES (PEARSON)
     use_correlation_filter: bool = True
     correlation_threshold: float = 0.70  # 70% de correlación alta
     correlation_window: int = 50  # Ventana de 50 velas para el cálculo de Pearson
+
+    # 🟢 FILTRO DE TENDENCIA / LATERALIDAD (ADX)
+    adx_period: int = 14
+    adx_trend_threshold: float = 20.0  # Por debajo de este valor el mercado se considera lateral/sin tendencia clara
 
     def is_market_open(self, symbol: str, current_dt: Optional[datetime] = None) -> Tuple[bool, str]:
         """

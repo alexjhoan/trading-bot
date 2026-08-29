@@ -63,6 +63,10 @@ class SyntxStrategy(BaseStrategy):
         self.correlation_threshold: float = getattr(self.config, "correlation_threshold", kwargs.get("correlation_threshold", 0.75))
         self.correlation_window: int = getattr(self.config, "correlation_window", kwargs.get("correlation_window", 50))
 
+        # Parámetros de Filtro de Tendencia / Lateralidad (ADX)
+        self.adx_period: int = getattr(self.config, "adx_period", kwargs.get("adx_period", 14))
+        self.adx_trend_threshold: float = getattr(self.config, "adx_trend_threshold", kwargs.get("adx_trend_threshold", 20.0))
+
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calcula pivotes en tiempo real, niveles de Fibonacci 61.8%, EMA 200, ATR y patrones de vela."""
         w = self.pivot_window
@@ -119,6 +123,11 @@ class SyntxStrategy(BaseStrategy):
         # 3. Indicadores Estándar
         df["atr"] = ta.atr(high=df["high"], low=df["low"], close=df["close"], length=self.atr_period)
         df["ema_trend"] = ta.ema(close=df["close"], length=self.ema_trend_period)
+        df["rsi"] = ta.rsi(close=df["close"], length=self.rsi_period)
+
+        adx_df = ta.adx(high=df["high"], low=df["low"], close=df["close"], length=self.adx_period)
+        adx_col = f"ADX_{self.adx_period}"
+        df["adx"] = adx_df[adx_col] if adx_df is not None and adx_col in adx_df.columns else 0.0
 
         # 4. Volumen / Tick Activity
         vol_col = "tick_volume" if "tick_volume" in df.columns else "volume"
@@ -299,6 +308,20 @@ class SyntxStrategy(BaseStrategy):
 
         df_analyzed = self.calculate_indicators(df)
         curr_candle = df_analyzed.iloc[-2]
+
+        # FILTRO DE TENDENCIA / LATERALIDAD (ADX)
+        current_adx = float(curr_candle.get("adx", 0.0) if not pd.isna(curr_candle.get("adx", 0.0)) else 0.0)
+        if current_adx > 0 and current_adx < self.adx_trend_threshold:
+            return {
+                "signal": "HOLD",
+                "support": 0.0,
+                "resistance": 0.0,
+                "atr": float(curr_candle.get("atr", 0.0)),
+                "score": 0,
+                "sl": 0.0,
+                "tp": 0.0,
+                "reason": f"[Filtro ADX] Mercado lateral/sin tendencia clara (ADX {current_adx:.1f} < {self.adx_trend_threshold:.1f}). Nuevas entradas bloqueadas."
+            }
 
         curr_close = float(curr_candle["close"])
         raw_res = curr_candle.get("resistance", np.nan)

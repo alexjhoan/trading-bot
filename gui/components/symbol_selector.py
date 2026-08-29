@@ -3,7 +3,8 @@ from typing import List, Callable, Dict, Any, Optional
 import MetaTrader5 as mt5
 from datetime import datetime
 
-from config import STRATEGY_CONFIG
+from config import STRATEGY_CONFIG, RISK_CONFIG
+from core.connector import get_symbol_atr_pips
 
 TIMEFRAME_MAP: Dict[str, int] = {
     "M1": mt5.TIMEFRAME_M1,
@@ -50,9 +51,14 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self.opt_timeframes: Dict[str, ctk.CTkOptionMenu] = {}
         self.lbl_risk_usd: Dict[str, ctk.CTkLabel] = {}
         self.lbl_sl_pips: Dict[str, ctk.CTkLabel] = {}
+        self.lbl_suggested_lot: Dict[str, ctk.CTkLabel] = {}
+        self.lbl_warning: Dict[str, ctk.CTkLabel] = {}
+        self.symbol_atr_pips: Dict[str, float] = {}
         self.lbl_schedule_dict: Dict[str, ctk.CTkLabel] = {}
         self.symbol_rows: Dict[str, ctk.CTkFrame] = {}
         self.suggestion_buttons: List[ctk.CTkButton] = []
+
+        self._schedule_loop_ticks: int = 0
 
         self._build_ui()
 
@@ -113,6 +119,17 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self.update_schedules_color()
         except Exception:
             pass
+
+        # Cada ~60 segundos, refrescar el ATR/mínimo de SL recomendado (evita golpear MT5 en cada tick)
+        self._schedule_loop_ticks += 1
+        if self._schedule_loop_ticks % 60 == 0:
+            for symbol in list(self.symbols):
+                try:
+                    self._refresh_symbol_atr(symbol)
+                    self._update_symbol_calc(symbol)
+                except Exception:
+                    pass
+
         self.after(1000, self._start_schedule_clock_loop)
 
     def _build_table_header(self) -> None:
@@ -127,6 +144,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             ("Riesgo %", 70),
             ("Riesgo $", 80),
             ("SL Máx", 90),
+            ("Lote Sugerido", 95),
             ("Timeframe", 80),
             ("Horario", 115),
             ("Acciones", 50),
@@ -148,9 +166,12 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         if symbol in self.symbol_rows:
             return
 
-        row = ctk.CTkFrame(self.symbols_container, fg_color="#2b2b2b", corner_radius=6)
-        row.pack(fill="x", pady=3, padx=2)
-        self.symbol_rows[symbol] = row
+        row_container = ctk.CTkFrame(self.symbols_container, fg_color="transparent")
+        row_container.pack(fill="x", pady=3, padx=2)
+        self.symbol_rows[symbol] = row_container
+
+        row = ctk.CTkFrame(row_container, fg_color="#2b2b2b", corner_radius=6)
+        row.pack(fill="x")
 
         # 1. Switch Activo (width ~60)
         var = ctk.BooleanVar(value=False)
@@ -216,6 +237,18 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         lbl_pips.pack(side="left", padx=3)
         self.lbl_sl_pips[symbol] = lbl_pips
 
+        # 6b. Lote Sugerido Label (width ~95) - lote calculado desde Riesgo $ y el SL mínimo recomendado (ATR)
+        lbl_suggested = ctk.CTkLabel(
+            row,
+            text="--",
+            text_color="#3B82F6",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            width=90,
+            anchor="center"
+        )
+        lbl_suggested.pack(side="left", padx=3)
+        self.lbl_suggested_lot[symbol] = lbl_suggested
+
         # 7. Timeframe OptionMenu (width ~80)
         default_tf = self.symbol_timeframes.get(symbol, "M5")
         opt_tf = ctk.CTkOptionMenu(
@@ -256,6 +289,20 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         )
         btn_del.pack(side="left", padx=(5, 10))
 
+        # Etiqueta de advertencia (oculta por defecto): se muestra solo si el SL calculado
+        # queda por debajo del mínimo recomendado (ATR) para este símbolo
+        lbl_warning = ctk.CTkLabel(
+            row_container,
+            text="",
+            text_color="#F59E0B",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            anchor="w"
+        )
+        self.lbl_warning[symbol] = lbl_warning
+
+        # Calcular el ATR (en pips) del símbolo para usarlo como piso mínimo recomendado de SL
+        self._refresh_symbol_atr(symbol)
+
         # Calcular valores iniciales de la fila
         self._update_symbol_calc(symbol)
 
@@ -289,6 +336,12 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             text_color = "#2ECC71" if is_active_session else "#E74C3C"
             lbl.configure(text_color=text_color)
 
+    def _refresh_symbol_atr(self, symbol: str) -> None:
+        """Recalcula y cachea el ATR (en pips) del símbolo, usando su timeframe seleccionado."""
+        tf_str = self.symbol_timeframes.get(symbol, "M5")
+        tf_val = TIMEFRAME_MAP.get(tf_str, mt5.TIMEFRAME_M5)
+        self.symbol_atr_pips[symbol] = get_symbol_atr_pips(symbol, timeframe=tf_val)
+
     def _update_symbol_calc(self, symbol: str) -> None:
         """Calcula el Riesgo en USD y SL en pips para un símbolo específico."""
         if symbol not in self.entry_lots or symbol not in self.entry_risk_pcts:
@@ -307,26 +360,64 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 self.lbl_risk_usd[symbol].configure(text=f"${risk_usd:.2f}")
 
             # 2. SL Pips
+            specs = self.symbol_specs.get(symbol, {})
+            trade_tick_value = specs.get("trade_tick_value", 1.0)
+            point = specs.get("point", 0.00001)
+            digits = specs.get("digits", 5)
+            tick_size = specs.get("trade_tick_size", point)
+
+            pip_size = point * 10.0 if digits in (3, 5) else point
+            ticks_per_pip = (pip_size / tick_size) if tick_size > 0 else 1.0
+            pip_value_std = trade_tick_value * ticks_per_pip
+
             if lot <= 0 or risk_usd <= 0:
                 sl_pips = 0.0
             else:
-                specs = self.symbol_specs.get(symbol, {})
-                trade_tick_value = specs.get("trade_tick_value", 1.0)
-                point = specs.get("point", 0.00001)
-                digits = specs.get("digits", 5)
-                tick_size = specs.get("trade_tick_size", point)
-
-                pip_size = point * 10.0 if digits in (3, 5) else point
-                ticks_per_pip = (pip_size / tick_size) if tick_size > 0 else 1.0
-                pip_value_std = trade_tick_value * ticks_per_pip
-
                 sl_pips = risk_usd / (lot * pip_value_std)
 
             if symbol in self.lbl_sl_pips:
                 self.lbl_sl_pips[symbol].configure(text=f"{sl_pips:.1f} pips")
+
+            # 3. Lote Sugerido y advertencia de SL por debajo del mínimo recomendado (piso dinámico por ATR)
+            atr_pips = self.symbol_atr_pips.get(symbol, 0.0)
+            min_sl_pips = atr_pips * RISK_CONFIG.min_sl_atr_mult
+
+            if min_sl_pips > 0 and risk_usd > 0 and pip_value_std > 0:
+                volume_step = specs.get("volume_step", 0.01)
+                volume_min = specs.get("volume_min", 0.01)
+                volume_max = specs.get("volume_max", 100.0)
+
+                raw_lot = risk_usd / (min_sl_pips * pip_value_std)
+                suggested_lot = round(raw_lot / volume_step) * volume_step if volume_step > 0 else raw_lot
+                suggested_lot = max(volume_min, min(suggested_lot, volume_max))
+
+                if symbol in self.lbl_suggested_lot:
+                    self.lbl_suggested_lot[symbol].configure(text=f"{suggested_lot:.2f}")
+
+                if symbol in self.lbl_warning:
+                    if sl_pips > 0 and sl_pips < min_sl_pips:
+                        self.lbl_warning[symbol].configure(
+                            text=(
+                                f"⚠️ SL actual ({sl_pips:.1f} pips) por debajo del mínimo recomendado "
+                                f"({min_sl_pips:.1f} pips, ATR x{RISK_CONFIG.min_sl_atr_mult:.1f}) para este par — "
+                                f"considera bajar el lote a {suggested_lot:.2f} o subir el % de riesgo."
+                            )
+                        )
+                        self.lbl_warning[symbol].pack(fill="x", padx=(4, 4), pady=(2, 0))
+                    else:
+                        self.lbl_warning[symbol].pack_forget()
+            else:
+                if symbol in self.lbl_suggested_lot:
+                    self.lbl_suggested_lot[symbol].configure(text="--")
+                if symbol in self.lbl_warning:
+                    self.lbl_warning[symbol].pack_forget()
         except (ValueError, KeyError, ZeroDivisionError):
             if symbol in self.lbl_sl_pips:
                 self.lbl_sl_pips[symbol].configure(text="N/A")
+            if symbol in self.lbl_suggested_lot:
+                self.lbl_suggested_lot[symbol].configure(text="N/A")
+            if symbol in self.lbl_warning:
+                self.lbl_warning[symbol].pack_forget()
 
     def _on_input_changed(self, symbol: str) -> None:
         self._update_symbol_calc(symbol)
@@ -393,6 +484,9 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self.opt_timeframes.pop(symbol, None)
             self.lbl_risk_usd.pop(symbol, None)
             self.lbl_sl_pips.pop(symbol, None)
+            self.lbl_suggested_lot.pop(symbol, None)
+            self.lbl_warning.pop(symbol, None)
+            self.symbol_atr_pips.pop(symbol, None)
             self.lbl_schedule_dict.pop(symbol, None)
 
             if self.on_symbols_changed_callback:

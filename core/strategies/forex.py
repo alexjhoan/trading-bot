@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any, Callable, Tuple, List
 from datetime import datetime, time
+import time as time_module
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
@@ -7,6 +8,10 @@ import MetaTrader5 as mt5
 from config import StrategyConfig, STRATEGY_CONFIG
 from .base_strategy import BaseStrategy
 from core.candlestick_patterns import detect_candlestick_patterns
+
+# Memoria local (en proceso) de tendencia en timeframe superior, cacheada por (símbolo, timeframe superior)
+# para no golpear MT5 en cada evaluación de señal. Ver ForexStrategy._get_htf_trend_alignment.
+_HTF_TREND_CACHE: Dict[Tuple[str, int], Dict[str, Any]] = {}
 
 
 class ForexStrategy(BaseStrategy):
@@ -79,7 +84,7 @@ class ForexStrategy(BaseStrategy):
         atr_period: int = 14,
         volume_ma_period: int = 20,
         rsi_period: int = 14,
-        min_confluence_score: int = 2,
+        min_confluence_score: int = 3,
         use_session_filter: bool = True,
         logger: Optional[Callable[[str, str], None]] = None,
         **kwargs: Any
@@ -100,12 +105,17 @@ class ForexStrategy(BaseStrategy):
         self.static_tp_pips: float = kwargs.get("static_tp_pips", 40.0)
         self.lookback_swing: int = kwargs.get("lookback_swing", 50)
         self.ema_buffer_pct: float = getattr(self.config, "ema_buffer_pct", kwargs.get("ema_buffer_pct", 0.20))
+        self.ema_entry_buffer_pct: float = getattr(self.config, "ema_entry_buffer_pct", kwargs.get("ema_entry_buffer_pct", self.ema_buffer_pct * 0.5))
         self.max_reentries: int = getattr(self.config, "max_reentries", kwargs.get("max_reentries", 0))
 
         # Parámetros de correlación
         self.use_correlation_filter: bool = getattr(self.config, "use_correlation_filter", kwargs.get("use_correlation_filter", True))
         self.correlation_threshold: float = getattr(self.config, "correlation_threshold", kwargs.get("correlation_threshold", 0.70))
         self.correlation_window: int = getattr(self.config, "correlation_window", kwargs.get("correlation_window", 50))
+
+        # Parámetros de Filtro de Tendencia / Lateralidad (ADX)
+        self.adx_period: int = getattr(self.config, "adx_period", kwargs.get("adx_period", 14))
+        self.adx_trend_threshold: float = getattr(self.config, "adx_trend_threshold", kwargs.get("adx_trend_threshold", 20.0))
 
         # Asignación dinámica de horarios según el símbolo
         start_str, end_str = self.config.get_session_times_for_symbol(self.symbol)
@@ -118,6 +128,79 @@ class ForexStrategy(BaseStrategy):
             return self.session_start <= current_time <= self.session_end
         else:
             return current_time >= self.session_start or current_time <= self.session_end
+
+    def _infer_timeframe_seconds(self, df: pd.DataFrame) -> int:
+        """Infiere la temporalidad (en segundos) de las velas recibidas, a partir de sus timestamps."""
+        try:
+            if "time" in df.columns and len(df) >= 3:
+                deltas = df["time"].diff().dropna()
+                deltas = deltas[deltas > 0]
+                if len(deltas) > 0:
+                    return int(deltas.median())
+        except Exception:
+            pass
+        return 300  # Fallback: asume M5 si no se puede inferir de las velas recibidas
+
+    def _pick_htf_constant(self, tf_seconds: int) -> int:
+        """Elige el timeframe superior de confirmación de tendencia según la temporalidad de entrada (scalping -> M15/H1)."""
+        if tf_seconds <= 300:
+            return mt5.TIMEFRAME_M15
+        elif tf_seconds <= 900:
+            return mt5.TIMEFRAME_H1
+        elif tf_seconds <= 3600:
+            return mt5.TIMEFRAME_H4
+        else:
+            return mt5.TIMEFRAME_D1
+
+    def _get_htf_trend_alignment(self, df: pd.DataFrame) -> Tuple[bool, bool, str]:
+        """
+        Verifica la tendencia del símbolo en un timeframe superior (M15/H1/H4 según la temporalidad
+        de entrada) para confirmar que las entradas de scalping van a favor de la tendencia mayor.
+        Cachea el resultado en memoria local por (símbolo, timeframe superior) para no golpear MT5
+        en cada evaluación de señal. Si no hay datos disponibles, no bloquea (fail-open).
+        """
+        tf_seconds = self._infer_timeframe_seconds(df)
+        htf_constant = self._pick_htf_constant(tf_seconds)
+        htf_seconds_map = {
+            mt5.TIMEFRAME_M15: 900,
+            mt5.TIMEFRAME_H1: 3600,
+            mt5.TIMEFRAME_H4: 14400,
+            mt5.TIMEFRAME_D1: 86400,
+        }
+        htf_seconds = htf_seconds_map.get(htf_constant, 3600)
+
+        cache_key = (self.symbol, htf_constant)
+        cached = _HTF_TREND_CACHE.get(cache_key)
+        now = time_module.time()
+        refresh_interval = max(60, htf_seconds // 4)
+
+        if cached is not None and (now - cached["fetched_at"]) < refresh_interval:
+            return cached["allow_buy"], cached["allow_sell"], cached["reason"]
+
+        tf_label = {
+            mt5.TIMEFRAME_M15: "M15", mt5.TIMEFRAME_H1: "H1",
+            mt5.TIMEFRAME_H4: "H4", mt5.TIMEFRAME_D1: "D1"
+        }.get(htf_constant, "TF Superior")
+
+        try:
+            rates = mt5.copy_rates_from_pos(self.symbol, htf_constant, 0, 250)
+            if rates is None or len(rates) < self.ema_trend_period + 5:
+                result = (True, True, f"Datos insuficientes en {tf_label}, filtro multi-temporalidad omitido")
+            else:
+                htf_df = pd.DataFrame(rates)
+                htf_ema = ta.ema(close=htf_df["close"], length=self.ema_trend_period)
+                htf_close = float(htf_df["close"].iloc[-1])
+                htf_ema_val = float(htf_ema.iloc[-1]) if htf_ema is not None and not pd.isna(htf_ema.iloc[-1]) else htf_close
+                is_htf_bullish = htf_close >= htf_ema_val
+                reason = f"Tendencia {tf_label}: {'Alcista' if is_htf_bullish else 'Bajista'} (Cierre {htf_close:.5f} vs EMA{self.ema_trend_period} {htf_ema_val:.5f})"
+                result = (is_htf_bullish, not is_htf_bullish, reason)
+        except Exception:
+            result = (True, True, f"Error consultando {tf_label}, filtro multi-temporalidad omitido")
+
+        _HTF_TREND_CACHE[cache_key] = {
+            "allow_buy": result[0], "allow_sell": result[1], "reason": result[2], "fetched_at": now
+        }
+        return result
 
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calcula pivotes en tiempo real, niveles de Fibonacci 61.8%, EMA 200, ATR y patrones de vela."""
@@ -175,6 +258,20 @@ class ForexStrategy(BaseStrategy):
         # 3. Indicadores Estándar
         df["atr"] = ta.atr(high=df["high"], low=df["low"], close=df["close"], length=self.atr_period)
         df["ema_trend"] = ta.ema(close=df["close"], length=self.ema_trend_period)
+        df["rsi"] = ta.rsi(close=df["close"], length=self.rsi_period)
+
+        adx_df = ta.adx(high=df["high"], low=df["low"], close=df["close"], length=self.adx_period)
+        adx_col = f"ADX_{self.adx_period}"
+        df["adx"] = adx_df[adx_col] if adx_df is not None and adx_col in adx_df.columns else 0.0
+
+        # 3b. Estocástico (confirmación de rebote real en zona de retroceso, no solo "toque" del nivel Fibo)
+        stoch_df = ta.stoch(high=df["high"], low=df["low"], close=df["close"], k=14, d=3, smooth_k=3)
+        if stoch_df is not None and "STOCHk_14_3_3" in stoch_df.columns:
+            df["stoch_k"] = stoch_df["STOCHk_14_3_3"]
+            df["stoch_d"] = stoch_df["STOCHd_14_3_3"]
+        else:
+            df["stoch_k"] = 50.0
+            df["stoch_d"] = 50.0
 
         # 4. Volumen
         vol_col = "tick_volume" if "tick_volume" in df.columns else "volume"
@@ -401,6 +498,20 @@ class ForexStrategy(BaseStrategy):
                     "reason": f"Fuera de Horario Operativo para {self.symbol}. Se reactiva a las {start_str}"
                 }
 
+        # 2b. FILTRO DE TENDENCIA / LATERALIDAD (ADX)
+        current_adx = float(curr_candle.get("adx", 0.0) if not pd.isna(curr_candle.get("adx", 0.0)) else 0.0)
+        if current_adx > 0 and current_adx < self.adx_trend_threshold:
+            return {
+                "signal": "HOLD",
+                "support": 0.0,
+                "resistance": 0.0,
+                "atr": float(curr_candle.get("atr", 0.0)),
+                "score": 0,
+                "sl": 0.0,
+                "tp": 0.0,
+                "reason": f"[Filtro ADX] Mercado lateral/sin tendencia clara (ADX {current_adx:.1f} < {self.adx_trend_threshold:.1f}). Nuevas entradas bloqueadas."
+            }
+
         curr_close = float(curr_candle["close"])
         raw_res = curr_candle.get("resistance", np.nan)
         raw_sup = curr_candle.get("support", np.nan)
@@ -432,13 +543,20 @@ class ForexStrategy(BaseStrategy):
             }
 
         # 4. VALIDACIÓN FLEXIBLE DE TENDENCIA MACRO CON BUFFER (EMA 200)
-        ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
+        # Usa un buffer de ENTRADA más estricto que el de invalidación (ema_buffer_pct), para dejar
+        # margen real entre "entrada válida" y la línea que dispara el cierre por invalidación de tendencia.
+        ema_buffer = (current_atr * self.ema_entry_buffer_pct) if current_atr > 0 else (ema_trend * 0.0005)
         is_bullish_trend = curr_close >= (ema_trend - ema_buffer)
         is_bearish_trend = curr_close <= (ema_trend + ema_buffer)
 
+        # 4b. CONFIRMACIÓN DE TENDENCIA EN TIMEFRAME SUPERIOR (Multi-Timeframe, memoria local por símbolo)
+        htf_allows_buy, htf_allows_sell, htf_reason = self._get_htf_trend_alignment(df)
+
         # 5. VALIDACIÓN DE RETROCESO DE FIBONACCI >= 61.8%
-        fibo_buy = is_bullish_trend and (fibo_618_buy > 0) and (curr_close <= fibo_618_buy) and (curr_close >= support)
-        fibo_sell = is_bearish_trend and (fibo_618_sell > 0) and (curr_close >= fibo_618_sell) and (curr_close <= resistance)
+        raw_fibo_buy_trigger = is_bullish_trend and (fibo_618_buy > 0) and (curr_close <= fibo_618_buy) and (curr_close >= support)
+        raw_fibo_sell_trigger = is_bearish_trend and (fibo_618_sell > 0) and (curr_close >= fibo_618_sell) and (curr_close <= resistance)
+        fibo_buy = raw_fibo_buy_trigger and htf_allows_buy
+        fibo_sell = raw_fibo_sell_trigger and htf_allows_sell
 
         # 6. SCORE DE CONFLUENCIA
         score = 0
@@ -464,14 +582,30 @@ class ForexStrategy(BaseStrategy):
         candle_bias = candlestick_info.get("bias", "NEUTRAL")
         candle_pattern_name = candlestick_info.get("primary_pattern", "Vela")
 
-        if fibo_buy and (candle_bias == "BULLISH" or is_bull_hammer or body_ratio >= 0.50):
+        is_bull_candle = bool(curr_candle["close"] > curr_candle["open"])
+        is_bear_candle = bool(curr_candle["close"] < curr_candle["open"])
+
+        if fibo_buy and (candle_bias == "BULLISH" or is_bull_hammer or (body_ratio >= 0.50 and is_bull_candle)):
             patron_label = candle_pattern_name if candle_bias == "BULLISH" else ("Hammer Alcista" if is_bull_hammer else f"Vela Fuerte ({body_ratio * 100:.0f}%)")
             score += 1
             score_details.append(f"Patrón: {patron_label} (+1)")
-        elif fibo_sell and (candle_bias == "BEARISH" or is_bear_hammer or body_ratio >= 0.50):
+        elif fibo_sell and (candle_bias == "BEARISH" or is_bear_hammer or (body_ratio >= 0.50 and is_bear_candle)):
             patron_label = candle_pattern_name if candle_bias == "BEARISH" else ("Shooting Star" if is_bear_hammer else f"Vela Fuerte ({body_ratio * 100:.0f}%)")
             score += 1
             score_details.append(f"Patrón: {patron_label} (+1)")
+
+        # Confirmación de Estocástico: exige rebote/momentum real en la zona Fibo, no solo el "toque" del nivel
+        stoch_k = float(curr_candle.get("stoch_k", 50.0) if not pd.isna(curr_candle.get("stoch_k", 50.0)) else 50.0)
+        stoch_d = float(curr_candle.get("stoch_d", 50.0) if not pd.isna(curr_candle.get("stoch_d", 50.0)) else 50.0)
+        stoch_bull_ok = (stoch_k <= 35) or (stoch_k > stoch_d and stoch_k <= 50)
+        stoch_bear_ok = (stoch_k >= 65) or (stoch_k < stoch_d and stoch_k >= 50)
+
+        if fibo_buy and stoch_bull_ok:
+            score += 1
+            score_details.append(f"Confirmación Estocástico ({stoch_k:.0f}) (+1)")
+        elif fibo_sell and stoch_bear_ok:
+            score += 1
+            score_details.append(f"Confirmación Estocástico ({stoch_k:.0f}) (+1)")
 
         if fibo_buy:
             signal_type = "BUY"
@@ -504,13 +638,19 @@ class ForexStrategy(BaseStrategy):
                 sl_price = curr_close + sl_dist
                 tp_price = curr_close - tp_dist
 
+        htf_blocked = (raw_fibo_buy_trigger and not htf_allows_buy) or (raw_fibo_sell_trigger and not htf_allows_sell)
+
         reason = (
-            f"[Forex] Fibo >= 61.8% ({signal_type}) con Score {score}/3: {', '.join(score_details)}"
+            f"[Forex] Fibo >= 61.8% ({signal_type}) con Score {score}/4: {', '.join(score_details)}"
             if is_valid
             else (
-                f"[Forex] Esperando retroceso Fibo >= 61.8% alineado con EMA{self.ema_trend_period}"
-                if signal_type == "HOLD"
-                else f"[Forex] Zona Fibo {signal_type} descartada por baja confluencia ({score}/{self.min_confluence_score} requerido)"
+                f"[Forex] Zona Fibo {'BUY' if raw_fibo_buy_trigger else 'SELL'} válida en temporalidad de entrada pero descartada por tendencia contraria en TF superior ({htf_reason})"
+                if htf_blocked
+                else (
+                    f"[Forex] Esperando retroceso Fibo >= 61.8% alineado con EMA{self.ema_trend_period}"
+                    if signal_type == "HOLD"
+                    else f"[Forex] Zona Fibo {signal_type} descartada por baja confluencia ({score}/{self.min_confluence_score} requerido)"
+                )
             )
         )
 
