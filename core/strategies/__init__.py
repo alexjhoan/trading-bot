@@ -1,15 +1,9 @@
 import importlib
 import importlib.util
 import inspect
-import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Type, Any, Optional
-
-# Asegurar que la raíz del proyecto esté en sys.path para importaciones dinámicas
-_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
 
 from .base_strategy import BaseStrategy
 from .forex import ForexStrategy

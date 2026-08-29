@@ -1,9 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, Callable, Tuple, List
-from datetime import datetime, time
-import numpy as np
 import pandas as pd
-import MetaTrader5 as mt5
 from config import StrategyConfig, STRATEGY_CONFIG
 
 

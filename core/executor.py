@@ -338,10 +338,6 @@ class OrderExecutor:
             print(f"⚠️ Error actualizando SL/TP en #{ticket_id}: {err_comment} | Last MT5 Error: {last_err}")
             return False
 
-    def modify_order_sltp(self, position_or_ticket: Any, sl: float = 0.0, tp: float = 0.0, reason: str = "Ajuste") -> bool:
-        """Alias de compatibilidad para modify_sltp."""
-        return self.modify_sltp(position=position_or_ticket, new_sl=sl, new_tp=tp, reason=reason)
-
     def manage_position_with_strategy(self, position: Any, management_result: Dict[str, Any]) -> None:
         """
         Ejecuta la acción recomendada por el análisis de posición de la estrategia:

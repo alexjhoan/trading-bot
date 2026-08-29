@@ -6,7 +6,7 @@ import pandas_ta as ta
 import MetaTrader5 as mt5
 from config import StrategyConfig, STRATEGY_CONFIG
 from .base_strategy import BaseStrategy
-from core.candlestick_patterns import detect_candlestick_patterns, format_candlestick_summary_for_ai
+from core.candlestick_patterns import detect_candlestick_patterns
 
 
 class ForexStrategy(BaseStrategy):

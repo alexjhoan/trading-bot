@@ -18,7 +18,6 @@ from core.bot_worker import SymbolWorker
 from core.config_manager import load_config, save_config
 from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs, check_user_credentials_exist
 from core.licensing import verify_license_token, get_hardware_id
-from core.ai_advisor import test_ai_payload_terminal
 from core.stats_calculator import calculate_closed_trades_stats
 
 ctk.set_appearance_mode("Dark")
@@ -151,8 +150,7 @@ class QuantBotApp(ctk.CTk):
             self,
             selected_strategy=self.selected_strategy,
             on_strategy_changed_callback=self._handle_strategy_changed,
-            on_config_saved_callback=self._on_config_reloaded,
-            on_test_ai_callback=self._handle_test_ai_terminal
+            on_config_saved_callback=self._on_config_reloaded
         )
         self.topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 3))
 
@@ -327,40 +325,6 @@ class QuantBotApp(ctk.CTk):
             self.console.log("General", "⚠️ No se pudo autenticar en MT5 con las credenciales ingresadas.", "WARNING")
 
         self.console.log("General", "🔄 Configuración recargada exitosamente.", "INFO")
-
-    def _handle_test_ai_terminal(self) -> None:
-        """Dispara una petición de prueba genérica a la IA e imprime todo el payload y respuesta en la consola de terminal."""
-        def run_terminal_test():
-            self.console.log("General", "🧠 [TEST API IA] Iniciando prueba con payload genérico...", "INFO")
-            self.console.log("General", "👉 Revisa la consola de PowerShell/Terminal para ver el Payload JSON exacto y la respuesta cruda de la IA.", "INFO")
-            cfg = load_config()
-            api_key = str(cfg.get("ai_api_key", ""))
-            model_name = str(cfg.get("ai_model", "gemini-2.5-flash"))
-            base_url = str(cfg.get("ai_base_url", ""))
-
-            res = test_ai_payload_terminal(
-                api_key=api_key,
-                model_name=model_name,
-                base_url=base_url
-            )
-
-            if res.get("status") == "success":
-                action = res.get("response", {}).get("action", "N/A")
-                opinion = res.get("response", {}).get("opinion", "")
-                self.console.log(
-                    "General",
-                    f"✅ [TEST API IA EXITOSO] Decisión IA: {action} | Opinión: \"{opinion}\" | Latencia: {res.get('latency_ms', 0):.0f}ms",
-                    "SUCCESS"
-                )
-            else:
-                err_msg = res.get("error", "Error desconocido")
-                self.console.log(
-                    "General",
-                    f"❌ [TEST API IA FALLIDO] Código {res.get('http_code')}: {err_msg}",
-                    "ERROR"
-                )
-
-        threading.Thread(target=run_terminal_test, daemon=True).start()
 
     def _execute_test_order(self) -> None:
         """Ejecuta una orden de prueba rápida."""

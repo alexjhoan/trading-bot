@@ -8,11 +8,9 @@ from core.config_manager import load_config, save_config
 from core.connector import get_all_available_symbols, get_all_symbol_specs
 from core.ai_advisor import test_ai_connection, fetch_available_models, PROVIDER_PRESETS
 from core.licensing import (
-    get_hardware_id,
     generate_client_key_id,
     parse_client_key_id,
     verify_license_token,
-    MASTER_LICENSE_SECRET,
 )
 
 
@@ -374,17 +372,8 @@ class ConfigWindow(ctk.CTkToplevel):
                 pady=(4, 8),
                 sticky="ew"
             )
-            # Si el budget actual está en 0 o vacío, asignar por defecto 128
-            if "ai_thinking_budget_entry" in self.entries:
-                curr_val = self.entries["ai_thinking_budget_entry"].get().strip()
-                if not curr_val or curr_val == "0":
-                    self.entries["ai_thinking_budget_entry"].delete(0, "end")
-                    self.entries["ai_thinking_budget_entry"].insert(0, "128")
         else:
             self.thinking_warning_frame.grid_forget()
-            if "ai_thinking_budget_entry" in self.entries:
-                self.entries["ai_thinking_budget_entry"].delete(0, "end")
-                self.entries["ai_thinking_budget_entry"].insert(0, "0")
 
     def _copy_machine_id(self) -> None:
         """Copia el key ID al portapapeles del sistema."""
@@ -506,13 +495,6 @@ class ConfigWindow(ctk.CTkToplevel):
         saved_thinking_on = bool(self.config_data.get("ai_thinking_enabled", False) or (saved_budget > 0))
         self.ai_thinking_enabled_var.set(saved_thinking_on)
 
-        if "ai_thinking_budget_entry" in self.entries:
-            self.entries["ai_thinking_budget_entry"].delete(0, "end")
-            if saved_thinking_on:
-                self.entries["ai_thinking_budget_entry"].insert(0, str(saved_budget if saved_budget > 0 else 128))
-            else:
-                self.entries["ai_thinking_budget_entry"].insert(0, "0")
-
         self._on_thinking_switch_toggle()
 
         # Valor de Licencia
@@ -528,17 +510,9 @@ class ConfigWindow(ctk.CTkToplevel):
             login_val = 0
 
         is_thinking_on = bool(self.ai_thinking_enabled_var.get())
-        if "ai_thinking_budget_entry" in self.entries:
-            try:
-                raw_tb = self.entries["ai_thinking_budget_entry"].get().strip()
-                thinking_val = int(raw_tb) if raw_tb else (128 if is_thinking_on else 0)
-            except ValueError:
-                thinking_val = 128 if is_thinking_on else 0
-            final_budget = max(0, thinking_val) if is_thinking_on else 0
-        else:
-            final_budget = int(self.config_data.get("ai_thinking_budget", 128)) if is_thinking_on else 0
-            if is_thinking_on and final_budget <= 0:
-                final_budget = 128
+        final_budget = int(self.config_data.get("ai_thinking_budget", 128)) if is_thinking_on else 0
+        if is_thinking_on and final_budget <= 0:
+            final_budget = 128
 
         data.update({
             "login": login_val,

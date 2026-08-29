@@ -32,12 +32,6 @@ def get_broker_server_time_and_offset() -> Tuple[datetime, float]:
     return datetime.now(), 0.0
 
 
-def get_broker_server_time() -> datetime:
-    """Retorna la hora del servidor del broker."""
-    b_time, _ = get_broker_server_time_and_offset()
-    return b_time
-
-
 def calculate_closed_trades_stats(period: str = "Día", time_mode: str = "Hora Broker") -> Dict[str, Any]:
     """
     Calcula con precisión matemática exacta las estadísticas de posiciones cerradas en MT5:

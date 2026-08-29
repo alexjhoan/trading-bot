@@ -8,7 +8,7 @@ except ImportError:
     mt5 = None
     get_historical_data = None
 
-from core.candlestick_patterns import detect_candlestick_patterns, format_candlestick_summary_for_ai
+from core.candlestick_patterns import detect_candlestick_patterns
 
 
 def calculate_psychological_levels(symbol: str, current_price: float, pip_size: float = 0.0001) -> str:

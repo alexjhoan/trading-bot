@@ -196,12 +196,6 @@ class ConsoleTabviewComponent(ctk.CTkFrame):
         self._reposition_buttons()
         return tab_frame
 
-    def tab(self, tab_key: str) -> ctk.CTkFrame:
-        """Obtiene el frame de una pestaña existente o la crea."""
-        if tab_key in self.tab_frames:
-            return self.tab_frames[tab_key]
-        return self.add(tab_key)
-
     def set(self, tab_key: str):
         """Selecciona y activa una pestaña."""
         target_key = tab_key

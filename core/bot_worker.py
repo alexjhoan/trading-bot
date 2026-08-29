@@ -8,7 +8,7 @@ import MetaTrader5 as mt5
 import pandas as pd
 
 from core.connector import check_account_safety, check_algo_trading_enabled
-from strategies import create_strategy_instance, get_strategy_class
+from core.strategies import create_strategy_instance, get_strategy_class
 from core.executor import OrderExecutor
 from core.risk_manager import RiskManager
 from core.data_loader import get_historical_data

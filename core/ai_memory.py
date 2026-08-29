@@ -241,10 +241,6 @@ class AIMemoryManager:
                 print(f"❌ [AI_MEMORY] Error recuperando memoria pasada para {clean_target}: {e}")
                 return []
 
-    def get_recent_trades_context(self, symbol: str, limit: int = 3) -> List[Dict[str, Any]]:
-        """Alias de compatibilidad para recuperar trades cerrados relevantes del símbolo."""
-        return self.get_relevant_past_trades(symbol=symbol, limit=limit)
-
     def get_all_memory(self) -> List[Dict[str, Any]]:
         """Retorna toda la lista de memoria guardada."""
         with _LOCK:
