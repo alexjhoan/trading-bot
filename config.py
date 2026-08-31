@@ -96,15 +96,25 @@ class StrategyConfig:
             except Exception:
                 pass
 
-        # Respaldo por día de la semana para pares Forex/Metales/Índices (Sábado=5, Domingo=6)
-        is_weekend = current_dt.weekday() in (5, 6)
+        # Respaldo por día de la semana para pares Forex/Metales/Índices
+        now_local = current_dt or datetime.now()
+        if now_local.tzinfo is None:
+            now_utc = now_local.astimezone(timezone.utc)
+        else:
+            now_utc = now_local.astimezone(timezone.utc)
+
         is_crypto_or_synthetic = any(
             k in symbol.upper()
             for k in ["BTC", "ETH", "SOL", "BOOM", "CRASH", "VOLATILITY", "STEP", "JUMP"]
         )
 
-        if is_weekend and not is_crypto_or_synthetic:
-            return False, "Mercado cerrado por Fin de Semana"
+        if not is_crypto_or_synthetic:
+            # Sábado en UTC: Mercado cerrado todo el día
+            if now_utc.weekday() == 5:
+                return False, "Mercado cerrado por Fin de Semana (Sábado)"
+            # Domingo en UTC: Cerrado antes de las 21:00 UTC (Apertura de Sídney/Tokio a las ~21:00 UTC / 17:00 Local)
+            if now_utc.weekday() == 6 and now_utc.hour < 21:
+                return False, "Mercado cerrado por Fin de Semana (Apertura Domingo 21:00 UTC / 17:00 Local)"
 
         return True, "Mercado abierto"
 
