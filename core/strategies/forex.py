@@ -77,6 +77,12 @@ class ForexStrategy(BaseStrategy):
         self.adx_period: int = getattr(self.config, "adx_period", kwargs.get("adx_period", 14))
         self.adx_trend_threshold: float = getattr(self.config, "adx_trend_threshold", kwargs.get("adx_trend_threshold", 20.0))
 
+        # Confirmación multi-timeframe: activada por defecto en vivo. core/backtester.py la
+        # desactiva tras instanciar la estrategia, porque depende de la hora real del reloj
+        # (mt5.copy_rates_from_pos "ahora") y no puede simular correctamente un instante
+        # histórico pasado — dejarla activa en backtest da resultados falsos.
+        self.use_htf_confirmation: bool = kwargs.get("use_htf_confirmation", True)
+
         # Asignación dinámica de horarios según el símbolo
         start_str, end_str = self.config.get_session_times_for_symbol(self.symbol)
         self.session_start: time = datetime.strptime(start_str, "%H:%M").time()
@@ -510,7 +516,10 @@ class ForexStrategy(BaseStrategy):
         is_bearish_trend = curr_close <= (ema_trend + ema_buffer)
 
         # 4b. CONFIRMACIÓN DE TENDENCIA EN TIMEFRAME SUPERIOR (Multi-Timeframe, memoria local por símbolo)
-        htf_allows_buy, htf_allows_sell, htf_reason = self._get_htf_trend_alignment(df)
+        if self.use_htf_confirmation:
+            htf_allows_buy, htf_allows_sell, htf_reason = self._get_htf_trend_alignment(df)
+        else:
+            htf_allows_buy, htf_allows_sell, htf_reason = True, True, "Confirmación multi-timeframe deshabilitada"
 
         # 5. VALIDACIÓN DE RETROCESO DE FIBONACCI >= 61.8%
         raw_fibo_buy_trigger = is_bullish_trend and (fibo_618_buy > 0) and (curr_close <= fibo_618_buy) and (curr_close >= support)
@@ -674,6 +683,10 @@ class ForexStrategy(BaseStrategy):
         current_atr = float(curr_candle.get("atr", 0.0))
         ema_trend = float(curr_candle.get("ema_trend", curr_close))
         ema_buffer = (current_atr * self.ema_buffer_pct) if current_atr > 0 else (ema_trend * 0.002)
+        # Buffer más estricto para permiso de tendencia (misma razón que en generate_signal: dejar
+        # margen real vs. la línea de invalidación). El buffer ancho (ema_buffer) se conserva para
+        # definir la zona de "toque" del pullback en la Ruta B.
+        ema_entry_buffer = (current_atr * self.ema_entry_buffer_pct) if current_atr > 0 else (ema_trend * 0.001)
 
         # -------------------------------------------------------------
         # Confluencias compartidas: Patrones de Vela y Volumen
@@ -748,7 +761,7 @@ class ForexStrategy(BaseStrategy):
             elif not better_price:
                 route_a_reject = f"Precio ({curr_close:.5f}) no mejora precio previo ({lowest_open_price:.5f})"
             else:
-                trend_ok = curr_close >= (ema_trend - ema_buffer)
+                trend_ok = curr_close >= (ema_trend - ema_entry_buffer)
                 if trend_ok:
                     route_a_score += 1
                     route_a_details.append(f"Zona Fibo {target_fibo_pct}% sobre EMA{self.ema_trend_period} (+1)")
@@ -779,7 +792,7 @@ class ForexStrategy(BaseStrategy):
             elif not better_price:
                 route_a_reject = f"Precio ({curr_close:.5f}) no mejora precio previo ({highest_open_price:.5f})"
             else:
-                trend_ok = curr_close <= (ema_trend + ema_buffer)
+                trend_ok = curr_close <= (ema_trend + ema_entry_buffer)
                 if trend_ok:
                     route_a_score += 1
                     route_a_details.append(f"Zona Fibo {target_fibo_pct}% bajo EMA{self.ema_trend_period} (+1)")
@@ -809,8 +822,8 @@ class ForexStrategy(BaseStrategy):
         route_b_reject = ""
 
         if is_buy:
-            is_macro_bullish = curr_close >= (ema_trend - ema_buffer)
-            touches_ema = (curr_low <= (ema_trend + ema_buffer)) and (curr_close >= (ema_trend - ema_buffer))
+            is_macro_bullish = curr_close >= (ema_trend - ema_entry_buffer)
+            touches_ema = (curr_low <= (ema_trend + ema_buffer)) and (curr_close >= (ema_trend - ema_entry_buffer))
 
             if not is_macro_bullish:
                 route_b_reject = f"Precio ({curr_close:.5f}) bajo zona EMA{self.ema_trend_period}"
@@ -836,8 +849,8 @@ class ForexStrategy(BaseStrategy):
                 else:
                     route_b_reject = f"Score insuficiente ({route_b_score}/{self.min_confluence_score})"
         else:
-            is_macro_bearish = curr_close <= (ema_trend + ema_buffer)
-            touches_ema = (curr_high >= (ema_trend - ema_buffer)) and (curr_close <= (ema_trend + ema_buffer))
+            is_macro_bearish = curr_close <= (ema_trend + ema_entry_buffer)
+            touches_ema = (curr_high >= (ema_trend - ema_buffer)) and (curr_close <= (ema_trend + ema_entry_buffer))
 
             if not is_macro_bearish:
                 route_b_reject = f"Precio ({curr_close:.5f}) sobre zona EMA{self.ema_trend_period}"

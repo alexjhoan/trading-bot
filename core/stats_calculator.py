@@ -3,6 +3,8 @@ import MetaTrader5 as mt5
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Tuple
 
+from core.ai_memory import AIMemoryManager
+
 
 def get_broker_server_time_and_offset() -> Tuple[datetime, float]:
     """
@@ -152,4 +154,109 @@ def calculate_closed_trades_stats(period: str = "Día", time_mode: str = "Hora B
         "total_ops": total_ops,
         "win_rate": win_rate
     }
+
+
+def wilson_lower_bound(wins: int, n: int, confidence_z: float = 1.28) -> float:
+    """
+    Límite inferior del intervalo de Wilson para una tasa de acierto (wins/n), en porcentaje
+    (0-100). Penaliza muestras chicas: 1 ganada de 1 (100% crudo) da un límite inferior bajo,
+    mientras que 8 ganadas de 10 (80% crudo) da un límite inferior más alto y confiable.
+    confidence_z=1.28 ≈ 80% de confianza, razonable dado el tamaño típico de muestra de este bot.
+    """
+    if n <= 0:
+        return 0.0
+    p = wins / n
+    z = confidence_z
+    denom = 1 + (z ** 2) / n
+    center = p + (z ** 2) / (2 * n)
+    margin = z * ((p * (1 - p) + (z ** 2) / (4 * n)) / n) ** 0.5
+    return max(0.0, (center - margin) / denom) * 100.0
+
+
+def rank_symbols_by_performance(min_trades: int = 5, confidence_z: float = 1.28) -> List[Dict[str, Any]]:
+    """
+    Rankea los símbolos según su desempeño histórico REAL registrado en trade_memory.json
+    (no según indicadores predictivos nuevos). Para no sobrevalorar símbolos con pocas
+    operaciones (ej. 1 ganada de 1 = 100% no es una muestra confiable), el Win Rate ajustado
+    usa el límite inferior del intervalo de Wilson (confidence_z=1.28 ≈ 80% de confianza,
+    razonable dado el tamaño típico de muestra por par en este bot).
+
+    El orden final es por Expectativa (R promedio), que es lo que realmente determina si un
+    par es rentable a largo plazo (un símbolo puede tener Win Rate bajo pero ser rentable si
+    sus ganancias son mucho mayores que sus pérdidas, y viceversa).
+    """
+    memory = AIMemoryManager().get_all_memory()
+
+    by_symbol: Dict[str, List[Dict[str, Any]]] = {}
+    for trade in memory:
+        outcome = trade.get("outcome", {})
+        if outcome.get("status") != "CLOSED" or outcome.get("result") not in ("WIN", "LOSS"):
+            continue
+        symbol = trade.get("symbol", "?")
+        by_symbol.setdefault(symbol, []).append(outcome)
+
+    ranking: List[Dict[str, Any]] = []
+    for symbol, outcomes in by_symbol.items():
+        n = len(outcomes)
+        wins = sum(1 for o in outcomes if o.get("result") == "WIN")
+        win_rate = (wins / n * 100.0) if n > 0 else 0.0
+        avg_r = sum(float(o.get("pnl_r", 0.0)) for o in outcomes) / n if n > 0 else 0.0
+        total_usd = sum(float(o.get("pnl_usd", 0.0)) for o in outcomes)
+        win_rate_confidence = wilson_lower_bound(wins, n, confidence_z)
+
+        ranking.append({
+            "symbol": symbol,
+            "trades": n,
+            "wins": wins,
+            "losses": n - wins,
+            "win_rate": round(win_rate, 1),
+            "win_rate_confidence": round(win_rate_confidence, 1),
+            "avg_r": round(avg_r, 2),
+            "total_usd": round(total_usd, 2),
+            "meets_min_sample": n >= min_trades,
+        })
+
+    ranking.sort(key=lambda r: (r["meets_min_sample"], r["avg_r"]), reverse=True)
+    return ranking
+
+
+def rank_strategies_by_performance(min_trades: int = 15, confidence_z: float = 1.28) -> List[Dict[str, Any]]:
+    """
+    Igual que rank_symbols_by_performance, pero agrupando por estrategia (context.strategy
+    en trade_memory.json) en vez de por símbolo. Pensado para comparar ForexStrategy vs.
+    SimpleTrendStrategy (u otras) en el mismo plan de pruebas, sin mezclar sus resultados.
+    """
+    memory = AIMemoryManager().get_all_memory()
+
+    by_strategy: Dict[str, List[Dict[str, Any]]] = {}
+    for trade in memory:
+        outcome = trade.get("outcome", {})
+        if outcome.get("status") != "CLOSED" or outcome.get("result") not in ("WIN", "LOSS"):
+            continue
+        strategy_name = trade.get("context", {}).get("strategy", "?")
+        by_strategy.setdefault(strategy_name, []).append(outcome)
+
+    ranking: List[Dict[str, Any]] = []
+    for strategy_name, outcomes in by_strategy.items():
+        n = len(outcomes)
+        wins = sum(1 for o in outcomes if o.get("result") == "WIN")
+        win_rate = (wins / n * 100.0) if n > 0 else 0.0
+        avg_r = sum(float(o.get("pnl_r", 0.0)) for o in outcomes) / n if n > 0 else 0.0
+        total_usd = sum(float(o.get("pnl_usd", 0.0)) for o in outcomes)
+        win_rate_confidence = wilson_lower_bound(wins, n, confidence_z)
+
+        ranking.append({
+            "strategy": strategy_name,
+            "trades": n,
+            "wins": wins,
+            "losses": n - wins,
+            "win_rate": round(win_rate, 1),
+            "win_rate_confidence": round(win_rate_confidence, 1),
+            "avg_r": round(avg_r, 2),
+            "total_usd": round(total_usd, 2),
+            "meets_min_sample": n >= min_trades,
+        })
+
+    ranking.sort(key=lambda r: (r["meets_min_sample"], r["avg_r"]), reverse=True)
+    return ranking
 

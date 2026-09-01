@@ -57,11 +57,95 @@ def _extract_ohlc_arrays(data: Any) -> Tuple[List[float], List[float], List[floa
     return [], [], [], []
 
 
-def detect_candlestick_patterns(df: Any, lookback: int = 5) -> Dict[str, Any]:
+def _extract_prior_trend_context(data: Any, context_bars: int, pattern_window: int = 5) -> Tuple[List[float], List[float], List[float], List[float]]:
+    """
+    Extrae las velas INMEDIATAMENTE ANTERIORES a la ventana de detección de patrones
+    (las últimas `pattern_window` velas cerradas usadas por _extract_ohlc_arrays), para
+    evaluar si existía una tendencia previa clara antes del patrón — un patrón de reversión
+    solo tiene sentido si revierte una tendencia real que lo precede.
+    """
+    if context_bars <= 0:
+        return [], [], [], []
+
+    if pd is not None and isinstance(data, pd.DataFrame):
+        total = len(data)
+        pattern_start = max(0, total - 1 - pattern_window)
+        context_start = max(0, pattern_start - context_bars)
+        sub = data.iloc[context_start:pattern_start]
+        if len(sub) < 3:
+            return [], [], [], []
+        return (
+            [float(x) for x in sub["open"].values],
+            [float(x) for x in sub["high"].values],
+            [float(x) for x in sub["low"].values],
+            [float(x) for x in sub["close"].values]
+        )
+
+    if isinstance(data, list) and data:
+        total = len(data)
+        pattern_start = max(0, total - 1 - pattern_window)
+        context_start = max(0, pattern_start - context_bars)
+        sub = data[context_start:pattern_start]
+        if len(sub) < 3:
+            return [], [], [], []
+        return (
+            [float(c.get("open", 0.0)) for c in sub],
+            [float(c.get("high", 0.0)) for c in sub],
+            [float(c.get("low", 0.0)) for c in sub],
+            [float(c.get("close", 0.0)) for c in sub]
+        )
+
+    if isinstance(data, dict) and "close" in data:
+        total = len(data["close"])
+        pattern_start = max(0, total - 1 - pattern_window)
+        context_start = max(0, pattern_start - context_bars)
+        if pattern_start - context_start < 3:
+            return [], [], [], []
+        return (
+            [float(x) for x in data.get("open", [])[context_start:pattern_start]],
+            [float(x) for x in data.get("high", [])[context_start:pattern_start]],
+            [float(x) for x in data.get("low", [])[context_start:pattern_start]],
+            [float(x) for x in data.get("close", [])[context_start:pattern_start]]
+        )
+
+    return [], [], [], []
+
+
+def _classify_prior_trend(highs: List[float], lows: List[float], closes: List[float]) -> str:
+    """
+    Clasifica la tendencia del tramo de velas anterior al patrón, usando un índice simple
+    de "eficiencia direccional": qué tan directo fue el movimiento neto respecto al rango
+    total recorrido (cerca de 0 = zigzag/lateral, cerca de 1 = movimiento recto y sostenido).
+    Retorna 'UPTREND' | 'DOWNTREND' | 'RANGE'.
+    """
+    if len(closes) < 3:
+        return "RANGE"
+
+    net_move = closes[-1] - closes[0]
+    total_range = max(highs) - min(lows)
+    if total_range <= 1e-9:
+        return "RANGE"
+
+    efficiency = net_move / total_range
+    trend_efficiency_threshold = 0.35
+
+    if efficiency >= trend_efficiency_threshold:
+        return "UPTREND"
+    elif efficiency <= -trend_efficiency_threshold:
+        return "DOWNTREND"
+    return "RANGE"
+
+
+def detect_candlestick_patterns(df: Any, lookback: int = 8) -> Dict[str, Any]:
     """
     Analiza las últimas velas y detecta patrones de velas japonesas basados
     en la guía institucional (Reversión Alcista, Reversión Bajista, Continuación Alcista,
     Continuación Bajista y Velas Neutras).
+
+    Los patrones de REVERSIÓN (BULLISH_REVERSAL / BEARISH_REVERSAL) solo se aceptan como
+    válidos si existió una tendencia previa real en las `lookback` velas anteriores al
+    patrón (un patrón solo puede revertir una tendencia que efectivamente exista; en
+    mercado lateral se descartan). Los patrones de CONTINUACIÓN y NEUTROS no se filtran así.
 
     Retorna un diccionario con:
     - primary_pattern: Nombre del patrón más relevante detectado en las últimas barras.
@@ -69,8 +153,11 @@ def detect_candlestick_patterns(df: Any, lookback: int = 5) -> Dict[str, Any]:
     - bias: 'BULLISH', 'BEARISH', 'NEUTRAL'
     - strength: 'STRONG', 'MEDIUM', 'MODERATE', 'WEAK'
     - description: Explicación textual detallada lista para el prompt de la IA y logs del bot.
-    - recent_patterns: Lista de patrones detectados en las últimas barras.
+    - recent_patterns: Lista de patrones detectados en las últimas barras (ya filtrados por contexto).
     - candle_metrics: Métricas de la última vela cerrada (cuerpo, mechas, ratio).
+    - prior_trend: 'UPTREND' | 'DOWNTREND' | 'RANGE' — tendencia de las `lookback` velas previas al patrón.
+    - context_rejected_patterns: Patrones de reversión detectados geométricamente pero descartados
+      por no tener una tendencia previa real que revertir (útil para depuración/logs).
     """
     opens, highs, lows, closes = _extract_ohlc_arrays(df)
     n = len(closes)
@@ -83,8 +170,13 @@ def detect_candlestick_patterns(df: Any, lookback: int = 5) -> Dict[str, Any]:
             "strength": "WEAK",
             "description": "Insuficientes velas para análisis de patrones.",
             "recent_patterns": [],
-            "candle_metrics": {}
+            "candle_metrics": {},
+            "prior_trend": "RANGE",
+            "context_rejected_patterns": []
         }
+
+    _, ctx_highs, ctx_lows, ctx_closes = _extract_prior_trend_context(df, context_bars=lookback)
+    prior_trend = _classify_prior_trend(ctx_highs, ctx_lows, ctx_closes)
 
     # Métricas de las 3 últimas velas (index -1: última cerrada c1, -2: penúltima c2, -3: antepenúltima c3)
     c1_o, c1_h, c1_l, c1_c = opens[-1], highs[-1], lows[-1], closes[-1]  # Última cerrada
@@ -564,6 +656,25 @@ def detect_candlestick_patterns(df: Any, lookback: int = 5) -> Dict[str, Any]:
         })
 
     # =========================================================================
+    # FILTRO DE CONTEXTO: un patrón de REVERSIÓN solo es válido si existió una
+    # tendencia previa real que pueda revertir. En mercado lateral (RANGE) o con
+    # tendencia previa contraria, se descarta el patrón (no se acepta como válido).
+    # =========================================================================
+    context_rejected_patterns: List[str] = []
+    if detected_patterns:
+        accepted_patterns = []
+        for pat in detected_patterns:
+            pat_type = pat.get("type", "")
+            if pat_type == "BULLISH_REVERSAL" and prior_trend != "DOWNTREND":
+                context_rejected_patterns.append(pat["name"])
+                continue
+            if pat_type == "BEARISH_REVERSAL" and prior_trend != "UPTREND":
+                context_rejected_patterns.append(pat["name"])
+                continue
+            accepted_patterns.append(pat)
+        detected_patterns = accepted_patterns
+
+    # =========================================================================
     # SELECCIONAR PATRÓN PRINCIPAL
     # =========================================================================
     if not detected_patterns:
@@ -583,7 +694,9 @@ def detect_candlestick_patterns(df: Any, lookback: int = 5) -> Dict[str, Any]:
                 "upper_pct": round(p1["upper_pct"], 2),
                 "lower_pct": round(p1["lower_pct"], 2),
                 "is_bull": p1["is_bull"]
-            }
+            },
+            "prior_trend": prior_trend,
+            "context_rejected_patterns": context_rejected_patterns
         }
 
     # Ordenar por prioridad: STRONG (3) > MEDIUM (2) > MODERATE (1) > WEAK (0)
@@ -603,7 +716,9 @@ def detect_candlestick_patterns(df: Any, lookback: int = 5) -> Dict[str, Any]:
             "upper_pct": round(p1["upper_pct"], 2),
             "lower_pct": round(p1["lower_pct"], 2),
             "is_bull": p1["is_bull"]
-        }
+        },
+        "prior_trend": prior_trend,
+        "context_rejected_patterns": context_rejected_patterns
     }
 
 
@@ -618,10 +733,13 @@ def format_candlestick_summary_for_ai(df: Any) -> str:
     desc = info.get("description", "")
     strength = info.get("strength", "MODERATE")
     other = info.get("recent_patterns", [])
+    rejected = info.get("context_rejected_patterns", [])
 
     if len(other) > 1:
         extra_str = f" (Confluencia: {', '.join(other[1:3])})"
     else:
         extra_str = ""
 
-    return f"Patrón de Vela: {pat} [{bias} - {strength}]{extra_str} ➔ {desc}"
+    rejected_str = f" | Descartados por falta de tendencia previa: {', '.join(rejected)}" if rejected else ""
+
+    return f"Patrón de Vela: {pat} [{bias} - {strength}]{extra_str} ➔ {desc}{rejected_str}"

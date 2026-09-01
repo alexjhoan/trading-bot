@@ -1,10 +1,16 @@
 import customtkinter as ctk
+from tkinter import messagebox
+import threading
+import queue
 from typing import List, Callable, Dict, Any, Optional
 import MetaTrader5 as mt5
 from datetime import datetime
 
 from config import STRATEGY_CONFIG, RISK_CONFIG
 from core.connector import get_symbol_atr_pips
+from core.stats_calculator import rank_symbols_by_performance
+from core.backtester import run_deep_search, get_cached_results, find_best_timeframe
+from core.strategies import get_available_strategies
 
 TIMEFRAME_MAP: Dict[str, int] = {
     "M1": mt5.TIMEFRAME_M1,
@@ -15,6 +21,7 @@ TIMEFRAME_MAP: Dict[str, int] = {
     "H4": mt5.TIMEFRAME_H4,
     "D1": mt5.TIMEFRAME_D1,
 }
+TIMEFRAME_MAP_REVERSE: Dict[int, str] = {v: k for k, v in TIMEFRAME_MAP.items()}
 
 
 class SymbolSelectorComponent(ctk.CTkFrame):
@@ -68,14 +75,562 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         for symbol in self.symbols:
             self._update_symbol_calc(symbol)
 
+    def _match_available_symbol(self, base_symbol: str) -> Optional[str]:
+        """Encuentra el símbolo real del broker (con sufijo, ej. 'GBPUSD' -> 'GBPUSD_r') que
+        corresponde a un símbolo base como el guardado en trade_memory.json (sin sufijo)."""
+        base_lower = base_symbol.strip().lower()
+        for s in self.available_symbols:
+            if s.lower() == base_lower:
+                return s
+        for s in self.available_symbols:
+            if s.lower().startswith(base_lower):
+                return s
+        return None
+
+    def _apply_selected_best_pairs(
+        self,
+        checked_symbols: List[str],
+        popup: ctk.CTkToplevel,
+        timeframe_by_symbol: Optional[Dict[str, str]] = None
+    ) -> None:
+        """Agrega a la tabla los símbolos marcados en el popup de Mejores Pares o Deep Search,
+        resolviendo cada uno a su símbolo real del broker. Pregunta si se deben eliminar antes
+        los pares actuales para dejar solo los seleccionados. Si `timeframe_by_symbol` trae una
+        sugerencia (del Deep Search comparando timeframes), la aplica al agregar cada símbolo."""
+        if not checked_symbols:
+            messagebox.showinfo("Mejores Pares", "No marcaste ningún par para agregar.")
+            return
+
+        timeframe_by_symbol = timeframe_by_symbol or {}
+        resolved: List[str] = []
+        unresolved: List[str] = []
+        for base_sym in checked_symbols:
+            matched = self._match_available_symbol(base_sym)
+            if matched:
+                resolved.append((matched, timeframe_by_symbol.get(base_sym)))
+            else:
+                unresolved.append(base_sym)
+
+        if not resolved:
+            messagebox.showwarning(
+                "Mejores Pares",
+                "No se pudo emparejar ninguno de los símbolos seleccionados con los símbolos "
+                "disponibles del broker (¿la cuenta MT5 está conectada?)."
+            )
+            return
+
+        replace_existing = messagebox.askyesno(
+            "Mejores Pares",
+            "¿Deseas eliminar todos los pares que ya están en la tabla y dejar solo los "
+            "seleccionados?\n\nSí = reemplazar todo.\nNo = agregar estos sin quitar los que ya tienes."
+        )
+
+        if replace_existing:
+            for existing_symbol in list(self.symbols):
+                self._remove_symbol(existing_symbol)
+
+        for sym, suggested_tf in resolved:
+            self.ensure_symbol_present(sym, timeframe=suggested_tf)
+
+        if unresolved:
+            messagebox.showwarning(
+                "Mejores Pares",
+                f"No se encontraron en el broker: {', '.join(unresolved)} (se omitieron)."
+            )
+
+        popup.destroy()
+
+    def _open_deep_search_popup(self) -> None:
+        """Corre un backtest real (bar a bar, con la estrategia elegida) sobre un conjunto de
+        símbolos para encontrar los más rentables, incluso si nunca se han operado antes.
+        Los resultados se cachean en backtest_results.json (ver core/backtester.py)."""
+        popup = ctk.CTkToplevel(self)
+        popup.title("🔬 Deep Search — Backtest Real por Símbolo")
+        popup.geometry("700x580")
+        popup.transient(self.winfo_toplevel())
+
+        config_frame = ctk.CTkFrame(popup, fg_color="#1a1a1a")
+        config_frame.pack(fill="x", padx=15, pady=(12, 8))
+
+        lbl_info = ctk.CTkLabel(
+            config_frame,
+            text=(
+                "Simula vela a vela cómo se habría comportado la estrategia elegida sobre el\n"
+                "historial REAL de MT5 de cada símbolo (misma ventana de 300 velas que usa el bot\n"
+                "en vivo). Los resultados se guardan en caché — una próxima búsqueda solo actualiza\n"
+                "lo que falte o esté vencido (>24h), no repite todo el trabajo."
+            ),
+            font=ctk.CTkFont(size=11), text_color="#AAAAAA", justify="left"
+        )
+        lbl_info.pack(padx=10, pady=(10, 8), anchor="w")
+
+        row1 = ctk.CTkFrame(config_frame, fg_color="transparent")
+        row1.pack(fill="x", padx=10, pady=(0, 10))
+
+        ctk.CTkLabel(row1, text="Estrategia:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 6))
+        strategies = get_available_strategies() or ["forex"]
+        opt_strategy = ctk.CTkOptionMenu(row1, values=strategies, width=130)
+        opt_strategy.set(strategies[0])
+        opt_strategy.pack(side="left", padx=(0, 15))
+
+        ctk.CTkLabel(row1, text="Alcance:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 6))
+        scope_options = ["Símbolos en mi tabla", "Todos los disponibles del broker"]
+        opt_scope = ctk.CTkOptionMenu(row1, values=scope_options, width=210)
+        opt_scope.set(scope_options[0])
+        opt_scope.pack(side="left", padx=(0, 15))
+
+        row1b = ctk.CTkFrame(config_frame, fg_color="transparent")
+        row1b.pack(fill="x", padx=10, pady=(0, 10))
+
+        ctk.CTkLabel(row1b, text="Días de historial:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 6))
+        history_days_options: Dict[str, int] = {
+            "15 días (rápido)": 15,
+            "30 días (default)": 30,
+            "60 días": 60,
+            "90 días": 90,
+        }
+        opt_history_days = ctk.CTkOptionMenu(row1b, values=list(history_days_options.keys()), width=170)
+        opt_history_days.set("30 días (default)")
+        opt_history_days.pack(side="left", padx=(0, 15))
+
+        ctk.CTkLabel(row1b, text="Mín. operaciones:", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 6))
+        min_trades_options: Dict[str, int] = {
+            "3 (más resultados, menos confiable)": 3,
+            "5 (default)": 5,
+            "10": 10,
+            "15 (más confiable, menos resultados)": 15,
+        }
+        opt_min_trades = ctk.CTkOptionMenu(row1b, values=list(min_trades_options.keys()), width=250)
+        opt_min_trades.set("5 (default)")
+        opt_min_trades.pack(side="left")
+
+        row2 = ctk.CTkFrame(config_frame, fg_color="transparent")
+        row2.pack(fill="x", padx=10, pady=(0, 4))
+
+        chk_compare_tf_var = ctk.BooleanVar(value=False)
+        chk_compare_tf = ctk.CTkCheckBox(
+            row2, text="🕒 Comparar Timeframes (M5/M15/M30/H1/H4) y sugerir el mejor por símbolo — más lento",
+            variable=chk_compare_tf_var, font=ctk.CTkFont(size=11)
+        )
+        chk_compare_tf.pack(side="left")
+
+        progress_bar = ctk.CTkProgressBar(config_frame, mode="indeterminate")
+        # Se muestra (pack) solo mientras hay una búsqueda corriendo, ver _start_search/_poll_queue
+
+        lbl_progress = ctk.CTkLabel(config_frame, text="", font=ctk.CTkFont(size=11), text_color="#F59E0B")
+        lbl_progress.pack(padx=10, pady=(0, 4), anchor="w")
+
+        live_feed = ctk.CTkTextbox(config_frame, height=70, font=ctk.CTkFont(size=10, family="Consolas"))
+        live_feed.configure(state="disabled")
+        live_feed.pack(fill="x", padx=10, pady=(0, 8))
+
+        header = ctk.CTkFrame(popup, fg_color="#1a1a1a", height=28)
+        header.pack(fill="x", padx=15)
+        headers = [("", 30), ("Símbolo", 80), ("TF", 40), ("Trades", 55), ("Win Rate", 55), ("WR Ajust.", 60), ("R Prom.", 55), ("Velas", 55)]
+        for text, width in headers:
+            ctk.CTkLabel(header, text=text, font=ctk.CTkFont(size=11, weight="bold"), width=width, anchor="center").pack(side="left", padx=2, pady=4)
+
+        rows_container = ctk.CTkScrollableFrame(popup, fg_color="transparent")
+        rows_container.pack(fill="both", expand=True, padx=15, pady=(4, 4))
+
+        checkbox_vars: Dict[str, ctk.BooleanVar] = {}
+        green_symbols: List[str] = []
+        timeframe_by_symbol: Dict[str, str] = {}
+
+        def _current_min_trades() -> int:
+            # Se lee en el momento (solo desde el hilo principal: _render_results/_format_feed_line
+            # se llaman siempre vía _poll_queue) para que un cambio del selector durante una
+            # búsqueda en curso no rompa nada — la búsqueda ya en marcha usó el valor leído al
+            # iniciar (ver _start_search); esto solo afecta cómo se PINTA/filtra lo ya obtenido.
+            return min_trades_options.get(opt_min_trades.get(), 5)
+
+        def _render_results(results: List[Dict[str, Any]]) -> None:
+            for w in rows_container.winfo_children():
+                w.destroy()
+            checkbox_vars.clear()
+            green_symbols.clear()
+            timeframe_by_symbol.clear()
+
+            min_trades = _current_min_trades()
+            results_sorted = sorted(results, key=lambda r: r.get("avg_r", -999), reverse=True)
+
+            for row in results_sorted:
+                if row.get("error"):
+                    row_frame = ctk.CTkFrame(rows_container, fg_color="transparent")
+                    row_frame.pack(fill="x", pady=1)
+                    ctk.CTkLabel(row_frame, text="", width=30).pack(side="left")
+                    ctk.CTkLabel(row_frame, text=row["symbol"], text_color="#666666", width=80, anchor="center").pack(side="left", padx=2)
+                    ctk.CTkLabel(row_frame, text=row["error"], text_color="#666666", font=ctk.CTkFont(size=10, slant="italic")).pack(side="left", padx=4)
+                    continue
+
+                trades = row.get("trades", 0)
+                avg_r = row.get("avg_r", 0.0)
+                wr_confidence = row.get("win_rate_confidence", 0.0)
+                tf_label = TIMEFRAME_MAP_REVERSE.get(row.get("timeframe"), "?")
+                if trades < min_trades:
+                    row_color = "#666666"  # Menos operaciones que el mínimo elegido: informativo, sin opinar
+                elif avg_r > 0:
+                    row_color = "#2ECC71"
+                    green_symbols.append(row["symbol"])
+                else:
+                    row_color = "#E74C3C"
+
+                row_frame = ctk.CTkFrame(rows_container, fg_color="transparent")
+                row_frame.pack(fill="x", pady=1)
+
+                chk_var = ctk.BooleanVar(value=False)
+                checkbox_vars[row["symbol"]] = chk_var
+                timeframe_by_symbol[row["symbol"]] = tf_label
+                ctk.CTkCheckBox(row_frame, text="", variable=chk_var, width=30, checkbox_width=18, checkbox_height=18).pack(side="left", padx=2)
+
+                values = [
+                    (row["symbol"], 80),
+                    (tf_label, 40),
+                    (f"{trades} ({row.get('wins', 0)}G/{row.get('losses', 0)}P)", 55),
+                    (f"{row.get('win_rate', 0):.0f}%", 55),
+                    (f"{wr_confidence:.0f}%", 60),
+                    (f"{avg_r:+.2f}R", 55),
+                    (f"{row.get('bars_analyzed', 0)}", 55),
+                ]
+                for text, width in values:
+                    ctk.CTkLabel(row_frame, text=text, text_color=row_color, font=ctk.CTkFont(size=11), width=width, anchor="center").pack(side="left", padx=2)
+
+                if trades < min_trades:
+                    ctk.CTkLabel(row_frame, text=f"(< {min_trades} operaciones)", text_color="#666666", font=ctk.CTkFont(size=9, slant="italic")).pack(side="left", padx=4)
+
+        def _append_live_feed(line: str) -> None:
+            live_feed.configure(state="normal")
+            live_feed.insert("end", line + "\n")
+            live_feed.see("end")
+            live_feed.configure(state="disabled")
+
+        def _format_feed_line(row: Dict[str, Any]) -> str:
+            if row.get("error"):
+                return f"✗ {row['symbol']}: {row['error']}"
+            tf_label = TIMEFRAME_MAP_REVERSE.get(row.get("timeframe"), "?")
+            trades = row.get("trades", 0)
+            min_trades = _current_min_trades()
+            if trades < min_trades:
+                return f"~ {row['symbol']} ({tf_label}): {trades} trades, {row.get('bars_analyzed', 0)} velas — menos de {min_trades} operaciones"
+            return (
+                f"✓ {row['symbol']} ({tf_label}): {trades} trades, WR {row.get('win_rate', 0):.0f}% "
+                f"(ajust. {row.get('win_rate_confidence', 0):.0f}%), {row.get('avg_r', 0):+.2f}R"
+            )
+
+        # Comunicación entre el hilo de fondo y la GUI vía cola: el hilo de fondo NUNCA toca
+        # widgets de Tk directamente (ni siquiera con self.after()) — eso no es seguro de forma
+        # consistente desde un hilo que no es el principal. Solo escribe mensajes en la cola;
+        # el sondeo (_poll_queue) se reprograma siempre desde el hilo principal con popup.after().
+        progress_queue: "queue.Queue" = queue.Queue()
+        cancel_event = threading.Event()
+        accumulated_results: List[Dict[str, Any]] = []
+
+        def _finish_search(status_text: str) -> None:
+            lbl_progress.configure(text=status_text)
+            _render_results(accumulated_results)
+            btn_start.configure(state="normal", text="▶️ Iniciar Búsqueda")
+            btn_cancel.configure(state="disabled")
+            progress_bar.stop()
+            progress_bar.pack_forget()
+
+        def _poll_queue() -> None:
+            try:
+                while True:
+                    msg_type, payload = progress_queue.get_nowait()
+                    if msg_type == "progress":
+                        done, total, current_symbol = payload
+                        lbl_progress.configure(text=f"⏳ Analizando {current_symbol}... ({done}/{total})")
+                    elif msg_type == "result":
+                        accumulated_results.append(payload)
+                        _append_live_feed(_format_feed_line(payload))
+                    elif msg_type == "error":
+                        _finish_search(f"❌ {payload}")
+                    elif msg_type == "done":
+                        _finish_search(f"✅ Búsqueda completa: {len(accumulated_results)} símbolos analizados.")
+                    elif msg_type == "cancelled":
+                        _finish_search(f"🛑 Búsqueda cancelada — {len(accumulated_results)} símbolos alcanzados a analizar antes de parar.")
+            except queue.Empty:
+                pass
+
+            if popup.winfo_exists():
+                popup.after(150, _poll_queue)
+
+        def _update_progress(done: int, total: int, current_symbol: str) -> None:
+            progress_queue.put(("progress", (done, total, current_symbol)))
+
+        def _push_result(row: Dict[str, Any]) -> None:
+            progress_queue.put(("result", row))
+
+        def _run_search_thread(strategy_name: str, scope: str, compare_tf: bool, target_days: int, min_trades: int) -> None:
+            # NOTA: strategy_name/scope/compare_tf/target_days/min_trades se reciben como
+            # argumentos (no se leen aquí desde las variables de Tkinter) porque leer/escribir
+            # widgets de Tk desde un hilo que no es el principal no es seguro y puede fallar.
+            target_symbols = list(self.symbols) if scope == scope_options[0] else list(self.available_symbols)
+
+            if not target_symbols:
+                progress_queue.put(("error", "No hay símbolos disponibles para analizar."))
+                return
+
+            try:
+                if compare_tf:
+                    for idx, sym in enumerate(target_symbols):
+                        if cancel_event.is_set():
+                            break
+                        _update_progress(idx + 1, len(target_symbols), sym)
+                        tf_result = find_best_timeframe(
+                            sym, strategy_name, target_days=target_days, min_trades=min_trades, cancel_event=cancel_event
+                        )
+                        if not tf_result.get("conclusive"):
+                            _push_result({
+                                "symbol": sym,
+                                "error": tf_result.get("diagnostic", "Sin señales suficientes en ningún timeframe candidato")
+                            })
+                            continue
+                        best_tf = tf_result["best_timeframe"]
+                        best_entry = next((r for r in tf_result["per_timeframe"] if r.get("timeframe") == best_tf), {})
+                        _push_result({
+                            "symbol": sym,
+                            "timeframe": best_tf,
+                            "trades": tf_result.get("best_trades", 0),
+                            "wins": best_entry.get("wins", 0),
+                            "losses": best_entry.get("losses", 0),
+                            "win_rate": tf_result.get("best_win_rate", 0.0),
+                            "win_rate_confidence": best_entry.get("win_rate_confidence", 0.0),
+                            "avg_r": tf_result.get("best_avg_r", 0.0),
+                            "bars_analyzed": best_entry.get("bars_analyzed", 0),
+                        })
+                else:
+                    timeframe_map = {
+                        s: TIMEFRAME_MAP.get(self.symbol_timeframes.get(s, "M5"), mt5.TIMEFRAME_M5)
+                        for s in target_symbols
+                    }
+                    run_deep_search(
+                        target_symbols, strategy_name, timeframe_map, target_days=target_days,
+                        progress_callback=_update_progress, result_callback=_push_result, cancel_event=cancel_event
+                    )
+            except Exception as e:
+                progress_queue.put(("error", f"Error en la búsqueda: {e}"))
+                return
+
+            progress_queue.put(("cancelled" if cancel_event.is_set() else "done", None))
+
+        def _start_search() -> None:
+            accumulated_results.clear()
+            live_feed.configure(state="normal")
+            live_feed.delete("1.0", "end")
+            live_feed.configure(state="disabled")
+            cancel_event.clear()
+
+            btn_start.configure(state="disabled", text="⏳ Buscando...")
+            btn_cancel.configure(state="normal")
+            lbl_progress.configure(text="⏳ Iniciando...")
+            progress_bar.pack(fill="x", padx=10, pady=(0, 6), before=lbl_progress)
+            progress_bar.start()
+            # Leer los valores de los widgets en el hilo principal ANTES de lanzar el hilo:
+            # leerlos desde el hilo de fondo no es seguro con Tkinter.
+            strategy_name = opt_strategy.get()
+            scope = opt_scope.get()
+            compare_tf = chk_compare_tf_var.get()
+            target_days = history_days_options.get(opt_history_days.get(), 30)
+            min_trades = min_trades_options.get(opt_min_trades.get(), 5)
+            threading.Thread(
+                target=_run_search_thread, args=(strategy_name, scope, compare_tf, target_days, min_trades), daemon=True
+            ).start()
+            popup.after(150, _poll_queue)
+
+        def _cancel_search() -> None:
+            cancel_event.set()
+            btn_cancel.configure(state="disabled")
+            lbl_progress.configure(text="🛑 Cancelando... (termina el símbolo en curso)")
+
+        def _select_green() -> None:
+            for sym, var in checkbox_vars.items():
+                if sym in green_symbols:
+                    var.set(True)
+
+        def _apply_selection() -> None:
+            checked = [sym for sym, var in checkbox_vars.items() if var.get()]
+            self._apply_selected_best_pairs(checked, popup, timeframe_by_symbol=timeframe_by_symbol)
+
+        btn_row = ctk.CTkFrame(row1, fg_color="transparent")
+        btn_row.pack(side="left")
+
+        btn_start = ctk.CTkButton(
+            btn_row, text="▶️ Iniciar Búsqueda", fg_color="#B45309", hover_color="#92400E",
+            font=ctk.CTkFont(size=12, weight="bold"), command=_start_search
+        )
+        btn_start.pack(side="left")
+
+        btn_cancel = ctk.CTkButton(
+            btn_row, text="🛑 Cancelar", fg_color="#991B1B", hover_color="#7F1D1D", state="disabled",
+            font=ctk.CTkFont(size=12, weight="bold"), command=_cancel_search
+        )
+        btn_cancel.pack(side="left", padx=(8, 0))
+
+        actions_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        actions_frame.pack(fill="x", padx=15, pady=(4, 14))
+
+        ctk.CTkButton(
+            actions_frame, text="🟢 Seleccionar Verdes", fg_color="#059669", hover_color="#047857",
+            font=ctk.CTkFont(size=12, weight="bold"), command=_select_green
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            actions_frame, text="➕ Agregar Seleccionados a la Tabla", fg_color="#1D4ED8", hover_color="#2563EB",
+            font=ctk.CTkFont(size=12, weight="bold"), command=_apply_selection
+        ).pack(side="left")
+
+        # Mostrar resultados ya cacheados (si existen) apenas se abre el popup, sin esperar una búsqueda nueva
+        try:
+            cached = get_cached_results(strategies[0])
+            if cached:
+                lbl_progress.configure(text=f"ℹ️ Mostrando {len(cached)} resultados en caché (inicia una nueva búsqueda para actualizar).")
+                _render_results(cached)
+        except Exception:
+            pass
+
+    def _open_best_pairs_popup(self) -> None:
+        """Muestra un ranking de símbolos por desempeño histórico REAL (trade_memory.json),
+        no por indicadores predictivos. Permite marcar pares y agregarlos a la tabla."""
+        try:
+            ranking = rank_symbols_by_performance()
+        except Exception as e:
+            ranking = []
+            print(f"[DEBUG MEJORES PARES] Error calculando ranking: {e}")
+
+        popup = ctk.CTkToplevel(self)
+        popup.title("📊 Mejores Pares (Histórico Real)")
+        popup.geometry("660x540")
+        popup.transient(self.winfo_toplevel())
+
+        top_row = ctk.CTkFrame(popup, fg_color="transparent")
+        top_row.pack(fill="x", padx=15, pady=(12, 0))
+
+        btn_deep_search = ctk.CTkButton(
+            top_row,
+            text="🔬 Deep Search (Backtest Real)",
+            fg_color="#B45309",
+            hover_color="#92400E",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._open_deep_search_popup
+        )
+        btn_deep_search.pack(side="right")
+
+        lbl_info = ctk.CTkLabel(
+            popup,
+            text=(
+                "Ranking por Expectativa (R promedio) histórica real, no por predicción.\n"
+                "Win Rate (ajust.) usa el límite inferior de Wilson: penaliza símbolos con pocas operaciones\n"
+                "para no confiar en muestras chicas (ej. 1 ganada de 1 no es 100% confiable).\n"
+                "¿Quieres analizar pares que nunca has operado? Usa Deep Search arriba."
+            ),
+            font=ctk.CTkFont(size=11),
+            text_color="#AAAAAA",
+            justify="left"
+        )
+        lbl_info.pack(padx=15, pady=(8, 8), anchor="w")
+
+        header = ctk.CTkFrame(popup, fg_color="#1a1a1a", height=28)
+        header.pack(fill="x", padx=15)
+        headers = [("", 30), ("Símbolo", 90), ("Trades", 60), ("Win Rate", 65), ("WR Ajust.", 70), ("R Prom.", 60), ("USD", 65)]
+        for text, width in headers:
+            ctk.CTkLabel(header, text=text, font=ctk.CTkFont(size=11, weight="bold"), width=width, anchor="center").pack(side="left", padx=2, pady=4)
+
+        rows_container = ctk.CTkScrollableFrame(popup, fg_color="transparent")
+        rows_container.pack(fill="both", expand=True, padx=15, pady=(4, 4))
+
+        if not ranking:
+            ctk.CTkLabel(rows_container, text="Sin historial suficiente todavía (trade_memory.json vacío o sin operaciones cerradas).").pack(pady=20)
+            return
+
+        checkbox_vars: Dict[str, ctk.BooleanVar] = {}
+        green_symbols: List[str] = []
+
+        for row in ranking:
+            if not row["meets_min_sample"]:
+                row_color = "#666666"  # Muestra insuficiente: informativo, sin opinar
+            elif row["avg_r"] > 0:
+                row_color = "#2ECC71"  # Rentable
+                green_symbols.append(row["symbol"])
+            else:
+                row_color = "#E74C3C"  # No rentable
+
+            row_frame = ctk.CTkFrame(rows_container, fg_color="transparent")
+            row_frame.pack(fill="x", pady=1)
+
+            chk_var = ctk.BooleanVar(value=False)
+            checkbox_vars[row["symbol"]] = chk_var
+            chk = ctk.CTkCheckBox(row_frame, text="", variable=chk_var, width=30, checkbox_width=18, checkbox_height=18)
+            chk.pack(side="left", padx=2)
+
+            values = [
+                (row["symbol"], 90),
+                (f"{row['trades']} ({row['wins']}G/{row['losses']}P)", 60),
+                (f"{row['win_rate']:.0f}%", 65),
+                (f"{row['win_rate_confidence']:.0f}%", 70),
+                (f"{row['avg_r']:+.2f}R", 60),
+                (f"${row['total_usd']:+.2f}", 65),
+            ]
+            for text, width in values:
+                ctk.CTkLabel(row_frame, text=text, text_color=row_color, font=ctk.CTkFont(size=11), width=width, anchor="center").pack(side="left", padx=2)
+
+            if not row["meets_min_sample"]:
+                ctk.CTkLabel(row_frame, text="(muestra chica)", text_color="#666666", font=ctk.CTkFont(size=9, slant="italic")).pack(side="left", padx=4)
+
+        def _select_green() -> None:
+            for sym, var in checkbox_vars.items():
+                if sym in green_symbols:
+                    var.set(True)
+
+        def _apply_selection() -> None:
+            checked = [sym for sym, var in checkbox_vars.items() if var.get()]
+            self._apply_selected_best_pairs(checked, popup)
+
+        actions_frame = ctk.CTkFrame(popup, fg_color="transparent")
+        actions_frame.pack(fill="x", padx=15, pady=(4, 14))
+
+        btn_select_green = ctk.CTkButton(
+            actions_frame,
+            text="🟢 Seleccionar Verdes",
+            fg_color="#059669",
+            hover_color="#047857",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=_select_green
+        )
+        btn_select_green.pack(side="left", padx=(0, 8))
+
+        btn_apply = ctk.CTkButton(
+            actions_frame,
+            text="➕ Agregar Seleccionados a la Tabla",
+            fg_color="#1D4ED8",
+            hover_color="#2563EB",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=_apply_selection
+        )
+        btn_apply.pack(side="left")
+
     def _build_ui(self) -> None:
-        # Título
+        # Título + botón de ranking de pares
+        title_frame = ctk.CTkFrame(self, fg_color="transparent")
+        title_frame.pack(fill="x", padx=15, pady=(12, 5))
+
         lbl_title = ctk.CTkLabel(
-            self,
+            title_frame,
             text="🎯 Selección de Símbolos y Configuración por Par",
             font=ctk.CTkFont(size=15, weight="bold")
         )
-        lbl_title.pack(padx=15, pady=(12, 5), anchor="w")
+        lbl_title.pack(side="left")
+
+        btn_best_pairs = ctk.CTkButton(
+            title_frame,
+            text="📊 Mejores Pares",
+            width=130,
+            fg_color="#7C3AED",
+            hover_color="#6D28D9",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._open_best_pairs_popup
+        )
+        btn_best_pairs.pack(side="right")
 
         # Frame de Búsqueda
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -585,17 +1140,18 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             return bool(self.switch_vars[symbol].get())
         return False
 
-    def ensure_symbol_present(self, symbol: str, lot: Optional[float] = None) -> None:
-        """Si el símbolo no existe en la lista de la tabla, lo agrega con el lote especificado."""
+    def ensure_symbol_present(self, symbol: str, lot: Optional[float] = None, timeframe: Optional[str] = None) -> None:
+        """Si el símbolo no existe en la lista de la tabla, lo agrega con el lote y timeframe especificados."""
         if symbol not in self.symbols:
             specs = self.symbol_specs.get(symbol, {})
             min_lot = specs.get("volume_min", 0.01)
             use_lot = lot if (lot is not None and lot > 0) else min_lot
+            use_tf = timeframe if (timeframe and timeframe in TIMEFRAME_MAP) else "M5"
 
             self.symbols.append(symbol)
             self.symbol_lots[symbol] = use_lot
             self.symbol_risk_pcts[symbol] = 1.0
-            self.symbol_timeframes[symbol] = "M5"
+            self.symbol_timeframes[symbol] = use_tf
 
             self._add_symbol_row(symbol)
 

@@ -1,13 +1,15 @@
 Todo:
   ☐ el lote minimo no se esta tomando de la divisa
   ☐ los lotes deben venir de la config del broker
-  ☐ tambien ver si el bot puede identificar una lateridad, xq he visto que entra en lateral y puede perder las
+
+en la ventana de propuesta de pareces agregar 2 botones
+
+1. para poner los pares propuestos o soleccionados a la ventana de trading agregar un boton de selccionar los pares propuestos
+
+2. hacer una busqueda de pares en mt5 y asi no solo guiarse de datos locales por si fallan o son incompletos
 
 
-  [] preguntar si es viable operar en tendencia lateral o mejor esperar tendencia clara y de ser asi como puedo detectar tendencia?
-  [] calcular el lotaje automatico preguntar a la ia como lo puedo hacer para tener en cuenta el balance total
-  [] poner un aviso de cantidad minimo de pips preguntar a la IA de cuantos son las cantidad ideal de pips de SL por par ya que he visto que cada par tiene moviemientos diferentes de pips
-  [] xq no esta haciendo cierres en los puntos maximos donde inicia el retroceso? asi no haya tocado el tp
+
 
 prompt
  entonces te voy a facilitar los archivos que involucran esta funcionalidad, porfa puedes analizarlos y ayudarme a conseguir la falla, adicionamente no asumas, si necesitas mas archivos me lo comentas y con gusto te los facilito igual hazme todas las preguntas necesarias, ademas para evitar disparidad en el codigo, solo dime que secciones de codigo tengo que ajustar y lo cambio, ya que sin querer se pueden cambiar nombre de variables o funciones y se pueden dañar mas cosas
