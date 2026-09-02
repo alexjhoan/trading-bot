@@ -146,7 +146,8 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         Los resultados se cachean en backtest_results.json (ver core/backtester.py)."""
         popup = ctk.CTkToplevel(self)
         popup.title("🔬 Deep Search — Backtest Real por Símbolo")
-        popup.geometry("700x580")
+        popup.geometry("760x820")
+        popup.minsize(700, 650)
         popup.transient(self.winfo_toplevel())
 
         config_frame = ctk.CTkFrame(popup, fg_color="#1a1a1a")
@@ -223,6 +224,16 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         live_feed = ctk.CTkTextbox(config_frame, height=70, font=ctk.CTkFont(size=10, family="Consolas"))
         live_feed.configure(state="disabled")
         live_feed.pack(fill="x", padx=10, pady=(0, 8))
+
+        lbl_criteria = ctk.CTkLabel(
+            popup,
+            text=(
+                "🟢 Verde = rentable (Expectativa > 0R) con suficientes operaciones · 🔴 Rojo = no rentable · "
+                "⚪ Gris = menos del mínimo elegido, aún no es confiable. Orden: por Expectativa (R promedio), no por Win Rate."
+            ),
+            font=ctk.CTkFont(size=10), text_color="#888888", justify="left"
+        )
+        lbl_criteria.pack(padx=15, pady=(0, 4), anchor="w")
 
         header = ctk.CTkFrame(popup, fg_color="#1a1a1a", height=28)
         header.pack(fill="x", padx=15)

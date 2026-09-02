@@ -19,13 +19,53 @@ No reemplaza a `ForexStrategy` — se registra aparte y se selecciona desde el m
 
 ## 2. Lógica
 
-- **Entrada**: `BUY` si el precio está sobre la EMA (tendencia alcista) y el RSI está en
-  sobreventa (<=30) y girando hacia arriba (RSI actual > RSI de la vela anterior). Simétrico
-  para `SELL`. Exige tendencia + agotamiento + confirmación de giro — no una entrada por simple
-  cruce.
-- **Salida**: cierre por invalidación si el precio cruza la EMA en contra de la posición, más
-  trailing stop simple por ATR. Sin cierre preventivo por patrones ni extensión de TP por Fibonacci.
+- **Tendencia**: EMA de 100 períodos. El precio debe estar sobre la EMA (alcista) o bajo la EMA
+  (bajista), con un pequeño buffer de tolerancia (`EMA_ENTRY_BUFFER_ATR_MULT`) para no perder
+  entradas en el límite por un margen mínimo.
+- **Entrada**: `BUY` cuando el RSI **cruza de vuelta** el nivel de sobreventa (antes <= umbral,
+  ahora > umbral) estando en tendencia alcista. Simétrico para `SELL` (cruce de vuelta desde
+  sobrecompra, en tendencia bajista). Es un cruce CONFIRMADO, no "tocar" el nivel — evita
+  depender de acertar la vela exacta del piso/techo del RSI, que casi nunca ocurre porque el
+  RSI suele saltar del umbral hacia afuera en una sola vela.
+- **Salida**: cierre por invalidación si el precio cruza la EMA en contra de la posición (con un
+  buffer más ancho que el de entrada, para no cerrar por una fluctuación menor justo después de
+  entrar cerca de la EMA), más trailing stop simple por ATR. Sin cierre preventivo por patrones
+  ni extensión de TP por Fibonacci.
 - **SL/TP**: ATR × multiplicador (mismo esquema que `ForexStrategy`, R:R por defecto 1:2).
+
+## 2.1 Parámetros ajustables
+
+Todos viven como constantes al inicio de `core/strategies/simple_trend.py`, con su propio
+comentario explicando qué controla cada uno y el efecto de subirlo/bajarlo. Resumen:
+
+| Parámetro | Default | Qué controla |
+|---|---|---|
+| `EMA_PERIOD` | 100 | Período de la EMA de tendencia. Más corto = más reactivo, más señales falsas. Más largo = tendencia más "macro", más lenta a cambiar. |
+| `EMA_ENTRY_BUFFER_ATR_MULT` | 0.15 | Tolerancia (en múltiplos del ATR actual) para considerar "tendencia" aunque el precio esté ligeramente del otro lado de la EMA. `0.0` = cruce estricto. |
+| `EMA_INVALIDATION_BUFFER_ATR_MULT` | 0.30 | Igual que el anterior pero para el cierre por invalidación de una posición abierta — deliberadamente más ancho que el de entrada, para no auto-invalidarse por la misma fluctuación menor que permitió la entrada. |
+| `RSI_PERIOD` | 9 | Período del RSI. Más corto = más reactivo, cruza los niveles con más frecuencia (más señales, algo más ruidosas). |
+| `RSI_OVERSOLD` / `RSI_OVERBOUGHT` | 40.0 / 60.0 | Niveles donde se considera sobreventa/sobrecompra. Más cerca de 50 = más señales pero de retrocesos más superficiales. |
+| `ATR_PERIOD` | 14 | Período del ATR (solo gestión de riesgo, no genera señal). |
+| `ATR_SL_MULT` / `ATR_TP_MULT` | 1.5 / 3.0 | Distancia de SL/TP en múltiplos del ATR (R:R resultante 1:2 por defecto). |
+| `STATIC_SL_PIPS` / `STATIC_TP_PIPS` | 20.0 / 40.0 | Respaldo en pips si el ATR no está disponible. |
+| `SR_LOOKBACK` | 50 | Ventana de velas para soporte/resistencia informativos (no afecta la señal). |
+
+Se pueden sobreescribir por instancia sin tocar el archivo, ej.:
+`create_strategy_instance("simple_trend", rsi_period=7, ema_entry_buffer_atr_mult=0.20)`.
+
+## 2.2 Configuración de indicadores equivalente para MT5
+
+Para visualizar en un gráfico de MT5 lo mismo que la estrategia calcula internamente:
+
+| Indicador (MT5) | Parámetros | Aplicado a | Para qué se usa |
+|---|---|---|---|
+| Moving Average | Período 100, tipo **Exponential** | Close | Tendencia (`ema_trend`) |
+| Relative Strength Index (RSI) | Período 9 | Close | Disparo de entrada (cruce de vuelta desde 40/60) |
+| Average True Range (ATR) | Período 14 | — | SL/TP dinámico y buffers de EMA (entrada/invalidación) |
+
+No hace falta agregar nada para soporte/resistencia — son solo el máximo/mínimo de las últimas
+50 velas (`SR_LOOKBACK`), se pueden aproximar visualmente con un indicador de Canal de Donchian
+de 50 períodos si se quiere referencia visual exacta.
 
 ## 3. Plan de pruebas (comparación real, no teórica)
 

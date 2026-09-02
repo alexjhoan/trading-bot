@@ -1,28 +1,5 @@
 [
   {
-    "trade_id": 485266622,
-    "symbol": "AUDUSD",
-    "signal": "SELL",
-    "entry_price": 0.71728,
-    "sl": 0.71812,
-    "tp": 0.71554,
-    "volume": 0.02,
-    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 429)",
-    "ai_confidence": 1.0,
-    "context": {
-      "timeframe": 5,
-      "strategy": "forex",
-      "time": "2026-08-26 15:35:49"
-    },
-    "outcome": {
-      "status": "CLOSED",
-      "result": "LOSS",
-      "pnl_r": -0.08,
-      "pnl_usd": -0.14,
-      "exit_reason": "Bot_Cambio_Tendencia_EMA200"
-    }
-  },
-  {
     "trade_id": 485278070,
     "symbol": "USDJPY",
     "signal": "BUY",
@@ -5074,6 +5051,47 @@
       "pnl_r": -0.01,
       "pnl_usd": -0.01,
       "exit_reason": "[sl 216.401]"
+    }
+  },
+  {
+    "trade_id": 509917640,
+    "symbol": "USDCAD",
+    "signal": "BUY",
+    "entry_price": 1.39161,
+    "sl": 1.39038,
+    "tp": 1.39398,
+    "volume": 0.01,
+    "ai_opinion": "Ejecución según estrategia cuantitativa (Fallback IA HTTP 503)",
+    "ai_confidence": 1.0,
+    "context": {
+      "timeframe": 15,
+      "strategy": "simple_trend",
+      "time": "2026-09-02 08:59:08"
+    },
+    "outcome": {
+      "status": "CLOSED",
+      "result": "LOSS",
+      "pnl_r": -1.02,
+      "pnl_usd": -0.88,
+      "exit_reason": "[sl 1.39038]"
+    },
+    "position_evaluations": [
+      {
+        "time": "2026-09-02 09:00:07",
+        "action": "HOLD",
+        "opinion": "La posicion de compra se mantiene estable cerca del precio de entrada sin presencia de patrones de reversion bajista opuestos. Se recomienda MANTENER la orden activa conforme a las reglas.",
+        "close_reason": "",
+        "profit_pips": 0.3,
+        "profit_usd": 0.02
+      }
+    ],
+    "last_ai_management": {
+      "time": "2026-09-02 09:00:07",
+      "action": "HOLD",
+      "opinion": "La posicion de compra se mantiene estable cerca del precio de entrada sin presencia de patrones de reversion bajista opuestos. Se recomienda MANTENER la orden activa conforme a las reglas.",
+      "close_reason": "",
+      "profit_pips": 0.3,
+      "profit_usd": 0.02
     }
   }
 ]

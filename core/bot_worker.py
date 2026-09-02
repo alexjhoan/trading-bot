@@ -580,6 +580,11 @@ class SymbolWorker(threading.Thread):
                         signal_data = self.strategy.generate_signal(df)
                         signal = signal_data.get("signal", "HOLD") if isinstance(signal_data, dict) else str(signal_data)
                         self._log(f"🧠 [RESULTADO ANÁLISIS] {signal_data} - {self.symbol}", "INFO")
+                        if isinstance(signal_data, dict):
+                            sr_support = signal_data.get("support", 0.0)
+                            sr_resistance = signal_data.get("resistance", 0.0)
+                            if sr_support or sr_resistance:
+                                self._log(f"📐 [SOPORTE/RESISTENCIA] {self.symbol} ➔ Soporte: {sr_support:.5f} | Resistencia: {sr_resistance:.5f}", "INFO")
 
                     # 2. Comprobar Filtro de Horario (16:00+) y Filtro de Spread Máximo antes de avanzar a validaciones complejas
                     if signal in ["BUY", "SELL"]:
