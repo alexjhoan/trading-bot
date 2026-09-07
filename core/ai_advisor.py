@@ -615,9 +615,16 @@ def evaluate_trade_setup_direct(
     fibo_px = details.get("fibo_target_price", current_price)
     reentry_tag = f" [⚡ REENTRADA #{reentry_num} - Nivel Fibonacci {fibo_pct}% | Objetivo: {fibo_px}]" if is_reentry else " [NUEVA ENTRADA BASE - Fibo 61.8%]"
 
+    # Lecciones históricas de Deep Search (Backtest Learner)
+    try:
+        from core.ai_backtest_learner import format_backtest_learning_for_ai
+        backtest_learnings_str = format_backtest_learning_for_ai(clean_symbol, timeframe)
+    except Exception:
+        backtest_learnings_str = "Sin lecciones de backtesting sintetizadas."
+
     system_instruction = (
         "Eres un Gestor de Riesgo Cuantitativo Senior de Trading Algorítmico.\n"
-        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez, patrones de velas, niveles de Fibonacci y riesgo.\n\n"
+        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez, patrones de velas, niveles de Fibonacci, riesgo y lecciones históricas de backtesting.\n\n"
         "REGLAS DE BLOQUEO Y APROBACIÓN ESTRICTAS:\n"
         "1. Rechaza ('approved': false) si hay noticias de alto impacto (HIGH) en <30 min.\n"
         "2. Rechaza ('approved': false) si el spread actual es anómalo/alto (>3.0 pips) o coincide con cierre de sesión/rollover.\n"
@@ -625,11 +632,13 @@ def evaluate_trade_setup_direct(
         "4. Rechaza si la señal en M15 contradice la estructura Macro (H4/D1).\n"
         "5. CONFLUENCIA DE VELAS: Prioriza ('approved': true) compras BUY respaldadas por patrones alcistas (Morning Star, Hammer, Bullish Engulfing, Three White Soldiers, Rising Three, Piercing Line, Bullish Harami); y ventas SELL respaldadas por patrones bajistas (Evening Star, Shooting Star, Bearish Engulfing, Three Black Crows, Falling Three, Dark Cloud Cover, Bearish Harami).\n"
         "6. ESCALERA DE REENTRADAS EN FIBONACCI (78.6%, 92%, 100%, 132%, etc.): Si se evalúa una REENTRADA, valida que el precio se encuentre en un retroceso institucional óptimo, respetando la estructura con volumen o rechazo.\n"
-        "7. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
+        "7. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido.\n"
+        "8. APRENDIZAJE DE BACKTESTING: Si el reporte de Deep Search identifica trampas o patrones de fallo recurrente para este par, aplícalas con prioridad para descartar entradas engañosas."
     )
 
     user_content = (
-        f"CUENTA: Eq ${equity:,.2f} USD | Historial {clean_symbol}: {history_summary}\n\n"
+        f"CUENTA: Eq ${equity:,.2f} USD | Historial Real {clean_symbol}: {history_summary}\n"
+        f"LECCIONES DE BACKTESTING (DEEP SEARCH): {backtest_learnings_str}\n\n"
         f"SEÑAL EN EVALUACIÓN ({timeframe}){reentry_tag}:\n"
         f"- Par: {clean_symbol} | Dirección: {signal} | Precio: {current_price}\n"
         f"- Sugerido: SL {strat_sl} | TP {strat_tp} | Lote {strat_lot} | ATR {atr_str}\n\n"
@@ -988,11 +997,19 @@ def evaluate_batch_trade_setups(
         else:
             hist_str = f"Historial {clean_sym}: Sin operaciones previas"
 
+        # Lecciones de backtesting para este par
+        try:
+            from core.ai_backtest_learner import format_backtest_learning_for_ai
+            bt_str = format_backtest_learning_for_ai(clean_sym, tf)
+        except Exception:
+            bt_str = ""
+        bt_line = f"\n   - Lecciones Deep Search: {bt_str}" if bt_str else ""
+
         prompt_items.append(
             f"{idx}. [{clean_sym}]{reentry_tag}\n"
             f"   - Dirección: {sig} | Precio: {px} | SL Sugerido: {sl} | TP: {tp} | Lote: {lot} | ATR: {atr_str}\n"
             f"   - Contexto: {spread} | {news} | Macro: {macro} | {candle}\n"
-            f"   - {hist_str}."
+            f"   - {hist_str}.{bt_line}"
         )
 
     user_content = "EVALÚA LAS SIGUIENTES SEÑALES CANDIDATAS:\n\n" + "\n\n".join(prompt_items)
@@ -1533,12 +1550,20 @@ def evaluate_open_position_ai_direct(
         "Responde ESTRICTAMENTE con el esquema JSON indicado."
     )
 
+    # Lecciones históricas de Deep Search (Backtest Learner)
+    try:
+        from core.ai_backtest_learner import format_backtest_learning_for_ai
+        backtest_learnings_pos = format_backtest_learning_for_ai(clean_symbol)
+    except Exception:
+        backtest_learnings_pos = ""
+    bt_pos_line = f"\n- Lecciones Backtest ({clean_symbol}): {backtest_learnings_pos}" if backtest_learnings_pos else ""
+
     user_content = (
         f"ESTADO DE POSICIÓN ACTIVA #{ticket} ({clean_symbol}):\n"
         f"- Tipo: {pos_type} | Volumen: {volume} lotes | Precio Entrada: {open_price}\n"
         f"- Precio Actual: {current_price} | Flotante: ${profit_usd:+.2f} USD ({profit_pips:+.1f} pips)\n"
         f"- SL Actual: {current_sl} | TP Actual: {current_tp}\n"
-        f"- Historial Previo ({clean_symbol}): {history_summary}\n\n"
+        f"- Historial Previo ({clean_symbol}): {history_summary}{bt_pos_line}\n\n"
         f"MÉTRICAS DE MERCADO Y ESTRUCTURA:\n"
         f"- EMA 200 Macro: {ema_trend:.5f} | ATR: {current_atr:.5f} | Spread: {spread_pips:.1f} pips\n"
         f"- PATRÓN DE VELAS RECIENTE: {candlestick_summary}\n"

@@ -155,23 +155,47 @@ def backtest_symbol(
                 tp = float(sig.get("tp", 0.0) or 0.0)
                 entry_price = float(curr["close"])
                 if sl > 0 and tp > 0:
+                    try:
+                        from core.candlestick_patterns import format_candlestick_summary_for_ai
+                        pattern_summary = format_candlestick_summary_for_ai(window)
+                    except Exception:
+                        pattern_summary = "Estándar"
+
                     open_trade = {
                         "signal": signal,
                         "entry_price": entry_price,
                         "sl": sl,
                         "tp": tp,
+                        "entry_time": int(curr.get("time", 0)),
+                        "entry_idx": i,
+                        "reason": sig.get("reason", "Señal Estrategia"),
+                        "pattern": pattern_summary,
+                        "mfe_r": 0.0,
+                        "mae_r": 0.0,
                     }
         else:
             is_buy = open_trade["signal"] == "BUY"
             hit_sl = (curr["low"] <= open_trade["sl"]) if is_buy else (curr["high"] >= open_trade["sl"])
             hit_tp = (curr["high"] >= open_trade["tp"]) if is_buy else (curr["low"] <= open_trade["tp"])
 
+            sl_dist_curr = abs(open_trade["entry_price"] - open_trade["sl"])
+            if sl_dist_curr > 1e-9:
+                curr_high = float(curr["high"])
+                curr_low = float(curr["low"])
+                fav_dist = (curr_high - open_trade["entry_price"]) if is_buy else (open_trade["entry_price"] - curr_low)
+                adv_dist = (open_trade["entry_price"] - curr_low) if is_buy else (curr_high - open_trade["entry_price"])
+                open_trade["mfe_r"] = max(open_trade.get("mfe_r", 0.0), round(fav_dist / sl_dist_curr, 2))
+                open_trade["mae_r"] = max(open_trade.get("mae_r", 0.0), round(adv_dist / sl_dist_curr, 2))
+
             exit_price = None
+            exit_reason = "MONITOR"
             if hit_sl:
                 # Si ambos (SL y TP) se tocan en la misma vela, se asume el peor caso (SL) por seguridad.
                 exit_price = open_trade["sl"]
+                exit_reason = "SL_HIT"
             elif hit_tp:
                 exit_price = open_trade["tp"]
+                exit_reason = "TP_HIT"
             else:
                 fake_position = SimpleNamespace(
                     type=mt5.POSITION_TYPE_BUY if is_buy else mt5.POSITION_TYPE_SELL,
@@ -188,6 +212,7 @@ def backtest_symbol(
                 action = mgmt.get("action", "MONITOR")
                 if action == "EARLY_CLOSE":
                     exit_price = float(curr["close"])
+                    exit_reason = mgmt.get("close_reason", "EARLY_CLOSE")
                 elif action == "MODIFY_SLTP":
                     new_sl = mgmt.get("suggested_sl")
                     new_tp = mgmt.get("suggested_tp")
@@ -199,8 +224,24 @@ def backtest_symbol(
             if exit_price is not None:
                 sl_dist = abs(open_trade["entry_price"] - open_trade["sl"])
                 pnl_price = (exit_price - open_trade["entry_price"]) if is_buy else (open_trade["entry_price"] - exit_price)
-                pnl_r = round(pnl_price / sl_dist, 3) if sl_dist > 1e-9 else 0.0
-                closed_trades.append({"pnl_r": pnl_r, "result": "WIN" if pnl_r > 0 else "LOSS"})
+                pnl_r = round(pnl_price / sl_dist, 2) if sl_dist > 1e-9 else 0.0
+                is_win = pnl_r > 0
+                trade_record = {
+                    "signal": open_trade["signal"],
+                    "entry_price": open_trade["entry_price"],
+                    "exit_price": exit_price,
+                    "sl": open_trade["sl"],
+                    "tp": open_trade["tp"],
+                    "pnl_r": pnl_r,
+                    "result": "WIN" if is_win else "LOSS",
+                    "exit_reason": exit_reason,
+                    "holding_bars": i - open_trade.get("entry_idx", i),
+                    "pattern": open_trade.get("pattern", "Estándar"),
+                    "entry_reason": open_trade.get("reason", "Señal Estrategia"),
+                    "mfe_r": open_trade.get("mfe_r", 0.0),
+                    "mae_r": open_trade.get("mae_r", 0.0),
+                }
+                closed_trades.append(trade_record)
                 open_trade = None
 
     n = len(closed_trades)
@@ -208,6 +249,10 @@ def backtest_symbol(
     win_rate = round((wins / n * 100.0), 1) if n else 0.0
     avg_r = round((sum(t["pnl_r"] for t in closed_trades) / n), 2) if n else 0.0
     win_rate_confidence = round(wilson_lower_bound(wins, n), 1) if n else 0.0
+
+    sample_wins = [t for t in closed_trades if t["result"] == "WIN"][-8:]
+    sample_losses = [t for t in closed_trades if t["result"] == "LOSS"][-8:]
+    sample_trades = sample_wins + sample_losses
 
     return {
         "symbol": symbol,
@@ -222,7 +267,8 @@ def backtest_symbol(
         "win_rate_confidence": win_rate_confidence,
         "avg_r": avg_r,
         "cancelled": was_cancelled,
-        "updated_at": time.time()
+        "updated_at": time.time(),
+        "sample_trades": sample_trades,
     }
 
 
@@ -382,3 +428,98 @@ def get_cached_results(strategy_name: Optional[str] = None) -> List[Dict[str, An
     if strategy_name:
         results = [r for r in results if r.get("strategy") == strategy_name]
     return results
+
+
+def run_daily_incremental_backtest(
+    symbols: List[str],
+    strategy_name: str,
+    timeframe_map: Dict[str, int],
+    cancel_event: Optional[threading.Event] = None
+) -> List[Dict[str, Any]]:
+    """
+    Ejecuta un backtest ligero únicamente sobre las últimas 24h de velas (1 día de historial)
+    para cada símbolo y FUSIONA acumulativamente las nuevas operaciones simuladas
+    en 'backtest_results.json' sin recalcular ni borrar el histórico anterior.
+    """
+    cache = _load_results_cache()
+    updated_records = []
+
+    for sym in symbols:
+        if cancel_event is not None and cancel_event.is_set():
+            break
+
+        tf = timeframe_map.get(sym, mt5.TIMEFRAME_M15)
+        # 1 día de velas + ventana de 300 velas para inicializar indicadores
+        day_bars = _default_history_bars_for_tf(tf, target_days=1)
+        total_bars_request = max(350, day_bars + LIVE_ROLLING_WINDOW)
+
+        daily_res = backtest_symbol(
+            sym, strategy_name, tf,
+            history_bars=total_bars_request,
+            rolling_window=LIVE_ROLLING_WINDOW,
+            cancel_event=cancel_event
+        )
+
+        if daily_res.get("error") or daily_res.get("cancelled"):
+            continue
+
+        key = _cache_key(sym, strategy_name, tf)
+        existing = cache.get(key)
+
+        if existing:
+            # Fusión acumulativa de métricas
+            prev_trades = existing.get("trades", 0)
+            prev_wins = existing.get("wins", 0)
+            prev_losses = existing.get("losses", 0)
+            prev_avg_r = existing.get("avg_r", 0.0)
+            prev_samples = existing.get("sample_trades", [])
+
+            new_trades = daily_res.get("trades", 0)
+            new_wins = daily_res.get("wins", 0)
+            new_losses = daily_res.get("losses", 0)
+            new_avg_r = daily_res.get("avg_r", 0.0)
+            new_samples = daily_res.get("sample_trades", [])
+
+            total_trades = prev_trades + new_trades
+            total_wins = prev_wins + new_wins
+            total_losses = prev_losses + new_losses
+
+            if total_trades > 0:
+                combined_win_rate = round((total_wins / total_trades) * 100.0, 1)
+                combined_avg_r = round(((prev_avg_r * prev_trades) + (new_avg_r * new_trades)) / total_trades, 2)
+                combined_confidence = round(wilson_lower_bound(total_wins, total_trades), 1)
+            else:
+                combined_win_rate = 0.0
+                combined_avg_r = 0.0
+                combined_confidence = 0.0
+
+            merged_samples = (prev_samples + new_samples)[-20:]
+
+            merged_record = {
+                "symbol": sym,
+                "resolved_symbol": daily_res.get("resolved_symbol", sym),
+                "strategy": strategy_name,
+                "timeframe": tf,
+                "bars_analyzed": existing.get("bars_analyzed", 0) + daily_res.get("bars_analyzed", 0),
+                "trades": total_trades,
+                "wins": total_wins,
+                "losses": total_losses,
+                "win_rate": combined_win_rate,
+                "win_rate_confidence": combined_confidence,
+                "avg_r": combined_avg_r,
+                "cancelled": False,
+                "updated_at": time.time(),
+                "sample_trades": merged_samples,
+                "last_daily_incremental": time.time(),
+            }
+            cache[key] = merged_record
+            updated_records.append(merged_record)
+        else:
+            cache[key] = daily_res
+            updated_records.append(daily_res)
+
+    if updated_records:
+        _save_results_cache(cache)
+
+    return updated_records
+

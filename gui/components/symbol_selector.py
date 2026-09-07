@@ -56,6 +56,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self.entry_lots: Dict[str, ctk.CTkEntry] = {}
         self.entry_risk_pcts: Dict[str, ctk.CTkEntry] = {}
         self.opt_timeframes: Dict[str, ctk.CTkOptionMenu] = {}
+        self.btn_suggested_tf: Dict[str, ctk.CTkButton] = {}
         self.lbl_risk_usd: Dict[str, ctk.CTkLabel] = {}
         self.lbl_sl_pips: Dict[str, ctk.CTkLabel] = {}
         self.lbl_suggested_lot: Dict[str, ctk.CTkLabel] = {}
@@ -68,6 +69,64 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self._schedule_loop_ticks: int = 0
 
         self._build_ui()
+
+    def _get_suggested_timeframe(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene el mejor timeframe obtenido por Deep Search (backtest_results.json)
+        para el símbolo dado (considerando expectativa avg_r positiva y muestra de trades).
+        """
+        try:
+            cached_all = get_cached_results()
+            if not cached_all:
+                return None
+
+            base_sym = symbol.strip().lower()
+            matching_results = []
+            for item in cached_all:
+                sym_item = str(item.get("symbol", "")).strip().lower()
+                res_sym = str(item.get("resolved_symbol", "")).strip().lower()
+                if (
+                    base_sym == sym_item
+                    or base_sym == res_sym
+                    or base_sym.startswith(sym_item)
+                    or sym_item.startswith(base_sym)
+                ):
+                    if not item.get("error") and item.get("trades", 0) >= 1:
+                        matching_results.append(item)
+
+            if not matching_results:
+                return None
+
+            # Ordenar por avg_r (expectativa) y luego win_rate_confidence
+            best = max(
+                matching_results,
+                key=lambda r: (r.get("avg_r", -999), r.get("win_rate_confidence", 0))
+            )
+            tf_val = best.get("timeframe")
+            tf_str = TIMEFRAME_MAP_REVERSE.get(tf_val)
+            if not tf_str:
+                return None
+
+            return {
+                "timeframe_str": tf_str,
+                "timeframe_val": tf_val,
+                "avg_r": best.get("avg_r", 0.0),
+                "win_rate": best.get("win_rate", 0.0),
+                "win_rate_confidence": best.get("win_rate_confidence", 0.0),
+                "trades": best.get("trades", 0),
+                "strategy": best.get("strategy", ""),
+            }
+        except Exception:
+            return None
+
+    def _refresh_all_suggested_timeframes(self) -> None:
+        """Refresca todos los badges de timeframe sugerido en la tabla."""
+        for sym in list(self.symbols):
+            try:
+                self._update_suggested_tf_widget(sym)
+                self._update_symbol_calc(sym)
+            except Exception:
+                pass
 
     def set_account_balance(self, balance: float) -> None:
         """Actualiza el balance de la cuenta para recalcular el riesgo USD en cada par."""
@@ -107,7 +166,12 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         for base_sym in checked_symbols:
             matched = self._match_available_symbol(base_sym)
             if matched:
-                resolved.append((matched, timeframe_by_symbol.get(base_sym)))
+                sugg_tf = timeframe_by_symbol.get(base_sym)
+                if not sugg_tf:
+                    sugg = self._get_suggested_timeframe(matched)
+                    if sugg:
+                        sugg_tf = sugg["timeframe_str"]
+                resolved.append((matched, sugg_tf))
             else:
                 unresolved.append(base_sym)
 
@@ -139,6 +203,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             )
 
         popup.destroy()
+        self._refresh_all_suggested_timeframes()
 
     def _open_deep_search_popup(self) -> None:
         """Corre un backtest real (bar a bar, con la estrategia elegida) sobre un conjunto de
@@ -343,6 +408,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             btn_cancel.configure(state="disabled")
             progress_bar.stop()
             progress_bar.pack_forget()
+            self._refresh_all_suggested_timeframes()
 
         def _poll_queue() -> None:
             try:
@@ -491,6 +557,16 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             font=ctk.CTkFont(size=12, weight="bold"), command=_apply_selection
         ).pack(side="left")
 
+        btn_ai_learn = ctk.CTkButton(
+            actions_frame,
+            text="🧠 Extraer Aprendizaje IA",
+            fg_color="#7C3AED",
+            hover_color="#6D28D9",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._open_ai_learner_modal
+        )
+        btn_ai_learn.pack(side="right")
+
         # Mostrar resultados ya cacheados (si existen) apenas se abre el popup, sin esperar una búsqueda nueva
         try:
             cached = get_cached_results(strategies[0])
@@ -499,6 +575,236 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 _render_results(cached)
         except Exception:
             pass
+
+    def _open_ai_learner_modal(self) -> None:
+        """
+        Abre la ventana modal del Motor de Aprendizaje y Síntesis IA a partir de Deep Search.
+        Permite auditar simulaciones, ver reglas y trampas descubiertas por la IA,
+        generar una nueva síntesis con el LLM y aplicar las recomendaciones al bot.
+        """
+        from core.ai_backtest_learner import load_backtest_learnings, generate_backtest_learnings
+        from core.config_manager import load_config
+        from core.ai_advisor import DEFAULT_GEMINI_MODEL
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("🧠 Motor de Aprendizaje IA — Síntesis de Backtesting")
+        modal.geometry("740x720")
+        modal.minsize(680, 580)
+        modal.transient(self.winfo_toplevel())
+
+        # Header Frame
+        hdr_frame = ctk.CTkFrame(modal, fg_color="#18181B", corner_radius=8)
+        hdr_frame.pack(fill="x", padx=15, pady=(12, 8))
+
+        lbl_hdr = ctk.CTkLabel(
+            hdr_frame,
+            text="🧠 Auditoría y Reglas Heurísticas de Backtesting",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color="#A78BFA"
+        )
+        lbl_hdr.pack(anchor="w", padx=12, pady=(10, 2))
+
+        lbl_sub = ctk.CTkLabel(
+            hdr_frame,
+            text="La IA analiza las operaciones simuladas de Deep Search para descubrir trampas de mercado, "
+                 "patrones de fallo recurrente y reglas óptimas por símbolo para el bot en vivo.",
+            font=ctk.CTkFont(size=11),
+            text_color="#9CA3AF",
+            justify="left",
+            wraplength=680
+        )
+        lbl_sub.pack(anchor="w", padx=12, pady=(0, 10))
+
+        # Status & Controls Frame
+        ctrl_frame = ctk.CTkFrame(modal, fg_color="transparent")
+        ctrl_frame.pack(fill="x", padx=15, pady=(0, 6))
+
+        lbl_status = ctk.CTkLabel(
+            ctrl_frame,
+            text="Cargando estado de aprendizaje...",
+            font=ctk.CTkFont(size=11),
+            text_color="#F59E0B"
+        )
+        lbl_status.pack(side="left")
+
+        # Scrollable area for content
+        content_box = ctk.CTkScrollableFrame(modal, fg_color="#111827", corner_radius=8)
+        content_box.pack(fill="both", expand=True, padx=15, pady=(4, 8))
+
+        def _render_learnings_ui() -> None:
+            for w in content_box.winfo_children():
+                w.destroy()
+
+            data = load_backtest_learnings()
+            if not data or not data.get("symbols"):
+                lbl_status.configure(text="⚠️ Aún no se ha generado aprendizaje con IA. Haz clic en '🔄 Generar Aprendizaje' abajo.")
+                ctk.CTkLabel(
+                    content_box,
+                    text="No hay archivo ai_backtest_learnings.json generado todavía.\n"
+                         "Ejecuta primero un Deep Search sobre tus pares y luego presiona el botón\n"
+                         "'🔄 Generar Aprendizaje con IA' para que el LLM audite las simulaciones.",
+                    font=ctk.CTkFont(size=12),
+                    text_color="#6B7280",
+                    justify="center"
+                ).pack(pady=40)
+                return
+
+            gen_time = data.get("generated_at_str", "Reciente")
+            model = data.get("model_used", "IA")
+            total_syms = data.get("total_symbols_analyzed", len(data.get("symbols", {})))
+            lbl_status.configure(text=f"✅ Aprendizaje activo ({gen_time}) — Modelo: {model} — {total_syms} pares analizados")
+
+            # 1. Diagnóstico Global
+            diag = data.get("global_diagnostic", "")
+            if diag:
+                sec_diag = ctk.CTkFrame(content_box, fg_color="#1F2937", corner_radius=6)
+                sec_diag.pack(fill="x", padx=6, pady=6)
+                ctk.CTkLabel(sec_diag, text="📌 Diagnóstico Global Cuantitativo", font=ctk.CTkFont(size=12, weight="bold"), text_color="#38BDF8").pack(anchor="w", padx=10, pady=(8, 2))
+                ctk.CTkLabel(sec_diag, text=diag, font=ctk.CTkFont(size=11), text_color="#E5E7EB", justify="left", wraplength=640).pack(anchor="w", padx=10, pady=(0, 8))
+
+            # 2. Lecciones Clave
+            key_ls = data.get("key_learnings", [])
+            if key_ls:
+                sec_keys = ctk.CTkFrame(content_box, fg_color="#1F2937", corner_radius=6)
+                sec_keys.pack(fill="x", padx=6, pady=6)
+                ctk.CTkLabel(sec_keys, text="💡 Lecciones y Trampas Clave Descubiertas", font=ctk.CTkFont(size=12, weight="bold"), text_color="#FBBF24").pack(anchor="w", padx=10, pady=(8, 2))
+                for kl in key_ls:
+                    ctk.CTkLabel(sec_keys, text=f"• {kl}", font=ctk.CTkFont(size=11), text_color="#E5E7EB", justify="left", wraplength=640).pack(anchor="w", padx=14, pady=1)
+                ctk.CTkLabel(sec_keys, text="").pack(pady=2)
+
+            # 3. Reglas y Heurísticas por Símbolo
+            symbols_map = data.get("symbols", {})
+            if symbols_map:
+                sec_syms = ctk.CTkFrame(content_box, fg_color="#1F2937", corner_radius=6)
+                sec_syms.pack(fill="x", padx=6, pady=6)
+                ctk.CTkLabel(sec_syms, text="🎯 Reglas y Filtros por Par (Inyectados en Vivo al Bot)", font=ctk.CTkFont(size=12, weight="bold"), text_color="#34D399").pack(anchor="w", padx=10, pady=(8, 6))
+
+                for sym, info in symbols_map.items():
+                    card = ctk.CTkFrame(sec_syms, fg_color="#111827", corner_radius=4)
+                    card.pack(fill="x", padx=10, pady=4)
+
+                    opt_tf = info.get("optimal_tf", "N/A")
+                    wr = info.get("win_rate", 0.0)
+                    avg_r = info.get("avg_r", 0.0)
+                    trades = info.get("trades", 0)
+
+                    top_l = ctk.CTkLabel(
+                        card,
+                        text=f"✨ {sym} — TF Óptimo: {opt_tf} | WR: {wr:.0f}% | Exp: {avg_r:+.2f}R ({trades} ops)",
+                        font=ctk.CTkFont(size=11, weight="bold"),
+                        text_color="#6EE7B7"
+                    )
+                    top_l.pack(anchor="w", padx=8, pady=(6, 2))
+
+                    avoids = info.get("avoid_patterns", [])
+                    if avoids:
+                        av_text = "⚠️ Evitar: " + " | ".join(avoids)
+                        ctk.CTkLabel(card, text=av_text, font=ctk.CTkFont(size=10), text_color="#FCA5A5", justify="left", wraplength=620).pack(anchor="w", padx=8, pady=1)
+
+                    advice = info.get("risk_advice", "")
+                    if advice:
+                        ctk.CTkLabel(card, text=f"🛡️ Gestión: {advice}", font=ctk.CTkFont(size=10), text_color="#93C5FD", justify="left", wraplength=620).pack(anchor="w", padx=8, pady=(1, 6))
+
+            # 4. Ajustes Recomendados
+            recs = data.get("recommended_bot_adjustments", "")
+            if recs:
+                sec_recs = ctk.CTkFrame(content_box, fg_color="#1F2937", corner_radius=6)
+                sec_recs.pack(fill="x", padx=6, pady=6)
+                ctk.CTkLabel(sec_recs, text="⚙️ Recomendaciones de Configuración para el Bot", font=ctk.CTkFont(size=12, weight="bold"), text_color="#C084FC").pack(anchor="w", padx=10, pady=(8, 2))
+                ctk.CTkLabel(sec_recs, text=recs, font=ctk.CTkFont(size=11), text_color="#E5E7EB", justify="left", wraplength=640).pack(anchor="w", padx=10, pady=(0, 8))
+
+        def _run_learner_thread() -> None:
+            cfg = load_config()
+            api_key = str(cfg.get("ai_api_key", "")).strip()
+            model = str(cfg.get("ai_model", "")).strip() or DEFAULT_GEMINI_MODEL
+            base_url = str(cfg.get("ai_base_url", "")).strip()
+            strategy_name = str(cfg.get("selected_strategy", "forex")).strip()
+
+            def _update_prog(msg: str) -> None:
+                modal.after(0, lambda m=msg: lbl_status.configure(text=m))
+
+            ok, _, msg = generate_backtest_learnings(
+                api_key=api_key,
+                model_name=model,
+                base_url=base_url,
+                strategy_name=strategy_name,
+                progress_callback=_update_prog
+            )
+
+            def _on_done() -> None:
+                btn_run.configure(state="normal", text="🔄 Generar Aprendizaje")
+                if ok:
+                    _render_learnings_ui()
+                    self._refresh_all_suggested_timeframes()
+                    messagebox.showinfo("Aprendizaje IA", "¡Síntesis de aprendizaje generada y guardada con éxito en ai_backtest_learnings.json!")
+                else:
+                    messagebox.showwarning("Aprendizaje IA", f"No se pudo completar la síntesis: {msg}")
+
+            modal.after(0, _on_done)
+
+        def _start_generate() -> None:
+            btn_run.configure(state="disabled", text="⏳ Analizando con IA...")
+            lbl_status.configure(text="⏳ Iniciando auditoría IA...")
+            threading.Thread(target=_run_learner_thread, daemon=True).start()
+
+        def _apply_learnings_to_table() -> None:
+            data = load_backtest_learnings()
+            symbols_map = data.get("symbols", {})
+            if not symbols_map:
+                messagebox.showinfo("Aplicar", "No hay recomendaciones generadas todavía.")
+                return
+
+            applied_count = 0
+            for sym, info in symbols_map.items():
+                opt_tf = info.get("optimal_tf")
+                matched = self._match_available_symbol(sym)
+                target_sym = matched if matched else sym
+                if target_sym in self.symbols and opt_tf and opt_tf in TIMEFRAME_MAP:
+                    if target_sym in self.opt_timeframes:
+                        self.opt_timeframes[target_sym].set(opt_tf)
+                    self._on_timeframe_changed(target_sym, opt_tf)
+                    applied_count += 1
+
+            self._refresh_all_suggested_timeframes()
+            messagebox.showinfo(
+                "Aprendizaje Aplicado",
+                f"Se aplicaron los timeframes y ajustes óptimos de la IA a {applied_count} pares en tu tabla."
+            )
+
+        # Bottom Action Buttons
+        bot_actions = ctk.CTkFrame(modal, fg_color="transparent")
+        bot_actions.pack(fill="x", padx=15, pady=(4, 12))
+
+        btn_run = ctk.CTkButton(
+            bot_actions,
+            text="🔄 Generar Aprendizaje con IA",
+            fg_color="#7C3AED",
+            hover_color="#6D28D9",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=_start_generate
+        )
+        btn_run.pack(side="left", padx=(0, 10))
+
+        btn_apply_all = ctk.CTkButton(
+            bot_actions,
+            text="⚡ Aplicar Recomendaciones a la Tabla",
+            fg_color="#059669",
+            hover_color="#047857",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=_apply_learnings_to_table
+        )
+        btn_apply_all.pack(side="left")
+
+        ctk.CTkButton(
+            bot_actions,
+            text="Cerrar",
+            fg_color="#374151",
+            hover_color="#4B5563",
+            width=80,
+            command=modal.destroy
+        ).pack(side="right")
+
+        _render_learnings_ui()
 
     def _open_best_pairs_popup(self) -> None:
         """Muestra un ranking de símbolos por desempeño histórico REAL (trade_memory.json),
@@ -704,16 +1010,17 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         header.pack(fill="x", padx=10, pady=(8, 2))
 
         headers = [
-            ("Activo", 60),
-            ("Símbolo", 110),
-            ("Lote", 70),
-            ("Riesgo %", 70),
-            ("Riesgo $", 80),
-            ("SL Máx", 90),
-            ("Lote Sugerido", 95),
-            ("Timeframe", 80),
-            ("Horario", 115),
-            ("Acciones", 50),
+            ("Activo", 55),
+            ("Símbolo", 100),
+            ("Lote", 65),
+            ("Riesgo %", 65),
+            ("Riesgo $", 75),
+            ("SL Máx", 80),
+            ("Lote Sug.", 85),
+            ("Timeframe", 75),
+            ("TF Sugerido", 110),
+            ("Horario", 105),
+            ("Acciones", 45),
         ]
 
         for text, width in headers:
@@ -739,95 +1046,111 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         row = ctk.CTkFrame(row_container, fg_color="#2b2b2b", corner_radius=6)
         row.pack(fill="x")
 
-        # 1. Switch Activo (width ~60)
+        # 1. Switch Activo (width ~55)
         var = ctk.BooleanVar(value=False)
         self.switch_vars[symbol] = var
         switch = ctk.CTkSwitch(
             row,
             text="",
             variable=var,
-            width=50,
+            width=45,
             command=lambda s=symbol: self._on_toggle(s)
         )
-        switch.pack(side="left", padx=(10, 0), pady=6)
+        switch.pack(side="left", padx=(8, 0), pady=6)
 
-        # 2. Símbolo Label (width ~110)
+        # 2. Símbolo Label (width ~100)
         lbl_sym = ctk.CTkLabel(
             row,
             text=symbol,
             font=ctk.CTkFont(size=12, weight="bold"),
-            width=100,
+            width=95,
             anchor="w"
         )
-        lbl_sym.pack(side="left", padx=5)
+        lbl_sym.pack(side="left", padx=4)
 
-        # 3. Lote Entry (width ~70)
+        # 3. Lote Entry (width ~65)
         specs = self.symbol_specs.get(symbol, {})
         min_lot = specs.get("volume_min", 0.01)
         default_lot = self.symbol_lots.get(symbol, min_lot)
-        entry_lot = ctk.CTkEntry(row, width=65, justify="center")
+        entry_lot = ctk.CTkEntry(row, width=60, justify="center")
         entry_lot.insert(0, str(default_lot))
         entry_lot.pack(side="left", padx=3)
         entry_lot.bind("<KeyRelease>", lambda e, s=symbol: self._on_input_changed(s))
         self.entry_lots[symbol] = entry_lot
 
-        # 4. Riesgo % Entry (width ~70)
+        # 4. Riesgo % Entry (width ~65)
         default_risk = self.symbol_risk_pcts.get(symbol, 1.0)
-        entry_risk = ctk.CTkEntry(row, width=65, justify="center")
+        entry_risk = ctk.CTkEntry(row, width=60, justify="center")
         entry_risk.insert(0, str(default_risk))
         entry_risk.pack(side="left", padx=3)
         entry_risk.bind("<KeyRelease>", lambda e, s=symbol: self._on_input_changed(s))
         self.entry_risk_pcts[symbol] = entry_risk
 
-        # 5. Riesgo $ Label (width ~80)
+        # 5. Riesgo $ Label (width ~75)
         lbl_risk = ctk.CTkLabel(
             row,
             text="$0.00",
             text_color="#F59E0B",
             font=ctk.CTkFont(size=11, weight="bold"),
-            width=75,
+            width=70,
             anchor="center"
         )
         lbl_risk.pack(side="left", padx=3)
         self.lbl_risk_usd[symbol] = lbl_risk
 
-        # 6. SL Máx Pips Label (width ~90)
+        # 6. SL Máx Pips Label (width ~80)
         lbl_pips = ctk.CTkLabel(
             row,
             text="0.0 pips",
             text_color="#10B981",
             font=ctk.CTkFont(size=11, weight="bold"),
-            width=85,
+            width=75,
             anchor="center"
         )
         lbl_pips.pack(side="left", padx=3)
         self.lbl_sl_pips[symbol] = lbl_pips
 
-        # 6b. Lote Sugerido Label (width ~95) - lote calculado desde Riesgo $ y el SL mínimo recomendado (ATR)
+        # 6b. Lote Sugerido Label (width ~85) - lote calculado desde Riesgo $ y el SL mínimo recomendado (ATR)
         lbl_suggested = ctk.CTkLabel(
             row,
             text="--",
             text_color="#3B82F6",
             font=ctk.CTkFont(size=11, weight="bold"),
-            width=90,
+            width=80,
             anchor="center"
         )
         lbl_suggested.pack(side="left", padx=3)
         self.lbl_suggested_lot[symbol] = lbl_suggested
 
-        # 7. Timeframe OptionMenu (width ~80)
+        # 7. Timeframe OptionMenu (width ~75)
         default_tf = self.symbol_timeframes.get(symbol, "M5")
         opt_tf = ctk.CTkOptionMenu(
             row,
             values=list(TIMEFRAME_MAP.keys()),
-            width=75,
-            font=ctk.CTkFont(size=11, weight="bold")
+            width=70,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda tf, s=symbol: self._on_timeframe_changed(s, tf)
         )
         opt_tf.set(default_tf)
         opt_tf.pack(side="left", padx=3)
         self.opt_timeframes[symbol] = opt_tf
 
-        # 8. Horario Label (width ~115)
+        # 7b. TF Sugerido por Deep Search Button/Badge (width ~110)
+        btn_sugg_tf = ctk.CTkButton(
+            row,
+            text="—",
+            width=105,
+            height=26,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#1E293B",
+            hover_color="#334155",
+            text_color="#94A3B8",
+            command=lambda s=symbol: self._on_suggested_tf_clicked(s)
+        )
+        btn_sugg_tf.pack(side="left", padx=3)
+        self.btn_suggested_tf[symbol] = btn_sugg_tf
+
+        # 8. Horario Label (width ~105)
         start_time, end_time = STRATEGY_CONFIG.get_session_times_for_symbol(symbol)
         schedule_text = f"🕒 {start_time}-{end_time}"
         is_active_session = self.is_current_time_in_range(symbol, start_time, end_time)
@@ -838,25 +1161,24 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             text=schedule_text,
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color=text_color,
-            width=110,
+            width=100,
             anchor="center"
         )
         lbl_schedule.pack(side="left", padx=3)
         self.lbl_schedule_dict[symbol] = lbl_schedule
 
-        # 9. Botón Eliminar (width ~50)
+        # 9. Botón Eliminar (width ~45)
         btn_del = ctk.CTkButton(
             row,
             text="❌",
-            width=32,
+            width=30,
             fg_color="#991B1B",
             hover_color="#7F1D1D",
             command=lambda s=symbol: self._remove_symbol(s)
         )
-        btn_del.pack(side="left", padx=(5, 10))
+        btn_del.pack(side="left", padx=(4, 8))
 
-        # Etiqueta de advertencia (oculta por defecto): se muestra solo si el SL calculado
-        # queda por debajo del mínimo recomendado (ATR) para este símbolo
+        # Etiqueta de advertencia/recomendación
         lbl_warning = ctk.CTkLabel(
             row_container,
             text="",
@@ -869,8 +1191,65 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         # Calcular el ATR (en pips) del símbolo para usarlo como piso mínimo recomendado de SL
         self._refresh_symbol_atr(symbol)
 
+        # Actualizar widget de TF sugerido obtenido de Deep Search
+        self._update_suggested_tf_widget(symbol)
+
         # Calcular valores iniciales de la fila
         self._update_symbol_calc(symbol)
+
+    def _update_suggested_tf_widget(self, symbol: str) -> None:
+        """Actualiza el botón/badge de timeframe sugerido por Deep Search para el símbolo."""
+        if symbol not in self.btn_suggested_tf:
+            return
+
+        sugg = self._get_suggested_timeframe(symbol)
+        btn = self.btn_suggested_tf[symbol]
+        if sugg:
+            tf_sugg = sugg["timeframe_str"]
+            avg_r = sugg["avg_r"]
+            curr_tf = self.symbol_timeframes.get(symbol, "M5")
+
+            if curr_tf == tf_sugg:
+                btn.configure(
+                    text=f"✨ {tf_sugg} ({avg_r:+.1f}R)",
+                    fg_color="#065F46",
+                    hover_color="#047857",
+                    text_color="#A7F3D0"
+                )
+            else:
+                btn.configure(
+                    text=f"⚡ {tf_sugg} ({avg_r:+.1f}R)",
+                    fg_color="#B45309",
+                    hover_color="#D97706",
+                    text_color="#FEF3C7"
+                )
+        else:
+            btn.configure(
+                text="🔬 Sin test",
+                fg_color="#1E293B",
+                hover_color="#334155",
+                text_color="#64748B"
+            )
+
+    def _on_suggested_tf_clicked(self, symbol: str) -> None:
+        """Aplica el timeframe sugerido por Deep Search al hacer clic o abre la ventana si no hay test."""
+        sugg = self._get_suggested_timeframe(symbol)
+        if sugg:
+            tf_sugg = sugg["timeframe_str"]
+            if symbol in self.opt_timeframes:
+                self.opt_timeframes[symbol].set(tf_sugg)
+            self._on_timeframe_changed(symbol, tf_sugg)
+        else:
+            self._open_deep_search_popup()
+
+    def _on_timeframe_changed(self, symbol: str, new_tf: str) -> None:
+        """Se ejecuta al cambiar el timeframe (manual o por sugerencia de Deep Search)."""
+        self.symbol_timeframes[symbol] = new_tf
+        self._refresh_symbol_atr(symbol)
+        self._update_symbol_calc(symbol)
+        self._update_suggested_tf_widget(symbol)
+        if self.on_symbols_changed_callback:
+            self.on_symbols_changed_callback(self.symbols)
 
     @staticmethod
     def is_current_time_in_range(symbol: str, start_str: str, end_str: str) -> bool:
@@ -967,11 +1346,26 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                                 f"⚠️ SL actual ({sl_pips:.1f} pips) por debajo del mínimo recomendado "
                                 f"({min_sl_pips:.1f} pips, ATR x{RISK_CONFIG.min_sl_atr_mult:.1f}) para este par — "
                                 f"considera bajar el lote a {suggested_lot:.2f} o subir el % de riesgo."
-                            )
+                            ),
+                            text_color="#F59E0B"
                         )
                         self.lbl_warning[symbol].pack(fill="x", padx=(4, 4), pady=(2, 0))
                     else:
-                        self.lbl_warning[symbol].pack_forget()
+                        # Si no hay advertencia de ATR, mostrar sugerencia de Deep Search si el timeframe difiere
+                        sugg = self._get_suggested_timeframe(symbol)
+                        curr_tf = self.symbol_timeframes.get(symbol, "M5")
+                        if sugg and sugg["timeframe_str"] != curr_tf and sugg["avg_r"] > 0:
+                            self.lbl_warning[symbol].configure(
+                                text=(
+                                    f"💡 Deep Search sugiere {sugg['timeframe_str']} "
+                                    f"(Expectativa {sugg['avg_r']:+.2f}R, WR {sugg['win_rate']:.0f}% en {sugg['trades']} ops) — "
+                                    f"Clic en '{sugg['timeframe_str']}' para aplicar."
+                                ),
+                                text_color="#38BDF8"
+                            )
+                            self.lbl_warning[symbol].pack(fill="x", padx=(4, 4), pady=(2, 0))
+                        else:
+                            self.lbl_warning[symbol].pack_forget()
             else:
                 if symbol in self.lbl_suggested_lot:
                     self.lbl_suggested_lot[symbol].configure(text="--")
@@ -1006,7 +1400,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         if not raw_sym:
             return
 
-        # Buscar si existe coincidencia exacta (insensible a mayúsculas) en available_symbols (nombres reales de MT5)
+        # Buscar si existe coincidencia exacta en available_symbols (nombres reales de MT5)
         matched = None
         for s in self.available_symbols:
             if s.lower() == raw_sym.lower():
@@ -1019,10 +1413,13 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         min_lot = specs.get("volume_min", 0.01)
 
         if sym not in self.symbols:
+            sugg = self._get_suggested_timeframe(sym)
+            initial_tf = sugg["timeframe_str"] if sugg else "M5"
+
             self.symbols.append(sym)
             self.symbol_lots[sym] = min_lot
             self.symbol_risk_pcts[sym] = 1.0
-            self.symbol_timeframes[sym] = "M5"
+            self.symbol_timeframes[sym] = initial_tf
             self.entry_symbol.delete(0, "end")
             self._hide_suggestions()
 
@@ -1048,6 +1445,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self.entry_lots.pop(symbol, None)
             self.entry_risk_pcts.pop(symbol, None)
             self.opt_timeframes.pop(symbol, None)
+            self.btn_suggested_tf.pop(symbol, None)
             self.lbl_risk_usd.pop(symbol, None)
             self.lbl_sl_pips.pop(symbol, None)
             self.lbl_suggested_lot.pop(symbol, None)
@@ -1081,7 +1479,11 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
         for symbol in matches:
             start_time, end_time = STRATEGY_CONFIG.get_session_times_for_symbol(symbol)
-            display_text = f"{symbol} -- 🕒 {start_time}-{end_time}"
+            sugg = self._get_suggested_timeframe(symbol)
+            if sugg:
+                display_text = f"{symbol} -- 🕒 {start_time}-{end_time} | 🔬 Sug: {sugg['timeframe_str']} ({sugg['avg_r']:+.1f}R)"
+            else:
+                display_text = f"{symbol} -- 🕒 {start_time}-{end_time}"
 
             btn = ctk.CTkButton(
                 self.suggestions_frame,
@@ -1127,15 +1529,20 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         entry_lot = self.entry_lots[symbol]
         entry_risk = self.entry_risk_pcts[symbol]
         opt_tf = self.opt_timeframes[symbol]
+        btn_tf = self.btn_suggested_tf.get(symbol)
 
         if is_switch_on:
             entry_lot.configure(state="disabled", fg_color="#1A1A1A", text_color="#555555")
             entry_risk.configure(state="disabled", fg_color="#1A1A1A", text_color="#555555")
             opt_tf.configure(state="disabled")
+            if btn_tf:
+                btn_tf.configure(state="disabled")
         else:
             entry_lot.configure(state="normal", fg_color="#333333", text_color="#FFFFFF")
             entry_risk.configure(state="normal", fg_color="#333333", text_color="#FFFFFF")
             opt_tf.configure(state="normal")
+            if btn_tf:
+                btn_tf.configure(state="normal")
 
     def update_available_symbols(self, available: List[str]) -> None:
         self.available_symbols = available
@@ -1157,7 +1564,11 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             specs = self.symbol_specs.get(symbol, {})
             min_lot = specs.get("volume_min", 0.01)
             use_lot = lot if (lot is not None and lot > 0) else min_lot
-            use_tf = timeframe if (timeframe and timeframe in TIMEFRAME_MAP) else "M5"
+            if timeframe and timeframe in TIMEFRAME_MAP:
+                use_tf = timeframe
+            else:
+                sugg = self._get_suggested_timeframe(symbol)
+                use_tf = sugg["timeframe_str"] if sugg else "M5"
 
             self.symbols.append(symbol)
             self.symbol_lots[symbol] = use_lot
@@ -1168,6 +1579,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
             if self.on_symbols_changed_callback:
                 self.on_symbols_changed_callback(self.symbols)
+
 
     def set_symbol_active(self, symbol: str, active: bool = True) -> None:
         """Activa o desactiva programáticamente el switch de un símbolo disparando su callback."""

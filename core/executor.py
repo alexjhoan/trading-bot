@@ -1,7 +1,34 @@
+import unicodedata
+import re
 from typing import Optional, Callable, Dict, Any
 import MetaTrader5 as mt5
 from config import RISK_CONFIG, STRATEGY_CONFIG, SYMBOL_CONFIG, SymbolConfig, RiskConfig, StrategyConfig
 from .journal_logger import TradingJournal
+
+
+def sanitize_mt5_comment(text: Any, max_length: int = 31) -> str:
+    """
+    Sanitiza y normaliza un comentario para MT5.
+    MT5 requiere un string ASCII estricto de maximo 31 caracteres. Caracteres no ASCII
+    (como tildes, dieresis, ñ o emojis) causan el error MT5 (-2, 'Invalid \"comment\" argument').
+    """
+    if text is None:
+        return "Bot"
+    try:
+        s = str(text).strip()
+        if not s:
+            return "Bot"
+        # Normalizar caracteres con tildes / caracteres unicode a ASCII
+        nfkd = unicodedata.normalize("NFKD", s)
+        ascii_text = nfkd.encode("ASCII", "ignore").decode("ASCII")
+        # Reemplazar caracteres no estándar y espacios consecutivos
+        clean = re.sub(r"[^a-zA-Z0-9_\-\. ]", "_", ascii_text)
+        clean = re.sub(r"\s+", "_", clean).strip("_")
+        if not clean:
+            clean = "Bot"
+        return clean[:max_length]
+    except Exception:
+        return "Bot"
 
 
 def get_filling_mode(symbol: str) -> int:
@@ -136,7 +163,7 @@ class OrderExecutor:
             "tp": final_tp_price,
             "deviation": 10,
             "magic": 123456,
-            "comment": comment or "Bot Order",
+            "comment": sanitize_mt5_comment(comment or "Bot Order"),
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": get_filling_mode(self.symbol),
         }
@@ -243,6 +270,8 @@ class OrderExecutor:
         ticket_id = getattr(pos_obj, "ticket", int(position) if isinstance(position, (int, str)) else 0)
         volume = float(getattr(pos_obj, "volume", 0.01))
 
+        clean_comment = sanitize_mt5_comment(f"Bot_{reason}")
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "position": ticket_id,
@@ -252,12 +281,16 @@ class OrderExecutor:
             "price": price,
             "deviation": 25,
             "magic": 123456,
-            "comment": f"Bot_{reason}"[:31],
+            "comment": clean_comment,
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": get_filling_mode(sym),
         }
 
         result = mt5.order_send(request)
+        if result is None or (result.retcode != mt5.TRADE_RETCODE_DONE and "comment" in str(mt5.last_error()).lower()):
+            # Fallback seguro con comentario simple en caso de que el broker o MT5 rechace el comentario
+            request["comment"] = "Bot_Close"
+            result = mt5.order_send(request)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             pos_type_str = "BUY" if pos_type == mt5.POSITION_TYPE_BUY else "SELL"
             pnl = float(getattr(pos_obj, "profit", 0.0)) + float(getattr(pos_obj, "swap", 0.0))

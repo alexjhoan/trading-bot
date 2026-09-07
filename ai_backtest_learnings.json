@@ -1,0 +1,15 @@
+{
+  "generated_at_str": "2026-09-05",
+  "symbols": {
+    "EURUSD": {
+      "optimal_tf": "M15",
+      "win_rate": 50.0,
+      "avg_r": 0.62,
+      "trades": 8,
+      "avoid_patterns": [
+        "Evitar compras con RSI > 70"
+      ],
+      "risk_advice": "Trail stop a 1.2R"
+    }
+  }
+}

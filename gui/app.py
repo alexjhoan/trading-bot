@@ -19,6 +19,8 @@ from core.config_manager import load_config, save_config
 from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs, check_user_credentials_exist
 from core.licensing import verify_license_token, get_hardware_id
 from core.stats_calculator import calculate_closed_trades_stats
+from core.backtester import run_daily_incremental_backtest
+from core.ai_backtest_learner import generate_backtest_learnings
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -58,6 +60,8 @@ class QuantBotApp(ctk.CTk):
 
         self.stop_events: Dict[str, threading.Event] = {}
         self.workers: Dict[str, SymbolWorker] = {}
+        self.last_daily_backtest_date: str = ""
+        self._is_daily_backtest_running: bool = False
 
         self._build_ui()
 
@@ -412,12 +416,94 @@ class QuantBotApp(ctk.CTk):
             # 📊 Actualizar estadísticas en tiempo real
             self._refresh_stats()
 
+            # 🌙 Ejecutar Backtesting Incremental Diario y Auto-Aprendizaje IA tras las 17:00
+            self._check_and_run_daily_backtest()
+
         except Exception as e:
             print(f"[DEBUG ACCOUNT] Excepción en loop: {e}")
             traceback.print_exc()
 
         self.after(5000, self._update_account_loop)
 
+    def _check_and_run_daily_backtest(self) -> None:
+        """
+        Evalúa si la hora actual es posterior a las 17:00 (cierre diario de mercado Forex)
+        y ejecuta el backtesting incremental del día actual sin repetir el histórico completo.
+        """
+        from datetime import datetime
+        now = datetime.now()
+        today_str = now.strftime("%Y-%m-%d")
+
+        # Se activa si son las 17:05 o posterior y no se ha ejecutado hoy
+        if (now.hour > 17 or (now.hour == 17 and now.minute >= 5)) and self.last_daily_backtest_date != today_str:
+            if not self._is_daily_backtest_running:
+                self.last_daily_backtest_date = today_str
+                threading.Thread(target=self._run_daily_incremental_pipeline, daemon=True).start()
+
+    def _run_daily_incremental_pipeline(self) -> None:
+        """Ejecuta el backtesting incremental de las últimas 24h y actualiza la memoria IA."""
+        self._is_daily_backtest_running = True
+        try:
+            symbols_to_test = list(self.symbols) if self.symbols else []
+            if not symbols_to_test:
+                return
+
+            self.console.log(
+                "General",
+                f"🌙 [CIERRE DE MERCADO 17:00] Iniciando Backtesting Incremental Diario (últimas 24h) para {len(symbols_to_test)} pares...",
+                "INFO"
+            )
+
+            # Mapeo de timeframes por símbolo
+            tf_map: Dict[str, int] = {}
+            if hasattr(self, "symbol_selector"):
+                all_cfgs = self.symbol_selector.get_all_symbol_configs()
+                for s, cfg in all_cfgs.items():
+                    tf_map[s] = cfg.get("timeframe_val", mt5.TIMEFRAME_M15)
+
+            # 1. Ejecutar Backtesting Incremental y fusionar en backtest_results.json
+            active_strat = self.config_data.get("selected_strategy", self.selected_strategy or "forex")
+            updated_records = run_daily_incremental_backtest(
+                symbols=symbols_to_test,
+                strategy_name=active_strat,
+                timeframe_map=tf_map
+            )
+
+            self.console.log(
+                "General",
+                f"✅ [BACKTEST DIARIO COMPLETADO] {len(updated_records)} registros actualizados y consolidados en memoria.",
+                "SUCCESS"
+            )
+
+            # 2. Sintetizar aprendizaje con IA si hay API Key configurada
+            api_key = self.config_data.get("ai_api_key", "").strip()
+            if api_key:
+                self.console.log("General", "🧠 [SÍNTESIS IA] Actualizando reglas de aprendizaje y heurísticas con IA...", "INFO")
+                model_name = self.config_data.get("ai_model", "gemini-3.6-flash")
+                ok, data, msg = generate_backtest_learnings(
+                    api_key=api_key,
+                    model_name=model_name,
+                    strategy_name=active_strat
+                )
+                if ok:
+                    sym_count = len(data.get("symbols", {}))
+                    self.console.log(
+                        "General",
+                        f"✨ [APRENDIZAJE IA SINCRONIZADO] {sym_count} pares analizados. Heurísticas y reglas persistidas en ai_backtest_learnings.json.",
+                        "SUCCESS"
+                    )
+                else:
+                    self.console.log("General", f"⚠️ [SÍNTESIS IA]: {msg}", "WARNING")
+
+            # 3. Refrescar badges de Timeframe sugerido en la tabla de símbolos
+            if hasattr(self, "symbol_selector"):
+                self.after(0, self.symbol_selector._refresh_all_suggested_timeframes)
+
+        except Exception as e:
+            self.console.log("General", f"❌ Error en pipeline incremental diario: {e}", "ERROR")
+            traceback.print_exc()
+        finally:
+            self._is_daily_backtest_running = False
 
     def on_worker_log(self, symbol: str, message: str, level: str = "INFO") -> None:
         """Callback que reciben los workers para enviar logs a la consola de la UI."""

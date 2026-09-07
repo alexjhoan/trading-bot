@@ -249,3 +249,11 @@ class AIMemoryManager:
             except Exception:
                 return []
 
+    def get_backtest_learnings_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Recupera el resumen y reglas de aprendizaje generadas por Deep Search para el símbolo."""
+        try:
+            from core.ai_backtest_learner import get_symbol_learning
+            return get_symbol_learning(symbol)
+        except Exception:
+            return None
+

@@ -1,8 +1,14 @@
 Todo:
   ☐ el lote minimo no se esta tomando de la divisa
   ☐ los lotes deben venir de la config del broker
+  ☑ Resuelto: Error cerrando posición con Last MT5 Error: (-2, 'Invalid "comment" argument') (Sanitización ASCII estricta + fallback seguro)
+  ☑ Implementado: Sugerencia de Timeframe por símbolo obtenida desde Deep Search en Symbol Selector
 
+preguntar si se puede hacer un ajuste automatico en las temporalidades y el que el bot seleccione el mejor tiempo
 
+como podemos hacer para crar una estratetia de autoaprendizaje en el que el bot, guarde toda la informacion necesaria de las entradas y se las envie a la IA y la IA con esta informacion aprenda y ajuste la estratetia cada vez segun lo que va aprendinedo? este archivo seria ai-strategy, y como las demas la introduccion de esta estrategia tiene que ser un comentario de como funciona con ajustes para mt5 y las variables, creo que tambien tendra que enviarle la estrategia cada vez para que la la comprenda y la mejore
+
+Que todos los días después de las 5 que cierra el mercado Se haga un back testing. De todo ese día Para agregar a la memoria de mejora Del Bot
 
 prompt
  entonces te voy a facilitar los archivos que involucran esta funcionalidad, porfa puedes analizarlos y ayudarme a conseguir la falla, adicionamente no asumas, si necesitas mas archivos me lo comentas y con gusto te los facilito igual hazme todas las preguntas necesarias, ademas para evitar disparidad en el codigo, solo dime que secciones de codigo tengo que ajustar y lo cambio, ya que sin querer se pueden cambiar nombre de variables o funciones y se pueden dañar mas cosas

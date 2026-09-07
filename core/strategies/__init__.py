@@ -8,11 +8,13 @@ from typing import Dict, List, Type, Any, Optional
 from .base_strategy import BaseStrategy
 from .forex import ForexStrategy
 from .syntx import SyntxStrategy
+from .ai_strategy import AIStrategy
 
 # Registro estático inicial de estrategias disponibles
 AVAILABLE_STRATEGIES: Dict[str, Type[BaseStrategy]] = {
     "forex": ForexStrategy,
     "syntx": SyntxStrategy,
+    "ai_strategy": AIStrategy,
 }
 
 
