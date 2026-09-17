@@ -13,7 +13,7 @@ from core.market_context import calculate_psychological_levels, analyze_macro_mu
 from core.candlestick_patterns import format_candlestick_summary_for_ai, detect_candlestick_patterns
 
 
-DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 # Control global de Rate Limit / Cooldown para evitar tormentas de peticiones 429
 _GLOBAL_RATE_LIMIT_LOCK = threading.Lock()
@@ -50,8 +50,12 @@ def _set_global_cooldown(seconds: float) -> None:
 # Proveedores soportados con sus configuraciones por defecto
 PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
     "Google Gemini": {
-        "default_model": "gemini-3.6-flash",
+        "default_model": "gemini-2.5-flash",
         "models": [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-2.5-pro",
             "gemini-3.6-flash"
         ],
         "default_url": "https://generativelanguage.googleapis.com"
@@ -79,9 +83,9 @@ PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
         "default_url": "https://api.groq.com/openai/v1"
     },
     "OpenRouter (Multi-Proveedor)": {
-        "default_model": "google/gemini-3.6-flash",
+        "default_model": "google/gemini-2.5-flash",
         "models": [
-            "google/gemini-3.6-flash",
+            "google/gemini-2.5-flash",
             "anthropic/claude-3.5-sonnet",
             "openai/gpt-4o-mini",
             "deepseek/deepseek-chat"
@@ -347,6 +351,13 @@ def send_ai_http_with_retry(
 
             # Manejo específico y robusto para HTTP 429 (Rate Limit / Quota)
             if he.code == 429:
+                is_quota_exhausted = any(k in err_body for k in ("RESOURCE_EXHAUSTED", "Quota exceeded", "quotaId", "FreeTier"))
+                if is_quota_exhausted:
+                    print(f"⚠️ [{action_label}] Cuota diaria de solicitudes agotada en proveedor de IA (RESOURCE_EXHAUSTED). Evitando reintentos innecesarios...")
+                    _set_global_cooldown(60.0)
+                    he.msg = f"{he.msg} | {err_body}"
+                    raise he
+
                 wait_time = 5.0 * (2 ** intento) + random.uniform(0.5, 1.5)
                 _set_global_cooldown(wait_time)
                 print(f"⚠️ [{action_label}] Rate Limit / 429 detectado. Cooldown activo ({wait_time:.1f}s) - Reintento {intento + 1}/{max_retries}...")
@@ -615,16 +626,9 @@ def evaluate_trade_setup_direct(
     fibo_px = details.get("fibo_target_price", current_price)
     reentry_tag = f" [⚡ REENTRADA #{reentry_num} - Nivel Fibonacci {fibo_pct}% | Objetivo: {fibo_px}]" if is_reentry else " [NUEVA ENTRADA BASE - Fibo 61.8%]"
 
-    # Lecciones históricas de Deep Search (Backtest Learner)
-    try:
-        from core.ai_backtest_learner import format_backtest_learning_for_ai
-        backtest_learnings_str = format_backtest_learning_for_ai(clean_symbol, timeframe)
-    except Exception:
-        backtest_learnings_str = "Sin lecciones de backtesting sintetizadas."
-
     system_instruction = (
         "Eres un Gestor de Riesgo Cuantitativo Senior de Trading Algorítmico.\n"
-        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez, patrones de velas, niveles de Fibonacci, riesgo y lecciones históricas de backtesting.\n\n"
+        "Validas o rechazas señales candidatas analizando micro-contexto, macro-tendencia, liquidez, patrones de velas, niveles de Fibonacci y riesgo.\n\n"
         "REGLAS DE BLOQUEO Y APROBACIÓN ESTRICTAS:\n"
         "1. Rechaza ('approved': false) si hay noticias de alto impacto (HIGH) en <30 min.\n"
         "2. Rechaza ('approved': false) si el spread actual es anómalo/alto (>3.0 pips) o coincide con cierre de sesión/rollover.\n"
@@ -632,13 +636,11 @@ def evaluate_trade_setup_direct(
         "4. Rechaza si la señal en M15 contradice la estructura Macro (H4/D1).\n"
         "5. CONFLUENCIA DE VELAS: Prioriza ('approved': true) compras BUY respaldadas por patrones alcistas (Morning Star, Hammer, Bullish Engulfing, Three White Soldiers, Rising Three, Piercing Line, Bullish Harami); y ventas SELL respaldadas por patrones bajistas (Evening Star, Shooting Star, Bearish Engulfing, Three Black Crows, Falling Three, Dark Cloud Cover, Bearish Harami).\n"
         "6. ESCALERA DE REENTRADAS EN FIBONACCI (78.6%, 92%, 100%, 132%, etc.): Si se evalúa una REENTRADA, valida que el precio se encuentre en un retroceso institucional óptimo, respetando la estructura con volumen o rechazo.\n"
-        "7. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido.\n"
-        "8. APRENDIZAJE DE BACKTESTING: Si el reporte de Deep Search identifica trampas o patrones de fallo recurrente para este par, aplícalas con prioridad para descartar entradas engañosas."
+        "7. Si apruebas, define SL/TP con R:R de 1:1.8 a 1:3 responder estricto en el esquema definido."
     )
 
     user_content = (
-        f"CUENTA: Eq ${equity:,.2f} USD | Historial Real {clean_symbol}: {history_summary}\n"
-        f"LECCIONES DE BACKTESTING (DEEP SEARCH): {backtest_learnings_str}\n\n"
+        f"CUENTA: Eq ${equity:,.2f} USD | Historial {clean_symbol}: {history_summary}\n\n"
         f"SEÑAL EN EVALUACIÓN ({timeframe}){reentry_tag}:\n"
         f"- Par: {clean_symbol} | Dirección: {signal} | Precio: {current_price}\n"
         f"- Sugerido: SL {strat_sl} | TP {strat_tp} | Lote {strat_lot} | ATR {atr_str}\n\n"
@@ -997,19 +999,11 @@ def evaluate_batch_trade_setups(
         else:
             hist_str = f"Historial {clean_sym}: Sin operaciones previas"
 
-        # Lecciones de backtesting para este par
-        try:
-            from core.ai_backtest_learner import format_backtest_learning_for_ai
-            bt_str = format_backtest_learning_for_ai(clean_sym, tf)
-        except Exception:
-            bt_str = ""
-        bt_line = f"\n   - Lecciones Deep Search: {bt_str}" if bt_str else ""
-
         prompt_items.append(
             f"{idx}. [{clean_sym}]{reentry_tag}\n"
             f"   - Dirección: {sig} | Precio: {px} | SL Sugerido: {sl} | TP: {tp} | Lote: {lot} | ATR: {atr_str}\n"
             f"   - Contexto: {spread} | {news} | Macro: {macro} | {candle}\n"
-            f"   - {hist_str}.{bt_line}"
+            f"   - {hist_str}."
         )
 
     user_content = "EVALÚA LAS SIGUIENTES SEÑALES CANDIDATAS:\n\n" + "\n\n".join(prompt_items)
@@ -1550,20 +1544,12 @@ def evaluate_open_position_ai_direct(
         "Responde ESTRICTAMENTE con el esquema JSON indicado."
     )
 
-    # Lecciones históricas de Deep Search (Backtest Learner)
-    try:
-        from core.ai_backtest_learner import format_backtest_learning_for_ai
-        backtest_learnings_pos = format_backtest_learning_for_ai(clean_symbol)
-    except Exception:
-        backtest_learnings_pos = ""
-    bt_pos_line = f"\n- Lecciones Backtest ({clean_symbol}): {backtest_learnings_pos}" if backtest_learnings_pos else ""
-
     user_content = (
         f"ESTADO DE POSICIÓN ACTIVA #{ticket} ({clean_symbol}):\n"
         f"- Tipo: {pos_type} | Volumen: {volume} lotes | Precio Entrada: {open_price}\n"
         f"- Precio Actual: {current_price} | Flotante: ${profit_usd:+.2f} USD ({profit_pips:+.1f} pips)\n"
         f"- SL Actual: {current_sl} | TP Actual: {current_tp}\n"
-        f"- Historial Previo ({clean_symbol}): {history_summary}{bt_pos_line}\n\n"
+        f"- Historial Previo ({clean_symbol}): {history_summary}\n\n"
         f"MÉTRICAS DE MERCADO Y ESTRUCTURA:\n"
         f"- EMA 200 Macro: {ema_trend:.5f} | ATR: {current_atr:.5f} | Spread: {spread_pips:.1f} pips\n"
         f"- PATRÓN DE VELAS RECIENTE: {candlestick_summary}\n"
@@ -2223,3 +2209,89 @@ def evaluate_open_position_ai(
     )
 
 
+def test_ai_payload_terminal(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, base_url: str = "") -> Dict[str, Any]:
+    """
+    Ejecuta un test de Evaluación por Lote (Batch) con 3 señales simultáneas (EURUSD, GBPUSD, NZDUSD)
+    para verificar que una sola llamada HTTP evalúa y distribuye todas las respuestas correctamente.
+    """
+    print("\n" + "=" * 75)
+    print("🧠 [DEBUG TERMINAL] INICIANDO TEST DE EVALUACIÓN POR LOTE (BATCH REQUEST)...")
+    print("=" * 75)
+
+    sample_account = {
+        "balance": 10000.0,
+        "equity": 10150.0,
+        "free_margin": 9800.0
+    }
+
+    sample_batch_candidates = [
+        {
+            "symbol": "EURUSD",
+            "signal": "BUY",
+            "price": 1.08500,
+            "default_sl": 1.08200,
+            "default_tp": 1.09100,
+            "default_lot": 0.10,
+            "timeframe": "M15",
+            "atr": 0.00120,
+            "spread_info": "Spread 0.8 pips",
+            "news_summary": "Sin noticias de alto impacto en próximas 2 horas",
+            "macro_summary": "H4 Alcista por encima de EMA 200",
+            "candlestick_summary": "Patrón Hammer Alcista en soporte"
+        },
+        {
+            "symbol": "GBPUSD",
+            "signal": "SELL",
+            "price": 1.29500,
+            "default_sl": 1.29850,
+            "default_tp": 1.28800,
+            "default_lot": 0.08,
+            "timeframe": "M15",
+            "atr": 0.00180,
+            "spread_info": "Spread 1.2 pips",
+            "news_summary": "Sin noticias en los próximos 45 min",
+            "macro_summary": "D1 Bajista bajo EMA 200",
+            "candlestick_summary": "Patrón Shooting Star en resistencia"
+        },
+        {
+            "symbol": "NZDUSD",
+            "signal": "BUY",
+            "price": 0.59200,
+            "default_sl": 0.58950,
+            "default_tp": 0.59700,
+            "default_lot": 0.12,
+            "timeframe": "M15",
+            "atr": 0.00095,
+            "spread_info": "Spread 1.0 pips",
+            "news_summary": "Noticia HIGH IMPACT en 15 minutos",
+            "macro_summary": "Estructura lateral",
+            "candlestick_summary": "Doji Neutral"
+        }
+    ]
+
+    print(f"📡 Proveedor / Modelo: {model_name}")
+    print(f"🔑 API Key: {api_key[:6]}...{api_key[-4:] if len(api_key) > 10 else ''}")
+    if base_url:
+        print(f"🌐 Base URL: {base_url}")
+    print(f"📦 Lote Enviado en 1 Sola Petición: {[c['symbol'] for c in sample_batch_candidates]}")
+    print("-" * 75)
+
+    results = evaluate_batch_trade_setups(
+        account_info=sample_account,
+        candidate_setups=sample_batch_candidates,
+        api_key=api_key,
+        model_name=model_name,
+        base_url=base_url
+    )
+
+    print("📥 [RESPUESTAS DESEMPAQUETADAS Y DISTRIBUIDAS POR PAR]:")
+    for sym, res in results.items():
+        appr_icon = "✅ APROBADO" if res.get("approved") else "❌ RECHAZADO"
+        print(f"\n🔹 {sym} -> {appr_icon} (Confianza: {res.get('confidence', 0)*100:.0f}%)")
+        print(f"   - SL IA: {res.get('ai_sl')} | TP IA: {res.get('ai_tp')} | Lote: {res.get('suggested_lot')} | R:R: {res.get('risk_reward_ratio')}")
+        print(f"   - Opinión: {res.get('opinion')}")
+        if res.get("rejection_reason"):
+            print(f"   - Razón de Rechazo: {res.get('rejection_reason')}")
+
+    print("\n" + "=" * 75 + "\n")
+    return results

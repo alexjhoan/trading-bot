@@ -241,6 +241,10 @@ class AIMemoryManager:
                 print(f"❌ [AI_MEMORY] Error recuperando memoria pasada para {clean_target}: {e}")
                 return []
 
+    def get_recent_trades_context(self, symbol: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """Alias de compatibilidad para recuperar trades cerrados relevantes del símbolo."""
+        return self.get_relevant_past_trades(symbol=symbol, limit=limit)
+
     def get_all_memory(self) -> List[Dict[str, Any]]:
         """Retorna toda la lista de memoria guardada."""
         with _LOCK:
@@ -249,11 +253,34 @@ class AIMemoryManager:
             except Exception:
                 return []
 
-    def get_backtest_learnings_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Recupera el resumen y reglas de aprendizaje generadas por Deep Search para el símbolo."""
-        try:
-            from core.ai_backtest_learner import get_symbol_learning
-            return get_symbol_learning(symbol)
-        except Exception:
-            return None
+    def get_backtest_learnings_for_symbol(self, symbol: str) -> Dict[str, Any]:
+        """Recupera los aprendizajes de backtest para el símbolo desde ai_backtest_learnings.json."""
+        return get_backtest_learnings_for_symbol(symbol)
+
+    def save_backtest_learning(self, symbol: str, learning_data: Dict[str, Any]) -> bool:
+        """Guarda aprendizajes de backtesting para el símbolo."""
+        return save_backtest_learning(symbol, learning_data)
+
+
+def get_backtest_learnings_for_symbol(symbol: str) -> Dict[str, Any]:
+    """
+    Recupera los aprendizajes consolidados de backtest para el símbolo indicado.
+    Almacenados en ai_backtest_learnings.json para modular dinámicamente AIStrategy.
+    """
+    try:
+        from core.ai_backtest_learner import get_backtest_learnings_for_symbol as _gb
+        return _gb(symbol)
+    except Exception as e:
+        print(f"⚠️ [AI_MEMORY] Error cargando backtest learnings para {symbol}: {e}")
+        return {}
+
+
+def save_backtest_learning(symbol: str, learning_data: Dict[str, Any]) -> bool:
+    """Guarda o actualiza las reglas aprendidas de backtesting en ai_backtest_learnings.json."""
+    try:
+        from core.ai_backtest_learner import save_backtest_learning as _sb
+        return _sb(symbol, learning_data)
+    except Exception as e:
+        print(f"❌ [AI_MEMORY] Error guardando backtest learnings para {symbol}: {e}")
+        return False
 

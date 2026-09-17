@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, Any
+from typing import Tuple, Optional, Any, Dict, List
 import MetaTrader5 as mt5
 from config import RISK_CONFIG, RiskConfig
 
@@ -47,14 +47,58 @@ class RiskManager:
         # 3. Cálculo de Pips de Stop Loss
         sl_pips: float = risk_amount / (fixed_lot * pip_value_per_lot)
 
+        print(
+            f"🛡️ [RIESGO SL] Balance: ${balance:.2f} | Riesgo ({risk_pct * 100:.1f}%): ${risk_amount:.2f} | "
+            f"Lote Fijo: {fixed_lot} ➔ SL Pips Calculado: {sl_pips:.1f}"
+        )
+
         debug_msg = (
             f"🛡️ [RIESGO SL] Balance: ${balance:.2f} | Riesgo ({risk_pct * 100:.1f}%): ${risk_amount:.2f} | "
             f"Lote Fijo: {fixed_lot} ➔ SL Pips Calculado: {sl_pips:.1f}"
         )
-        print(debug_msg)
         self._log(debug_msg, "INFO")
 
         return round(sl_pips, 1)
+
+    def calculate_position_size(
+          self,
+          balance: float,
+          sl_pips: float,
+          risk_pct: Optional[float] = None,
+          symbol: Optional[str] = None  # Se acepta por si en el futuro calculas el valor del pip según el símbolo
+      ) -> float:
+          """
+          Calcula el lotaje arriesgando el % configurado o el especificado en risk_pct.
+          """
+          if balance <= 0 or sl_pips <= 0:
+              return 0.01  # Lote mínimo de seguridad
+
+          # Usar el risk_pct pasado como argumento o recurrir al de la configuración
+          effective_risk_pct = risk_pct if risk_pct is not None else self.config.risk_per_trade_pct
+
+          # 1. Dinero exacto a arriesgar en USD
+          risk_amount: float = balance * effective_risk_pct
+
+          # 2. Obtener valor de Pip dinámico según el símbolo en MT5
+          pip_value_per_lot: float = 10.0
+          if symbol:
+              symbol_info = mt5.symbol_info(symbol)
+              if symbol_info is not None and symbol_info.trade_tick_value > 0:
+                  pip_size = symbol_info.point * 10 if symbol_info.digits in (3, 5) else symbol_info.point
+                  pip_value_per_lot = (symbol_info.trade_tick_value / symbol_info.trade_tick_size) * pip_size
+
+          # 3. Cálculo del tamaño de la posición
+          raw_lot: float = risk_amount / (sl_pips * pip_value_per_lot)
+
+          # 4. Normalizar el lotaje
+          lot_step: float = 0.01
+          calculated_lot: float = round(raw_lot / lot_step) * lot_step
+
+          final_lot: float = max(0.01, min(calculated_lot, self.config.max_lot_size))
+
+          print(f"📊 [GESTIÓN RIESGO] Capital: ${balance:.2f} | Riesgo ({effective_risk_pct * 100:.1f}%): ${risk_amount:.2f} | SL: {sl_pips} pips -> Lotaje: {final_lot}")
+
+          return final_lot
 
     def get_current_spread_pips(self, symbol: str) -> float:
         """Calcula el spread actual en Pips para el símbolo."""
@@ -113,23 +157,17 @@ class RiskManager:
         total_local_minutes = now_local.hour * 60 + now_local.minute
         total_utc_minutes = now_utc.hour * 60 + now_utc.minute
 
-        # 1. Fin de semana (Sábado cerrado todo el día; Domingo cerrado antes de las 21:00 UTC / ~17:00 Local)
-        if now_utc.weekday() == 5:
+        # 1. Fin de semana (Sábado y Domingo: Mercado cerrado)
+        if weekday in (5, 6):
             return (
                 True,
-                f"Mercado cerrado por Fin de Semana (Sábado {current_local_hm}).",
-                "BLOCK_AND_CLOSE"
-            )
-        if now_utc.weekday() == 6 and total_utc_minutes < (21 * 60):
-            return (
-                True,
-                f"Mercado cerrado por Fin de Semana (Domingo hasta 21:00 UTC / 17:00 Local).",
+                f"Mercado cerrado por Fin de Semana ({now_local.strftime('%A')} {current_local_hm}).",
                 "BLOCK_AND_CLOSE"
             )
 
         # 2. Cierre de Mercado de Fin de Semana (Viernes noche - Previo a cierre semanal)
         # Forex cierra los viernes a las 22:00 UTC (17:00 EST).
-        if now_utc.weekday() == 4:  # Viernes
+        if weekday == 4:  # Viernes
             close_minutes_utc = 22 * 60  # 22:00 UTC
             close_minutes_local = 17 * 60 # 17:00 Local / EST
             if (total_utc_minutes >= (close_minutes_utc - minutes_before_close)) or \
@@ -140,57 +178,55 @@ class RiskManager:
                     "BLOCK_AND_CLOSE"
                 )
 
-        # 3. Ventana Diaria Universal de Fin de Jornada / Rollover (Lunes a Jueves / Viernes previo a cierre)
-        # NOTA: En domingo después de la apertura (21:00 UTC) es el inicio de la semana de trading, no aplica rollover de cierre diario.
-        if now_utc.weekday() in (0, 1, 2, 3, 4):
-            # 3.1 Verificación en HORA LOCAL (16:00 bloqueo de entradas, 16:50 cierre total)
-            start_no_entries_local = 16 * 60       # 16:00 (Fin de entradas)
-            start_be_protect_local = 16 * 60 + 15  # 16:15 (Mover SL a Breakeven en positivos y monitorear >10% en negativos)
-            start_force_close_local = 16 * 60 + 50 # 16:50 (Cierre forzoso de todas las operaciones)
-            end_rollover_local = 17 * 60 + 20      # 17:20 (Fin de ventana de spread de cambio de día)
+        # 3. Ventana Diaria Universal de Fin de Jornada / Rollover (Lunes a Viernes)
+        # 3.1 Verificación en HORA LOCAL (16:00 bloqueo de entradas, 16:50 cierre total)
+        start_no_entries_local = 16 * 60       # 16:00 (Fin de entradas)
+        start_be_protect_local = 16 * 60 + 15  # 16:15 (Mover SL a Breakeven en positivos y monitorear >10% en negativos)
+        start_force_close_local = 16 * 60 + 50 # 16:50 (Cierre forzoso de todas las operaciones)
+        end_rollover_local = 17 * 60 + 20      # 17:20 (Fin de ventana de spread de cambio de día)
 
-            if start_no_entries_local <= total_local_minutes <= end_rollover_local:
-                if total_local_minutes >= start_force_close_local:
-                    return (
-                        True,
-                        f"Cierre obligatorio de fin de jornada ({current_local_hm} >= 16:50). Liquidando todas las posiciones para proteger capital contra Spreads y Swaps.",
-                        "BLOCK_AND_CLOSE"
-                    )
-                else:
-                    return (
-                        True,
-                        f"Fin de sesión operativa ({current_local_hm} >= 16:00). Nuevas entradas y reentradas suspendidas.",
-                        "BLOCK_ENTRIES"
-                    )
+        if start_no_entries_local <= total_local_minutes <= end_rollover_local:
+            if total_local_minutes >= start_force_close_local:
+                return (
+                    True,
+                    f"Cierre obligatorio de fin de jornada ({current_local_hm} >= 16:50). Liquidando todas las posiciones para proteger capital contra Spreads y Swaps.",
+                    "BLOCK_AND_CLOSE"
+                )
+            else:
+                return (
+                    True,
+                    f"Fin de sesión operativa ({current_local_hm} >= 16:00). Nuevas entradas y reentradas suspendidas.",
+                    "BLOCK_ENTRIES"
+                )
 
-            # 3.2 Verificación en HORA UTC (Equivalente al Rollover bancario de Nueva York ~21:00-22:30 UTC)
-            def _to_minutes(t_str: str, default_val: int) -> int:
-                try:
-                    parts = t_str.strip().split(":")
-                    return int(parts[0]) * 60 + int(parts[1])
-                except Exception:
-                    return default_val
+        # 3.2 Verificación en HORA UTC (Equivalente al Rollover bancario de Nueva York ~21:00-22:30 UTC)
+        def _to_minutes(t_str: str, default_val: int) -> int:
+            try:
+                parts = t_str.strip().split(":")
+                return int(parts[0]) * 60 + int(parts[1])
+            except Exception:
+                return default_val
 
-            start_rollover_utc = _to_minutes(rollover_start, 21 * 60 + 0)
-            end_rollover_utc = _to_minutes(rollover_end, 22 * 60 + 30)
+        start_rollover_utc = _to_minutes(rollover_start, 21 * 60 + 0)
+        end_rollover_utc = _to_minutes(rollover_end, 22 * 60 + 30)
 
-            if start_rollover_utc <= total_utc_minutes <= end_rollover_utc:
-                if total_utc_minutes >= (start_rollover_utc + 50):  # ~21:50 UTC
-                    return (
-                        True,
-                        f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Cierre preventivo de posiciones.",
-                        "BLOCK_AND_CLOSE"
-                    )
-                else:
-                    return (
-                        True,
-                        f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Nuevas entradas bloqueadas.",
-                        "BLOCK_ENTRIES"
-                    )
+        if start_rollover_utc <= total_utc_minutes <= end_rollover_utc:
+            if total_utc_minutes >= (start_rollover_utc + 50):  # ~21:50 UTC
+                return (
+                    True,
+                    f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Cierre preventivo de posiciones.",
+                    "BLOCK_AND_CLOSE"
+                )
+            else:
+                return (
+                    True,
+                    f"Ventana de Rollover UTC ({now_utc.strftime('%H:%M')} UTC). Nuevas entradas bloqueadas.",
+                    "BLOCK_ENTRIES"
+                )
 
         return False, "Horario regular de mercado y liquidez adecuada.", "OK"
 
-    def get_daily_session_rules(self) -> dict[str, Any]:
+    def get_daily_session_rules(self) -> Dict[str, Any]:
         """
         Retorna el estado de la sesión diaria del bot según la hora local:
         - '< 16:00' o '> 17:20': Operativa normal activa (entradas y reentradas permitidas).

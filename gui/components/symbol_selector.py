@@ -9,7 +9,13 @@ from datetime import datetime
 from config import STRATEGY_CONFIG, RISK_CONFIG
 from core.connector import get_symbol_atr_pips
 from core.stats_calculator import rank_symbols_by_performance
-from core.backtester import run_deep_search, get_cached_results, find_best_timeframe
+from core.backtester import (
+    run_deep_search,
+    get_cached_results,
+    find_best_timeframe,
+    compare_strategies_for_symbol,
+    get_best_strategy_per_symbol,
+)
 from core.strategies import get_available_strategies
 
 TIMEFRAME_MAP: Dict[str, int] = {
@@ -34,9 +40,12 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         symbol_lots: Optional[Dict[str, float]] = None,
         symbol_risk_pcts: Optional[Dict[str, float]] = None,
         symbol_timeframes: Optional[Dict[str, str]] = None,
+        symbol_strategies: Optional[Dict[str, str]] = None,
+        default_strategy: Optional[str] = None,
         account_balance: float = 0.0,
         on_toggle_callback: Optional[Callable[[str, bool], None]] = None,
         on_symbols_changed_callback: Optional[Callable[[List[str]], None]] = None,
+        on_deep_search_callback: Optional[Callable[[], None]] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(master, **kwargs)
@@ -47,14 +56,19 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self.symbol_lots: Dict[str, float] = symbol_lots or {}
         self.symbol_risk_pcts: Dict[str, float] = symbol_risk_pcts or {}
         self.symbol_timeframes: Dict[str, str] = symbol_timeframes or {}
+        self.symbol_strategies: Dict[str, str] = symbol_strategies or {}
+        self.default_strategy: str = default_strategy or (get_available_strategies() or ["forex"])[0]
         self.account_balance: float = account_balance
 
         self.on_toggle_callback = on_toggle_callback
         self.on_symbols_changed_callback = on_symbols_changed_callback
+        self.on_deep_search_callback = on_deep_search_callback
 
         self.switch_vars: Dict[str, ctk.BooleanVar] = {}
         self.entry_lots: Dict[str, ctk.CTkEntry] = {}
         self.entry_risk_pcts: Dict[str, ctk.CTkEntry] = {}
+        self.opt_strategies: Dict[str, ctk.CTkOptionMenu] = {}
+        self.btn_suggested_strat: Dict[str, ctk.CTkButton] = {}
         self.opt_timeframes: Dict[str, ctk.CTkOptionMenu] = {}
         self.btn_suggested_tf: Dict[str, ctk.CTkButton] = {}
         self.lbl_risk_usd: Dict[str, ctk.CTkLabel] = {}
@@ -70,13 +84,81 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
         self._build_ui()
 
+    def _get_suggested_strategy(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene la mejor estrategia para el símbolo dado según los backtests guardados en disco.
+        Retorna un dict con {"strategy": str, "win_rate": float, "avg_r": float, "timeframe": str, "trades": int} o None.
+        """
+        try:
+            comp = compare_strategies_for_symbol(symbol)
+            if comp and len(comp) > 0:
+                best = comp[0]
+                strat = best.get("strategy")
+                if strat:
+                    tf_raw = best.get("timeframe", "M15")
+                    if isinstance(tf_raw, int):
+                        tf_str = TIMEFRAME_MAP_REVERSE.get(tf_raw, "M15")
+                    else:
+                        tf_str = str(tf_raw)
+                    return {
+                        "strategy": strat,
+                        "win_rate": float(best.get("win_rate", 0.0)),
+                        "avg_r": float(best.get("avg_r", 0.0)),
+                        "trades": int(best.get("trades", 0)),
+                        "timeframe": tf_str,
+                    }
+        except Exception:
+            pass
+
+        # Fallback: buscar en get_cached_results() si no hay matriz multi-estrategia
+        try:
+            cached_all = get_cached_results()
+            if not cached_all:
+                return None
+
+            base_sym = symbol.strip().lower()
+            matching = []
+            for item in cached_all:
+                sym_item = str(item.get("symbol", "")).strip().lower()
+                res_sym = str(item.get("resolved_symbol", "")).strip().lower()
+                if (
+                    base_sym == sym_item
+                    or base_sym == res_sym
+                    or base_sym.startswith(sym_item)
+                    or sym_item.startswith(base_sym)
+                ):
+                    if not item.get("error") and item.get("trades", 0) >= 1:
+                        matching.append(item)
+
+            if matching:
+                best = max(matching, key=lambda r: (r.get("avg_r", -999), r.get("win_rate", 0)))
+                strat = best.get("strategy")
+                if strat:
+                    tf_val = best.get("timeframe")
+                    tf_str = TIMEFRAME_MAP_REVERSE.get(tf_val, "M15") if isinstance(tf_val, int) else str(tf_val or "M15")
+                    return {
+                        "strategy": strat,
+                        "win_rate": float(best.get("win_rate", 0.0)),
+                        "avg_r": float(best.get("avg_r", 0.0)),
+                        "trades": int(best.get("trades", 0)),
+                        "timeframe": tf_str,
+                    }
+        except Exception:
+            pass
+
+        return None
+
     def _get_suggested_timeframe(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Obtiene el mejor timeframe obtenido por Deep Search (backtest_results.json)
         para el símbolo dado (considerando expectativa avg_r positiva y muestra de trades).
+        Prioriza la estrategia asignada al par.
         """
         try:
-            cached_all = get_cached_results()
+            strat = self.symbol_strategies.get(symbol, self.default_strategy) if hasattr(self, "symbol_strategies") else None
+            cached_all = get_cached_results(strat) if strat else get_cached_results()
+            if not cached_all:
+                cached_all = get_cached_results()
             if not cached_all:
                 return None
 
@@ -103,9 +185,9 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 key=lambda r: (r.get("avg_r", -999), r.get("win_rate_confidence", 0))
             )
             tf_val = best.get("timeframe")
-            tf_str = TIMEFRAME_MAP_REVERSE.get(tf_val)
+            tf_str = TIMEFRAME_MAP_REVERSE.get(tf_val, "M15")
             if not tf_str:
-                return None
+                tf_str = "M15"
 
             return {
                 "timeframe_str": tf_str,
@@ -114,16 +196,17 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 "win_rate": best.get("win_rate", 0.0),
                 "win_rate_confidence": best.get("win_rate_confidence", 0.0),
                 "trades": best.get("trades", 0),
-                "strategy": best.get("strategy", ""),
+                "strategy": best.get("strategy", strat or ""),
             }
         except Exception:
             return None
 
     def _refresh_all_suggested_timeframes(self) -> None:
-        """Refresca todos los badges de timeframe sugerido en la tabla."""
+        """Refresca todos los badges de timeframe y estrategia sugeridos en la tabla."""
         for sym in list(self.symbols):
             try:
                 self._update_suggested_tf_widget(sym)
+                self._update_suggested_strat_widget(sym)
                 self._update_symbol_calc(sym)
             except Exception:
                 pass
@@ -150,28 +233,34 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self,
         checked_symbols: List[str],
         popup: ctk.CTkToplevel,
-        timeframe_by_symbol: Optional[Dict[str, str]] = None
+        timeframe_by_symbol: Optional[Dict[str, str]] = None,
+        strategy_by_symbol: Optional[Dict[str, str]] = None
     ) -> None:
         """Agrega a la tabla los símbolos marcados en el popup de Mejores Pares o Deep Search,
         resolviendo cada uno a su símbolo real del broker. Pregunta si se deben eliminar antes
-        los pares actuales para dejar solo los seleccionados. Si `timeframe_by_symbol` trae una
-        sugerencia (del Deep Search comparando timeframes), la aplica al agregar cada símbolo."""
+        los pares actuales para dejar solo los seleccionados. Si `timeframe_by_symbol` o
+        `strategy_by_symbol` traen sugerencias, las aplica al agregar cada símbolo."""
         if not checked_symbols:
             messagebox.showinfo("Mejores Pares", "No marcaste ningún par para agregar.")
             return
 
         timeframe_by_symbol = timeframe_by_symbol or {}
-        resolved: List[str] = []
+        strategy_by_symbol = strategy_by_symbol or {}
+        resolved: List[tuple] = []
         unresolved: List[str] = []
         for base_sym in checked_symbols:
             matched = self._match_available_symbol(base_sym)
             if matched:
                 sugg_tf = timeframe_by_symbol.get(base_sym)
-                if not sugg_tf:
+                sugg_strat = strategy_by_symbol.get(base_sym)
+                if not sugg_tf or not sugg_strat:
                     sugg = self._get_suggested_timeframe(matched)
                     if sugg:
-                        sugg_tf = sugg["timeframe_str"]
-                resolved.append((matched, sugg_tf))
+                        if not sugg_tf:
+                            sugg_tf = sugg["timeframe_str"]
+                        if not sugg_strat:
+                            sugg_strat = sugg.get("strategy")
+                resolved.append((matched, sugg_tf, sugg_strat))
             else:
                 unresolved.append(base_sym)
 
@@ -193,8 +282,8 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             for existing_symbol in list(self.symbols):
                 self._remove_symbol(existing_symbol)
 
-        for sym, suggested_tf in resolved:
-            self.ensure_symbol_present(sym, timeframe=suggested_tf)
+        for sym, suggested_tf, suggested_strat in resolved:
+            self.ensure_symbol_present(sym, timeframe=suggested_tf, strategy=suggested_strat)
 
         if unresolved:
             messagebox.showwarning(
@@ -281,7 +370,6 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         chk_compare_tf.pack(side="left")
 
         progress_bar = ctk.CTkProgressBar(config_frame, mode="indeterminate")
-        # Se muestra (pack) solo mientras hay una búsqueda corriendo, ver _start_search/_poll_queue
 
         lbl_progress = ctk.CTkLabel(config_frame, text="", font=ctk.CTkFont(size=11), text_color="#F59E0B")
         lbl_progress.pack(padx=10, pady=(0, 4), anchor="w")
@@ -314,10 +402,6 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         timeframe_by_symbol: Dict[str, str] = {}
 
         def _current_min_trades() -> int:
-            # Se lee en el momento (solo desde el hilo principal: _render_results/_format_feed_line
-            # se llaman siempre vía _poll_queue) para que un cambio del selector durante una
-            # búsqueda en curso no rompa nada — la búsqueda ya en marcha usó el valor leído al
-            # iniciar (ver _start_search); esto solo afecta cómo se PINTA/filtra lo ya obtenido.
             return min_trades_options.get(opt_min_trades.get(), 5)
 
         def _render_results(results: List[Dict[str, Any]]) -> None:
@@ -344,7 +428,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 wr_confidence = row.get("win_rate_confidence", 0.0)
                 tf_label = TIMEFRAME_MAP_REVERSE.get(row.get("timeframe"), "?")
                 if trades < min_trades:
-                    row_color = "#666666"  # Menos operaciones que el mínimo elegido: informativo, sin opinar
+                    row_color = "#666666"
                 elif avg_r > 0:
                     row_color = "#2ECC71"
                     green_symbols.append(row["symbol"])
@@ -393,10 +477,6 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 f"(ajust. {row.get('win_rate_confidence', 0):.0f}%), {row.get('avg_r', 0):+.2f}R"
             )
 
-        # Comunicación entre el hilo de fondo y la GUI vía cola: el hilo de fondo NUNCA toca
-        # widgets de Tk directamente (ni siquiera con self.after()) — eso no es seguro de forma
-        # consistente desde un hilo que no es el principal. Solo escribe mensajes en la cola;
-        # el sondeo (_poll_queue) se reprograma siempre desde el hilo principal con popup.after().
         progress_queue: "queue.Queue" = queue.Queue()
         cancel_event = threading.Event()
         accumulated_results: List[Dict[str, Any]] = []
@@ -439,9 +519,6 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             progress_queue.put(("result", row))
 
         def _run_search_thread(strategy_name: str, scope: str, compare_tf: bool, target_days: int, min_trades: int) -> None:
-            # NOTA: strategy_name/scope/compare_tf/target_days/min_trades se reciben como
-            # argumentos (no se leen aquí desde las variables de Tkinter) porque leer/escribir
-            # widgets de Tk desde un hilo que no es el principal no es seguro y puede fallar.
             target_symbols = list(self.symbols) if scope == scope_options[0] else list(self.available_symbols)
 
             if not target_symbols:
@@ -468,6 +545,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                         _push_result({
                             "symbol": sym,
                             "timeframe": best_tf,
+                            "strategy": strategy_name,
                             "trades": tf_result.get("best_trades", 0),
                             "wins": best_entry.get("wins", 0),
                             "losses": best_entry.get("losses", 0),
@@ -503,8 +581,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             lbl_progress.configure(text="⏳ Iniciando...")
             progress_bar.pack(fill="x", padx=10, pady=(0, 6), before=lbl_progress)
             progress_bar.start()
-            # Leer los valores de los widgets en el hilo principal ANTES de lanzar el hilo:
-            # leerlos desde el hilo de fondo no es seguro con Tkinter.
+
             strategy_name = opt_strategy.get()
             scope = opt_scope.get()
             compare_tf = chk_compare_tf_var.get()
@@ -818,6 +895,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         popup = ctk.CTkToplevel(self)
         popup.title("📊 Mejores Pares (Histórico Real)")
         popup.geometry("660x540")
+        popup.minsize(680, 540)
         popup.transient(self.winfo_toplevel())
 
         top_row = ctk.CTkFrame(popup, fg_color="transparent")
@@ -829,7 +907,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             fg_color="#B45309",
             hover_color="#92400E",
             font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._open_deep_search_popup
+            command=self._on_deep_search_button_clicked
         )
         btn_deep_search.pack(side="right")
 
@@ -926,6 +1004,13 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         )
         btn_apply.pack(side="left")
 
+    def _on_deep_search_button_clicked(self) -> None:
+        """Abre Deep Search mediante el callback de la app principal o el popup interno."""
+        if self.on_deep_search_callback:
+            self.on_deep_search_callback()
+        else:
+            self._open_deep_search_popup()
+
     def _build_ui(self) -> None:
         # Título + botón de ranking de pares
         title_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -974,8 +1059,15 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         # Frame Encabezado de Tabla (<th>)
         self._build_table_header()
 
-        # Lista de símbolos activos
-        self.symbols_container = ctk.CTkScrollableFrame(self, fg_color="transparent", height=200)
+        # Lista de símbolos activos (Con scrollbar de alto contraste y visible)
+        self.symbols_container = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            height=200,
+            scrollbar_button_color="#0284C7",
+            scrollbar_button_hover_color="#38BDF8",
+            scrollbar_fg_color="#1e2430"
+        )
         self.symbols_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
         # Renderizar filas iniciales
@@ -1011,15 +1103,17 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
         headers = [
             ("Activo", 55),
-            ("Símbolo", 100),
+            ("Símbolo", 95),
             ("Lote", 65),
             ("Riesgo %", 65),
             ("Riesgo $", 75),
             ("SL Máx", 80),
             ("Lote Sug.", 85),
-            ("Timeframe", 75),
+            ("Estrategia", 85),
+            ("Est. Sugerida", 110),
+            ("Timeframe", 70),
             ("TF Sugerido", 110),
-            ("Horario", 105),
+            ("Horario", 100),
             ("Acciones", 45),
         ]
 
@@ -1058,12 +1152,12 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         )
         switch.pack(side="left", padx=(8, 0), pady=6)
 
-        # 2. Símbolo Label (width ~100)
+        # 2. Símbolo Label (width ~95)
         lbl_sym = ctk.CTkLabel(
             row,
             text=symbol,
             font=ctk.CTkFont(size=12, weight="bold"),
-            width=95,
+            width=90,
             anchor="w"
         )
         lbl_sym.pack(side="left", padx=4)
@@ -1122,8 +1216,53 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         lbl_suggested.pack(side="left", padx=3)
         self.lbl_suggested_lot[symbol] = lbl_suggested
 
-        # 7. Timeframe OptionMenu (width ~75)
-        default_tf = self.symbol_timeframes.get(symbol, "M5")
+        # 6c. Estrategia OptionMenu (width ~80)
+        available_strats = get_available_strategies() or ["forex"]
+        sugg_st = self._get_suggested_strategy(symbol)
+        sugg_strat_name = sugg_st["strategy"] if (sugg_st and sugg_st.get("strategy") in available_strats) else None
+
+        default_strat = self.symbol_strategies.get(symbol)
+        if not default_strat or default_strat not in available_strats:
+            default_strat = sugg_strat_name or self.default_strategy
+        if default_strat not in available_strats:
+            default_strat = available_strats[0]
+        self.symbol_strategies[symbol] = default_strat
+
+        opt_strat = ctk.CTkOptionMenu(
+            row,
+            values=available_strats,
+            width=80,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda strat, s=symbol: self._on_strategy_changed(s, strat)
+        )
+        opt_strat.set(default_strat)
+        opt_strat.pack(side="left", padx=3)
+        self.opt_strategies[symbol] = opt_strat
+
+        # 6d. Est. Sugerida por Deep Search Button/Badge (width ~105)
+        btn_sugg_strat = ctk.CTkButton(
+            row,
+            text="—",
+            width=105,
+            height=26,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#1E293B",
+            hover_color="#334155",
+            text_color="#94A3B8",
+            command=lambda s=symbol: self._on_suggested_strat_clicked(s)
+        )
+        btn_sugg_strat.pack(side="left", padx=3)
+        self.btn_suggested_strat[symbol] = btn_sugg_strat
+
+        # 7. Timeframe OptionMenu (width ~70) - Por defecto sugerido, en caso de error o ausencia M15 (nunca 4h)
+        sugg_tf = self._get_suggested_timeframe(symbol)
+        sugg_tf_str = sugg_tf["timeframe_str"] if (sugg_tf and sugg_tf.get("timeframe_str") in TIMEFRAME_MAP) else None
+
+        default_tf = self.symbol_timeframes.get(symbol)
+        if not default_tf or default_tf not in TIMEFRAME_MAP:
+            default_tf = sugg_tf_str or "M15"
+            self.symbol_timeframes[symbol] = default_tf
+
         opt_tf = ctk.CTkOptionMenu(
             row,
             values=list(TIMEFRAME_MAP.keys()),
@@ -1135,7 +1274,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         opt_tf.pack(side="left", padx=3)
         self.opt_timeframes[symbol] = opt_tf
 
-        # 7b. TF Sugerido por Deep Search Button/Badge (width ~110)
+        # 7b. TF Sugerido por Deep Search Button/Badge (width ~105)
         btn_sugg_tf = ctk.CTkButton(
             row,
             text="—",
@@ -1191,11 +1330,71 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         # Calcular el ATR (en pips) del símbolo para usarlo como piso mínimo recomendado de SL
         self._refresh_symbol_atr(symbol)
 
-        # Actualizar widget de TF sugerido obtenido de Deep Search
+        # Actualizar widgets de TF sugerido y Estrategia sugerida obtenidos de Deep Search
         self._update_suggested_tf_widget(symbol)
+        self._update_suggested_strat_widget(symbol)
 
         # Calcular valores iniciales de la fila
         self._update_symbol_calc(symbol)
+
+    def _on_strategy_changed(self, symbol: str, new_strat: str) -> None:
+        """Se ejecuta al cambiar la estrategia de un símbolo."""
+        self.symbol_strategies[symbol] = new_strat
+        self._refresh_symbol_atr(symbol)
+        self._update_symbol_calc(symbol)
+        self._update_suggested_tf_widget(symbol)
+        self._update_suggested_strat_widget(symbol)
+        if self.on_symbols_changed_callback:
+            self.on_symbols_changed_callback(self.symbols)
+
+    def _update_suggested_strat_widget(self, symbol: str) -> None:
+        """Actualiza el botón/badge de estrategia sugerida por Deep Search para el símbolo."""
+        if symbol not in self.btn_suggested_strat:
+            return
+
+        sugg = self._get_suggested_strategy(symbol)
+        btn = self.btn_suggested_strat[symbol]
+        if sugg:
+            strat_sugg = sugg["strategy"]
+            wr = sugg.get("win_rate", 0.0)
+            curr_strat = self.symbol_strategies.get(symbol, self.default_strategy)
+
+            disp_name = strat_sugg.upper()
+            if curr_strat.lower() == strat_sugg.lower():
+                btn.configure(
+                    text=f"✨ {disp_name} ({wr:.0f}%)",
+                    fg_color="#065F46",
+                    hover_color="#047857",
+                    text_color="#A7F3D0"
+                )
+            else:
+                btn.configure(
+                    text=f"⚡ {disp_name} ({wr:.0f}%)",
+                    fg_color="#B45309",
+                    hover_color="#D97706",
+                    text_color="#FEF3C7"
+                )
+        else:
+            btn.configure(
+                text="🔬 Sin test",
+                fg_color="#1E293B",
+                hover_color="#334155",
+                text_color="#64748B"
+            )
+
+    def _on_suggested_strat_clicked(self, symbol: str) -> None:
+        """Aplica la estrategia sugerida por Deep Search al hacer clic o abre la ventana si no hay test."""
+        sugg = self._get_suggested_strategy(symbol)
+        if sugg:
+            strat_sugg = sugg["strategy"]
+            if symbol in self.opt_strategies:
+                self.opt_strategies[symbol].set(strat_sugg)
+            self._on_strategy_changed(symbol, strat_sugg)
+        else:
+            if self.on_deep_search_callback:
+                self.on_deep_search_callback()
+            else:
+                self._open_deep_search_popup()
 
     def _update_suggested_tf_widget(self, symbol: str) -> None:
         """Actualiza el botón/badge de timeframe sugerido por Deep Search para el símbolo."""
@@ -1207,7 +1406,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         if sugg:
             tf_sugg = sugg["timeframe_str"]
             avg_r = sugg["avg_r"]
-            curr_tf = self.symbol_timeframes.get(symbol, "M5")
+            curr_tf = self.symbol_timeframes.get(symbol, "M15")
 
             if curr_tf == tf_sugg:
                 btn.configure(
@@ -1240,7 +1439,10 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                 self.opt_timeframes[symbol].set(tf_sugg)
             self._on_timeframe_changed(symbol, tf_sugg)
         else:
-            self._open_deep_search_popup()
+            if self.on_deep_search_callback:
+                self.on_deep_search_callback()
+            else:
+                self._open_deep_search_popup()
 
     def _on_timeframe_changed(self, symbol: str, new_tf: str) -> None:
         """Se ejecuta al cambiar el timeframe (manual o por sugerencia de Deep Search)."""
@@ -1248,6 +1450,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         self._refresh_symbol_atr(symbol)
         self._update_symbol_calc(symbol)
         self._update_suggested_tf_widget(symbol)
+        self._update_suggested_strat_widget(symbol)
         if self.on_symbols_changed_callback:
             self.on_symbols_changed_callback(self.symbols)
 
@@ -1257,7 +1460,6 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         Comprueba si el mercado esta abierto para el simbolo y si la hora local se encuentra dentro del rango horario.
         """
         try:
-            # 1. Validar si el mercado está abierto (retorna False si el mercado está cerrado/fin de semana)
             market_open, _ = STRATEGY_CONFIG.is_market_open(symbol)
             if not market_open:
                 return False
@@ -1351,7 +1553,6 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                         )
                         self.lbl_warning[symbol].pack(fill="x", padx=(4, 4), pady=(2, 0))
                     else:
-                        # Si no hay advertencia de ATR, mostrar sugerencia de Deep Search si el timeframe difiere
                         sugg = self._get_suggested_timeframe(symbol)
                         curr_tf = self.symbol_timeframes.get(symbol, "M5")
                         if sugg and sugg["timeframe_str"] != curr_tf and sugg["avg_r"] > 0:
@@ -1392,6 +1593,8 @@ class SymbolSelectorComponent(ctk.CTkFrame):
                     self.symbol_risk_pcts[symbol] = float(risk_str)
             if symbol in self.opt_timeframes:
                 self.symbol_timeframes[symbol] = self.opt_timeframes[symbol].get()
+            if symbol in self.opt_strategies:
+                self.symbol_strategies[symbol] = self.opt_strategies[symbol].get()
         except Exception:
             pass
 
@@ -1413,13 +1616,23 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         min_lot = specs.get("volume_min", 0.01)
 
         if sym not in self.symbols:
-            sugg = self._get_suggested_timeframe(sym)
-            initial_tf = sugg["timeframe_str"] if sugg else "M5"
+            sugg_tf = self._get_suggested_timeframe(sym)
+            initial_tf = sugg_tf["timeframe_str"] if (sugg_tf and sugg_tf.get("timeframe_str") in TIMEFRAME_MAP) else "M15"
+
+            sugg_st = self._get_suggested_strategy(sym)
+            available_strats = get_available_strategies() or ["forex"]
+            if sugg_st and sugg_st.get("strategy") in available_strats:
+                initial_strat = sugg_st["strategy"]
+            elif sugg_tf and sugg_tf.get("strategy") in available_strats:
+                initial_strat = sugg_tf["strategy"]
+            else:
+                initial_strat = self.default_strategy
 
             self.symbols.append(sym)
             self.symbol_lots[sym] = min_lot
             self.symbol_risk_pcts[sym] = 1.0
             self.symbol_timeframes[sym] = initial_tf
+            self.symbol_strategies[sym] = initial_strat
             self.entry_symbol.delete(0, "end")
             self._hide_suggestions()
 
@@ -1429,23 +1642,73 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             if self.on_symbols_changed_callback:
                 self.on_symbols_changed_callback(self.symbols)
 
-    def _remove_symbol(self, symbol: str) -> None:
+    def clear_all_symbols(self) -> None:
+        """Elimina todos los símbolos de la tabla limpiando apropiadamente todos los widgets y menús nativos."""
+        current_list = list(self.symbols)
+        for sym in current_list:
+            self._remove_symbol(sym, notify=False)
+        self.symbols.clear()
+        if self.on_symbols_changed_callback:
+            self.on_symbols_changed_callback(self.symbols)
+
+    def _remove_symbol(self, symbol: str, notify: bool = True) -> None:
         if symbol in self.symbols:
             self.symbols.remove(symbol)
             self.symbol_lots.pop(symbol, None)
             self.symbol_risk_pcts.pop(symbol, None)
             self.symbol_timeframes.pop(symbol, None)
+            self.symbol_strategies.pop(symbol, None)
+
+            # Destruir menús desplegables explícitamente para liberar handles del SO y evitar 'no more menus can be allocated'
+            opt_strat = self.opt_strategies.pop(symbol, None)
+            if opt_strat is not None:
+                try:
+                    if hasattr(opt_strat, "_dropdown_menu") and opt_strat._dropdown_menu:
+                        opt_strat._dropdown_menu.destroy()
+                except Exception:
+                    pass
+                try:
+                    opt_strat.destroy()
+                except Exception:
+                    pass
+
+            opt_tf = self.opt_timeframes.pop(symbol, None)
+            if opt_tf is not None:
+                try:
+                    if hasattr(opt_tf, "_dropdown_menu") and opt_tf._dropdown_menu:
+                        opt_tf._dropdown_menu.destroy()
+                except Exception:
+                    pass
+                try:
+                    opt_tf.destroy()
+                except Exception:
+                    pass
+
+            btn_tf = self.btn_suggested_tf.pop(symbol, None)
+            if btn_tf is not None:
+                try:
+                    btn_tf.destroy()
+                except Exception:
+                    pass
+
+            btn_strat = self.btn_suggested_strat.pop(symbol, None)
+            if btn_strat is not None:
+                try:
+                    btn_strat.destroy()
+                except Exception:
+                    pass
 
             # Eliminar widgets de esta fila únicamente
             if symbol in self.symbol_rows:
-                self.symbol_rows[symbol].destroy()
+                try:
+                    self.symbol_rows[symbol].destroy()
+                except Exception:
+                    pass
                 del self.symbol_rows[symbol]
 
             self.switch_vars.pop(symbol, None)
             self.entry_lots.pop(symbol, None)
             self.entry_risk_pcts.pop(symbol, None)
-            self.opt_timeframes.pop(symbol, None)
-            self.btn_suggested_tf.pop(symbol, None)
             self.lbl_risk_usd.pop(symbol, None)
             self.lbl_sl_pips.pop(symbol, None)
             self.lbl_suggested_lot.pop(symbol, None)
@@ -1453,7 +1716,7 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             self.symbol_atr_pips.pop(symbol, None)
             self.lbl_schedule_dict.pop(symbol, None)
 
-            if self.on_symbols_changed_callback:
+            if notify and self.on_symbols_changed_callback:
                 self.on_symbols_changed_callback(self.symbols)
 
     def _on_search_changed(self, event: Any) -> None:
@@ -1528,18 +1791,28 @@ class SymbolSelectorComponent(ctk.CTkFrame):
 
         entry_lot = self.entry_lots[symbol]
         entry_risk = self.entry_risk_pcts[symbol]
+        opt_strat = self.opt_strategies.get(symbol)
+        btn_strat = self.btn_suggested_strat.get(symbol)
         opt_tf = self.opt_timeframes[symbol]
         btn_tf = self.btn_suggested_tf.get(symbol)
 
         if is_switch_on:
             entry_lot.configure(state="disabled", fg_color="#1A1A1A", text_color="#555555")
             entry_risk.configure(state="disabled", fg_color="#1A1A1A", text_color="#555555")
+            if opt_strat:
+                opt_strat.configure(state="disabled")
+            if btn_strat:
+                btn_strat.configure(state="disabled")
             opt_tf.configure(state="disabled")
             if btn_tf:
                 btn_tf.configure(state="disabled")
         else:
             entry_lot.configure(state="normal", fg_color="#333333", text_color="#FFFFFF")
             entry_risk.configure(state="normal", fg_color="#333333", text_color="#FFFFFF")
+            if opt_strat:
+                opt_strat.configure(state="normal")
+            if btn_strat:
+                btn_strat.configure(state="normal")
             opt_tf.configure(state="normal")
             if btn_tf:
                 btn_tf.configure(state="normal")
@@ -1558,28 +1831,78 @@ class SymbolSelectorComponent(ctk.CTkFrame):
             return bool(self.switch_vars[symbol].get())
         return False
 
-    def ensure_symbol_present(self, symbol: str, lot: Optional[float] = None, timeframe: Optional[str] = None) -> None:
-        """Si el símbolo no existe en la lista de la tabla, lo agrega con el lote y timeframe especificados."""
+    def ensure_symbol_present(
+        self,
+        symbol: str,
+        lot: Optional[float] = None,
+        timeframe: Optional[str] = None,
+        strategy: Optional[str] = None,
+        notify: bool = True
+    ) -> None:
+        """Si el símbolo no existe en la lista de la tabla, lo agrega con el lote, timeframe y estrategia especificados."""
+        available_strats = get_available_strategies() or ["forex"]
+
+        # 1. Estrategia: sugerida por defecto si existe, o default_strategy
+        if strategy and strategy in available_strats:
+            use_strat = strategy
+        else:
+            sugg_st = self._get_suggested_strategy(symbol)
+            if sugg_st and sugg_st.get("strategy") in available_strats:
+                use_strat = sugg_st["strategy"]
+            else:
+                use_strat = self.default_strategy
+        if use_strat not in available_strats:
+            use_strat = available_strats[0]
+
+        # 2. Timeframe: sugerido por defecto, en caso de error o ausencia M15 (15m, nunca 4h)
+        if timeframe and timeframe in TIMEFRAME_MAP:
+            use_tf = timeframe
+        else:
+            sugg_tf = self._get_suggested_timeframe(symbol)
+            use_tf = sugg_tf["timeframe_str"] if (sugg_tf and sugg_tf.get("timeframe_str") in TIMEFRAME_MAP) else "M15"
+
         if symbol not in self.symbols:
             specs = self.symbol_specs.get(symbol, {})
             min_lot = specs.get("volume_min", 0.01)
             use_lot = lot if (lot is not None and lot > 0) else min_lot
-            if timeframe and timeframe in TIMEFRAME_MAP:
-                use_tf = timeframe
-            else:
-                sugg = self._get_suggested_timeframe(symbol)
-                use_tf = sugg["timeframe_str"] if sugg else "M5"
 
             self.symbols.append(symbol)
             self.symbol_lots[symbol] = use_lot
             self.symbol_risk_pcts[symbol] = 1.0
             self.symbol_timeframes[symbol] = use_tf
+            self.symbol_strategies[symbol] = use_strat
 
             self._add_symbol_row(symbol)
 
-            if self.on_symbols_changed_callback:
+            if notify and self.on_symbols_changed_callback:
                 self.on_symbols_changed_callback(self.symbols)
+        else:
+            if strategy and strategy in available_strats:
+                self.symbol_strategies[symbol] = strategy
+                if symbol in self.opt_strategies:
+                    self.opt_strategies[symbol].set(strategy)
+            elif symbol not in self.symbol_strategies:
+                self.symbol_strategies[symbol] = use_strat
+                if symbol in self.opt_strategies:
+                    self.opt_strategies[symbol].set(use_strat)
 
+            if timeframe and timeframe in TIMEFRAME_MAP:
+                self.symbol_timeframes[symbol] = timeframe
+                if symbol in self.opt_timeframes:
+                    self.opt_timeframes[symbol].set(timeframe)
+            elif symbol not in self.symbol_timeframes:
+                self.symbol_timeframes[symbol] = use_tf
+                if symbol in self.opt_timeframes:
+                    self.opt_timeframes[symbol].set(use_tf)
+
+            if lot is not None and lot > 0:
+                self.symbol_lots[symbol] = lot
+                if symbol in self.entry_lots:
+                    self.entry_lots[symbol].delete(0, "end")
+                    self.entry_lots[symbol].insert(0, str(lot))
+            self._update_symbol_calc(symbol)
+            self._update_suggested_tf_widget(symbol)
+            self._update_suggested_strat_widget(symbol)
 
     def set_symbol_active(self, symbol: str, active: bool = True) -> None:
         """Activa o desactiva programáticamente el switch de un símbolo disparando su callback."""
@@ -1607,11 +1930,18 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         tf_str = str(self.opt_timeframes[symbol].get()) if symbol in self.opt_timeframes else "M1"
         tf_val = TIMEFRAME_MAP.get(tf_str, mt5.TIMEFRAME_M1)
 
+        available_strats = get_available_strategies() or ["forex"]
+        default_strat = self.symbol_strategies.get(symbol, self.default_strategy)
+        strat_str = str(self.opt_strategies[symbol].get()) if symbol in self.opt_strategies else default_strat
+        if strat_str not in available_strats:
+            strat_str = available_strats[0]
+
         return {
             "lot": lot,
             "risk_pct": risk_pct,
             "timeframe_str": tf_str,
             "timeframe_val": tf_val,
+            "strategy": strat_str,
         }
 
     def get_all_symbol_configs(self) -> Dict[str, Dict[str, Any]]:
@@ -1620,4 +1950,3 @@ class SymbolSelectorComponent(ctk.CTkFrame):
         for sym in self.symbols:
             configs[sym] = self.get_symbol_config(sym)
         return configs
-

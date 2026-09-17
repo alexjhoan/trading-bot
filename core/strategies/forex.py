@@ -58,7 +58,7 @@ class ForexStrategy(BaseStrategy):
         self.use_session_filter: bool = getattr(self.config, "use_session_filter", use_session_filter)
 
         # Parámetros de gestión de riesgo ATR, Fibonacci y Fallback Estático
-        self.ema_trend_period: int = kwargs.get("ema_trend_period", 200)
+        self.ema_trend_period: int = kwargs.get("ema_trend_period", 150)
         self.atr_sl_mult: float = kwargs.get("atr_sl_mult", 1.5)
         self.atr_tp_mult: float = kwargs.get("atr_tp_mult", 3.0)
         self.static_sl_pips: float = kwargs.get("static_sl_pips", 20.0)

@@ -25,6 +25,7 @@ from core.data_loader import resolve_mt5_symbol
 from core.stats_calculator import wilson_lower_bound
 
 BACKTEST_RESULTS_FILE = Path(__file__).resolve().parent.parent / "backtest_results.json"
+BACKTEST_RESULTS_DIR = Path(__file__).resolve().parent.parent / "backtests"
 LIVE_ROLLING_WINDOW = 300  # Misma ventana que bot_worker.py pide en vivo (rates_count=300)
 CACHE_MAX_AGE_HOURS = 24.0
 
@@ -48,21 +49,113 @@ def _default_history_bars_for_tf(timeframe: int, target_days: int = 30) -> int:
     return max(500, min(bars, 8000))
 
 
-def _load_results_cache() -> Dict[str, Any]:
-    if not os.path.exists(BACKTEST_RESULTS_FILE):
-        return {}
-    try:
-        with open(BACKTEST_RESULTS_FILE, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            return json.loads(content) if content else {}
-    except Exception:
-        return {}
+def get_strategy_backtest_file(strategy_name: Optional[str]) -> Path:
+    """Retorna la ruta del archivo de resultados de backtest específico para la estrategia."""
+    clean_strat = (strategy_name or "general").strip().lower().replace(" ", "_")
+    BACKTEST_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    return BACKTEST_RESULTS_DIR / f"backtest_{clean_strat}.json"
 
 
-def _save_results_cache(data: Dict[str, Any]) -> None:
+def _load_results_cache(strategy_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Carga el cache de backtesting. Si se especifica strategy_name, carga el archivo
+    específico de esa estrategia (en backtests/backtest_{strategy}.json) con fallback
+    a backtest_results.json para mantener compatibilidad y migración fluida.
+    """
+    cache: Dict[str, Any] = {}
+
+    # 1. Si se solicita una estrategia en particular, buscar su archivo específico
+    if strategy_name:
+        strat_file = get_strategy_backtest_file(strategy_name)
+        if strat_file.exists():
+            try:
+                with open(strat_file, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        cache.update(json.loads(content))
+            except Exception as e:
+                print(f"[DEBUG BACKTEST] Error leyendo {strat_file.name}: {e}")
+
+    # 2. Cargar también o fallback desde BACKTEST_RESULTS_FILE si está disponible
+    if os.path.exists(BACKTEST_RESULTS_FILE):
+        try:
+            with open(BACKTEST_RESULTS_FILE, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                legacy = json.loads(content) if content else {}
+                if strategy_name:
+                    for k, v in legacy.items():
+                        strat_match = v.get("strategy") == strategy_name or k.split("|")[1:2] == [strategy_name]
+                        if strat_match and k not in cache:
+                            cache[k] = v
+                else:
+                    for k, v in legacy.items():
+                        if k not in cache:
+                            cache[k] = v
+        except Exception:
+            pass
+
+    # 3. Si no se especificó strategy_name, también consolidar archivos en BACKTEST_RESULTS_DIR
+    if not strategy_name and BACKTEST_RESULTS_DIR.exists():
+        for sf in BACKTEST_RESULTS_DIR.glob("backtest_*.json"):
+            try:
+                with open(sf, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        strat_data = json.loads(content)
+                        cache.update(strat_data)
+            except Exception:
+                pass
+
+    return cache
+
+
+def _save_results_cache(data: Dict[str, Any], strategy_name: Optional[str] = None) -> None:
+    """
+    Guarda los resultados del backtest separadamente por estrategia (en backtests/backtest_{strategy}.json)
+    y sincroniza el archivo maestro 'backtest_results.json' para garantizar compatibilidad retroactiva.
+    """
+    # 1. Guardar en el archivo específico por estrategia
+    by_strat: Dict[str, Dict[str, Any]] = {}
+    for key, val in data.items():
+        s = val.get("strategy")
+        if not s:
+            parts = key.split("|")
+            s = parts[1] if len(parts) >= 2 else (strategy_name or "general")
+        by_strat.setdefault(s, {})[key] = val
+
+    BACKTEST_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    for strat, items in by_strat.items():
+        sf = get_strategy_backtest_file(strat)
+        try:
+            existing_strat = {}
+            if sf.exists():
+                try:
+                    with open(sf, "r", encoding="utf-8") as f:
+                        txt = f.read().strip()
+                        if txt:
+                            existing_strat = json.loads(txt)
+                except Exception:
+                    existing_strat = {}
+            existing_strat.update(items)
+            with open(sf, "w", encoding="utf-8") as f:
+                json.dump(existing_strat, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[DEBUG BACKTEST] Error guardando archivo de estrategia {sf.name}: {e}")
+
+    # 2. Sincronizar archivo general backtest_results.json
     try:
+        master_data: Dict[str, Any] = {}
+        if os.path.exists(BACKTEST_RESULTS_FILE):
+            try:
+                with open(BACKTEST_RESULTS_FILE, "r", encoding="utf-8") as f:
+                    txt = f.read().strip()
+                    if txt:
+                        master_data = json.loads(txt)
+            except Exception:
+                master_data = {}
+        master_data.update(data)
         with open(BACKTEST_RESULTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(master_data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"[DEBUG BACKTEST] Error guardando backtest_results.json: {e}")
 
@@ -300,7 +393,7 @@ def run_deep_search(
     parciales de un símbolo cancelado a mitad de camino no se cachean, para reintentarlo
     completo la próxima vez).
     """
-    cache = _load_results_cache()
+    cache = _load_results_cache(strategy_name)
     now = time.time()
     results: List[Dict[str, Any]] = []
     total = len(symbols)
@@ -322,7 +415,7 @@ def run_deep_search(
             result = backtest_symbol(symbol, strategy_name, timeframe, history_bars=history_bars, cancel_event=cancel_event)
             if not result.get("cancelled"):
                 cache[key] = result
-                _save_results_cache(cache)  # Guardar incrementalmente: si se corta a mitad de camino, no se pierde lo ya hecho
+                _save_results_cache(cache, strategy_name)  # Guardar incrementalmente: si se corta a mitad de camino, no se pierde lo ya hecho
 
         results.append(result)
 
@@ -360,7 +453,7 @@ def find_best_timeframe(
     confiable, no hace falta descartarlo del todo con un umbral más alto).
     """
     candidates = candidate_timeframes or CANDIDATE_TIMEFRAMES
-    cache = _load_results_cache()
+    cache = _load_results_cache(strategy_name)
     now = time.time()
     per_timeframe: List[Dict[str, Any]] = []
 
@@ -379,7 +472,7 @@ def find_best_timeframe(
             result = backtest_symbol(symbol, strategy_name, tf, history_bars=bars, cancel_event=cancel_event)
             if not result.get("cancelled"):
                 cache[key] = result
-                _save_results_cache(cache)
+                _save_results_cache(cache, strategy_name)
 
         per_timeframe.append(result)
 
@@ -423,7 +516,7 @@ def find_best_timeframe(
 
 def get_cached_results(strategy_name: Optional[str] = None) -> List[Dict[str, Any]]:
     """Retorna todos los resultados cacheados (opcionalmente filtrados por estrategia)."""
-    cache = _load_results_cache()
+    cache = _load_results_cache(strategy_name)
     results = list(cache.values())
     if strategy_name:
         results = [r for r in results if r.get("strategy") == strategy_name]
@@ -441,7 +534,7 @@ def run_daily_incremental_backtest(
     para cada símbolo y FUSIONA acumulativamente las nuevas operaciones simuladas
     en 'backtest_results.json' sin recalcular ni borrar el histórico anterior.
     """
-    cache = _load_results_cache()
+    cache = _load_results_cache(strategy_name)
     updated_records = []
 
     for sym in symbols:
@@ -519,7 +612,193 @@ def run_daily_incremental_backtest(
             updated_records.append(daily_res)
 
     if updated_records:
-        _save_results_cache(cache)
+        _save_results_cache(cache, strategy_name)
 
     return updated_records
+
+
+def get_all_strategy_backtests() -> Dict[str, Dict[str, Any]]:
+    """
+    Lee y retorna los resultados de backtesting organizados por cada estrategia
+    individual desde el directorio backtests/.
+    """
+    strategies_data: Dict[str, Dict[str, Any]] = {}
+    if not BACKTEST_RESULTS_DIR.exists():
+        return strategies_data
+
+    for sf in sorted(BACKTEST_RESULTS_DIR.glob("backtest_*.json")):
+        strat_name = sf.stem.replace("backtest_", "")
+        try:
+            with open(sf, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    strategies_data[strat_name] = json.loads(content)
+                else:
+                    strategies_data[strat_name] = {}
+        except Exception as e:
+            print(f"[DEBUG BACKTEST] Error leyendo {sf.name}: {e}")
+            strategies_data[strat_name] = {}
+
+    return strategies_data
+
+
+def compare_strategies_for_symbol(symbol: str) -> List[Dict[str, Any]]:
+    """
+    Compara el rendimiento de todas las estrategias disponibles para un símbolo específico.
+    Retorna lista de métricas por estrategia (Win Rate, Trades, Avg R, etc.).
+    """
+    all_data = get_all_strategy_backtests()
+    comparison: List[Dict[str, Any]] = []
+
+    for strat_name, records in all_data.items():
+        # Buscar el mejor resultado del símbolo en esa estrategia
+        sym_records = [
+            r for r in records.values()
+            if (r.get("symbol") == symbol or r.get("resolved_symbol") == symbol) and not r.get("cancelled")
+        ]
+        if not sym_records:
+            continue
+
+        best_record = max(sym_records, key=lambda x: x.get("win_rate", 0.0))
+        comparison.append({
+            "strategy": strat_name,
+            "symbol": symbol,
+            "timeframe": best_record.get("timeframe"),
+            "trades": best_record.get("trades", 0),
+            "wins": best_record.get("wins", 0),
+            "losses": best_record.get("losses", 0),
+            "win_rate": best_record.get("win_rate", 0.0),
+            "win_rate_confidence": best_record.get("win_rate_confidence", 0.0),
+            "avg_r": best_record.get("avg_r", 0.0),
+            "updated_at": best_record.get("updated_at", 0),
+        })
+
+    comparison.sort(key=lambda x: (x.get("win_rate", 0.0), x.get("avg_r", 0.0)), reverse=True)
+    return comparison
+
+
+def get_strategy_comparison_summary() -> List[Dict[str, Any]]:
+    """
+    Genera un resumen comparativo global de todas las estrategias probadas:
+    - Total de símbolos analizados
+    - Total de operaciones acumuladas
+    - Win Rate promedio global
+    - Promedio de Avg R global
+    """
+    all_data = get_all_strategy_backtests()
+    summary: List[Dict[str, Any]] = []
+
+    for strat_name, records in all_data.items():
+        valid = [r for r in records.values() if not r.get("error") and not r.get("cancelled")]
+        total_trades = sum(r.get("trades", 0) for r in valid)
+        total_wins = sum(r.get("wins", 0) for r in valid)
+        symbols_tested = len(set(r.get("symbol", "") for r in valid))
+
+        if total_trades > 0:
+            global_wr = round((total_wins / total_trades) * 100.0, 1)
+            global_avg_r = round(sum(r.get("avg_r", 0.0) * r.get("trades", 0) for r in valid) / total_trades, 2)
+            global_conf = round(wilson_lower_bound(total_wins, total_trades), 1)
+        else:
+            global_wr = 0.0
+            global_avg_r = 0.0
+            global_conf = 0.0
+
+        summary.append({
+            "strategy": strat_name,
+            "symbols_count": symbols_tested,
+            "total_trades": total_trades,
+            "total_wins": total_wins,
+            "win_rate": global_wr,
+            "win_rate_confidence": global_conf,
+            "avg_r": global_avg_r,
+        })
+
+    summary.sort(key=lambda x: (x["win_rate"], x["avg_r"]), reverse=True)
+    return summary
+
+
+def get_best_strategy_per_symbol(target_symbols: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """
+    Analiza todos los backtests guardados y determina para cada símbolo:
+    - Cuál es la estrategia ganadora (con mayor rendimiento y expectativa).
+    - El timeframe óptimo para esa estrategia y símbolo.
+    - Las métricas clave (Win Rate, Trades, Avg R).
+    - La comparación con las demás estrategias probadas en ese par.
+    """
+    all_data = get_all_strategy_backtests()
+    if not all_data:
+        return []
+
+    # Recopilar todos los símbolos probados
+    unique_symbols = set()
+    for strat_name, records in all_data.items():
+        for r in records.values():
+            s = r.get("symbol") or r.get("resolved_symbol")
+            if s and not r.get("cancelled") and not r.get("error"):
+                unique_symbols.add(s)
+
+    if target_symbols:
+        ordered_syms = [s for s in target_symbols if s in unique_symbols]
+        for s in sorted(list(unique_symbols)):
+            if s not in ordered_syms:
+                ordered_syms.append(s)
+    else:
+        ordered_syms = sorted(list(unique_symbols))
+
+    results: List[Dict[str, Any]] = []
+    for sym in ordered_syms:
+        comp = compare_strategies_for_symbol(sym)
+        if not comp:
+            continue
+
+        best = comp[0]
+        runner_up = comp[1] if len(comp) > 1 else None
+
+        tf_raw = best.get("timeframe")
+        tf_str = "M5"
+        if isinstance(tf_raw, int):
+            tf_str = {
+                mt5.TIMEFRAME_M1: "M1",
+                mt5.TIMEFRAME_M5: "M5",
+                mt5.TIMEFRAME_M15: "M15",
+                mt5.TIMEFRAME_M30: "M30",
+                mt5.TIMEFRAME_H1: "H1",
+                mt5.TIMEFRAME_H4: "H4",
+                mt5.TIMEFRAME_D1: "D1",
+            }.get(tf_raw, str(tf_raw))
+        elif isinstance(tf_raw, str):
+            tf_str = tf_raw
+
+        advantage_desc = ""
+        if runner_up:
+            wr_diff = best.get("win_rate", 0.0) - runner_up.get("win_rate", 0.0)
+            avg_r_diff = best.get("avg_r", 0.0) - runner_up.get("avg_r", 0.0)
+            if wr_diff > 0:
+                advantage_desc = f"+{wr_diff:.1f}% WR vs {runner_up['strategy'].upper()}"
+            elif avg_r_diff > 0:
+                advantage_desc = f"+{avg_r_diff:.2f}R vs {runner_up['strategy'].upper()}"
+            else:
+                advantage_desc = f"Líder vs {runner_up['strategy'].upper()}"
+        else:
+            advantage_desc = "1 est. probada"
+
+        results.append({
+            "symbol": sym,
+            "best_strategy": best["strategy"],
+            "timeframe": tf_str,
+            "trades": best.get("trades", 0),
+            "wins": best.get("wins", 0),
+            "losses": best.get("losses", 0),
+            "win_rate": best.get("win_rate", 0.0),
+            "win_rate_confidence": best.get("win_rate_confidence", 0.0),
+            "avg_r": best.get("avg_r", 0.0),
+            "total_strategies_tested": len(comp),
+            "advantage_desc": advantage_desc,
+            "comparison": comp,
+        })
+
+    results.sort(key=lambda x: (x.get("win_rate", 0.0), x.get("avg_r", 0.0)), reverse=True)
+    return results
+
+
 

@@ -79,7 +79,7 @@ class SymbolWorker(threading.Thread):
         self.strategy_name = (strategy_name or "forex").strip().lower()
 
         self.strategy = create_strategy_instance(
-            name=self.strategy_name,
+            strategy_name=self.strategy_name,
             symbol=self.symbol,
             logger=lambda msg, lvl="INFO": self._log(msg, lvl)
         )
@@ -249,7 +249,7 @@ class SymbolWorker(threading.Thread):
                     # 🟢 RAMA A: POSICIÓN ABIERTA ACTIVA ➔ GESTIÓN DE SL/TP, CIERRE PREMATURO E EVALUACIÓN DE REENTRADAS
                     ai_enabled = bool(cfg.get("ai_enabled", True))
                     api_key = str(cfg.get("ai_api_key", ""))
-                    model_name = str(cfg.get("ai_model", "gemini-3.6-flash"))
+                    model_name = str(cfg.get("ai_model", "gemini-2.5-flash"))
                     base_url = str(cfg.get("ai_base_url", ""))
                     max_reentries = int(cfg.get("max_reentries", 0))
 
@@ -488,7 +488,7 @@ class SymbolWorker(threading.Thread):
                                     tf_name = TIMEFRAME_NAMES.get(self.timeframe, "M15")
 
                                     ai_api_key = str(cfg.get("ai_api_key", api_key if 'api_key' in locals() else ""))
-                                    ai_model = str(cfg.get("ai_model", model_name if 'model_name' in locals() else "gemini-3.6-flash"))
+                                    ai_model = str(cfg.get("ai_model", model_name if 'model_name' in locals() else "gemini-2.5-flash"))
                                     ai_base_url = str(cfg.get("ai_base_url", base_url if 'base_url' in locals() else ""))
                                     ai_budget = int(cfg.get("ai_thinking_budget", 128))
 
@@ -580,11 +580,6 @@ class SymbolWorker(threading.Thread):
                         signal_data = self.strategy.generate_signal(df)
                         signal = signal_data.get("signal", "HOLD") if isinstance(signal_data, dict) else str(signal_data)
                         self._log(f"🧠 [RESULTADO ANÁLISIS] {signal_data} - {self.symbol}", "INFO")
-                        if isinstance(signal_data, dict):
-                            sr_support = signal_data.get("support", 0.0)
-                            sr_resistance = signal_data.get("resistance", 0.0)
-                            if sr_support or sr_resistance:
-                                self._log(f"📐 [SOPORTE/RESISTENCIA] {self.symbol} ➔ Soporte: {sr_support:.5f} | Resistencia: {sr_resistance:.5f}", "INFO")
 
                     # 2. Comprobar Filtro de Horario (16:00+) y Filtro de Spread Máximo antes de avanzar a validaciones complejas
                     if signal in ["BUY", "SELL"]:
@@ -673,7 +668,7 @@ class SymbolWorker(threading.Thread):
                         cfg = load_config()
                         ai_enabled = cfg.get("ai_enabled", True)
                         api_key = cfg.get("ai_api_key", "")
-                        model_name = cfg.get("ai_model", "gemini-3.6-flash")
+                        model_name = cfg.get("ai_model", "gemini-2.5-flash")
                         base_url = cfg.get("ai_base_url", "")
 
                         final_sl_price = default_sl_price

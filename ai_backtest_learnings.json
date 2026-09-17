@@ -11,5 +11,1165 @@
       ],
       "risk_advice": "Trail stop a 1.2R"
     }
+  },
+  "EURCHF": {
+    "symbol": "EURCHF",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 12:36:07",
+    "source": "QUANT_HEURISTIC"
+  },
+  "EURJPY": {
+    "symbol": "EURJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 1,
+    "learned_at": "2026-09-11 12:41:10",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GBPCHF": {
+    "symbol": "GBPCHF",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 12:46:17",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GBPJPY": {
+    "symbol": "GBPJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 33.3,
+    "avg_r": 0.45,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (33.3% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 2,
+    "learned_at": "2026-09-11 12:51:20",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GBPUSD": {
+    "symbol": "GBPUSD",
+    "strategy": "ai_strategy",
+    "win_rate": 25.0,
+    "avg_r": -0.27,
+    "trades": 4,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (25.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 3,
+    "learned_at": "2026-09-11 12:56:23",
+    "source": "QUANT_HEURISTIC"
+  },
+  "USDCAD": {
+    "symbol": "USDCAD",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 13:01:27",
+    "source": "QUANT_HEURISTIC"
+  },
+  "USDJPY": {
+    "symbol": "USDJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 25.0,
+    "avg_r": -0.06,
+    "trades": 4,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Operaciones con ganancia flotante (+0.8R) devueltas a Stop Loss sin Break-Even",
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Activar Break-Even temprano estricto a +0.9R para blindar ganancias iniciales.",
+      "Par con baja consistencia histórica (25.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 3,
+    "learned_at": "2026-09-11 13:06:29",
+    "source": "QUANT_HEURISTIC"
+  },
+  "AUDCAD": {
+    "symbol": "AUDCAD",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 2.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +2.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 13:11:33",
+    "source": "QUANT_HEURISTIC"
+  },
+  "AUDCHF": {
+    "symbol": "AUDCHF",
+    "strategy": "ai_strategy",
+    "win_rate": 60.0,
+    "avg_r": 0.37,
+    "trades": 5,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Entradas en retroceso profundo que pierden la EMA 50"
+    ],
+    "risk_advice": "Bloquear nuevas entradas durante ventana de rollover y asegurar BE en +1.0R.",
+    "key_takeaways": [
+      "Rendimiento equilibrado (60.0% WR, +0.37R). Operar con confluencia base 3/4."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 3,
+    "sample_losses": 2,
+    "learned_at": "2026-09-11 13:17:38",
+    "source": "QUANT_HEURISTIC"
+  },
+  "AUDJPY": {
+    "symbol": "AUDJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -0.84,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 3,
+    "learned_at": "2026-09-11 13:22:41",
+    "source": "QUANT_HEURISTIC"
+  },
+  "AUDNZD": {
+    "symbol": "AUDNZD",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -0.88,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 2,
+    "learned_at": "2026-09-11 13:27:44",
+    "source": "QUANT_HEURISTIC"
+  },
+  "CADCHF": {
+    "symbol": "CADCHF",
+    "strategy": "ai_strategy",
+    "win_rate": 60.0,
+    "avg_r": 0.3,
+    "trades": 5,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Entradas en retroceso profundo que pierden la EMA 50"
+    ],
+    "risk_advice": "Bloquear nuevas entradas durante ventana de rollover y asegurar BE en +1.0R.",
+    "key_takeaways": [
+      "Rendimiento equilibrado (60.0% WR, +0.3R). Operar con confluencia base 3/4."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 3,
+    "sample_losses": 2,
+    "learned_at": "2026-09-11 13:32:47",
+    "source": "QUANT_HEURISTIC"
+  },
+  "CADJPY": {
+    "symbol": "CADJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -0.37,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 2,
+    "learned_at": "2026-09-11 13:37:50",
+    "source": "QUANT_HEURISTIC"
+  },
+  "CHFJPY": {
+    "symbol": "CHFJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 1,
+    "learned_at": "2026-09-11 13:42:54",
+    "source": "QUANT_HEURISTIC"
+  },
+  "EURAUD": {
+    "symbol": "EURAUD",
+    "strategy": "ai_strategy",
+    "win_rate": 33.3,
+    "avg_r": 9.17,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (33.3% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 2,
+    "learned_at": "2026-09-11 13:48:01",
+    "source": "QUANT_HEURISTIC"
+  },
+  "EURCAD": {
+    "symbol": "EURCAD",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 13:53:05",
+    "source": "QUANT_HEURISTIC"
+  },
+  "EURNZD": {
+    "symbol": "EURNZD",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": 0.0,
+    "trades": 0,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 13:58:08",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GBPAUD": {
+    "symbol": "GBPAUD",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -0.23,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 1,
+    "learned_at": "2026-09-11 14:03:18",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GBPCAD": {
+    "symbol": "GBPCAD",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": 0.0,
+    "trades": 0,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 14:08:27",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GBPNZD": {
+    "symbol": "GBPNZD",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 14:13:31",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GBPSGD": {
+    "symbol": "GBPSGD",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -1.0,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 2,
+    "learned_at": "2026-09-11 14:18:38",
+    "source": "QUANT_HEURISTIC"
+  },
+  "NZDCHF": {
+    "symbol": "NZDCHF",
+    "strategy": "ai_strategy",
+    "win_rate": 66.7,
+    "avg_r": 0.45,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (66.7% WR, +0.45R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 1,
+    "learned_at": "2026-09-11 14:23:43",
+    "source": "QUANT_HEURISTIC"
+  },
+  "NZDJPY": {
+    "symbol": "NZDJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": 0.0,
+    "trades": 0,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 0,
+    "learned_at": "2026-09-11 14:28:50",
+    "source": "QUANT_HEURISTIC"
+  },
+  "NZDSGD": {
+    "symbol": "NZDSGD",
+    "strategy": "ai_strategy",
+    "win_rate": 12.5,
+    "avg_r": -0.49,
+    "trades": 8,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Patrón de vela débil 'Patrón de Vela: Bullish Engulfing [BULLISH - STRONG] ➔ Vela Envolvente Alcista: Compradores absorben completamente la oferta previa.' en retrocesos sin soporte institucional",
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (12.5% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 1,
+    "sample_losses": 7,
+    "learned_at": "2026-09-11 14:33:59",
+    "source": "QUANT_HEURISTIC"
+  },
+  "USDDKK": {
+    "symbol": "USDDKK",
+    "strategy": "ai_strategy",
+    "win_rate": 66.7,
+    "avg_r": 0.41,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (66.7% WR, +0.41R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 1,
+    "learned_at": "2026-09-11 14:39:02",
+    "source": "QUANT_HEURISTIC"
+  },
+  "USDMXN": {
+    "symbol": "USDMXN",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": 0.0,
+    "trades": 0,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 17:13:43",
+    "source": "QUANT_HEURISTIC"
+  },
+  "USDNOK": {
+    "symbol": "USDNOK",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 2.42,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +2.42R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 17:14:49",
+    "source": "QUANT_HEURISTIC"
+  },
+  "USDSGD": {
+    "symbol": "USDSGD",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 17:15:36",
+    "source": "QUANT_HEURISTIC"
+  },
+  "XPTUSD": {
+    "symbol": "XPTUSD",
+    "strategy": "ai_strategy",
+    "win_rate": 66.7,
+    "avg_r": 10.06,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (66.7% WR, +10.06R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 1,
+    "learned_at": "2026-09-15 17:16:09",
+    "source": "QUANT_HEURISTIC"
+  },
+  "XBRUSD": {
+    "symbol": "XBRUSD",
+    "strategy": "ai_strategy",
+    "win_rate": 50.0,
+    "avg_r": 7.97,
+    "trades": 4,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Entradas en retroceso profundo que pierden la EMA 50"
+    ],
+    "risk_advice": "Bloquear nuevas entradas durante ventana de rollover y asegurar BE en +1.0R.",
+    "key_takeaways": [
+      "Rendimiento equilibrado (50.0% WR, +7.97R). Operar con confluencia base 3/4."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 2,
+    "learned_at": "2026-09-15 17:20:20",
+    "source": "QUANT_HEURISTIC"
+  },
+  "AEXEUR": {
+    "symbol": "AEXEUR",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 17:23:38",
+    "source": "QUANT_HEURISTIC"
+  },
+  "AXJAUD": {
+    "symbol": "AXJAUD",
+    "strategy": "ai_strategy",
+    "win_rate": 42.9,
+    "avg_r": 0.77,
+    "trades": 7,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (42.9% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 3,
+    "sample_losses": 4,
+    "learned_at": "2026-09-15 17:27:50",
+    "source": "QUANT_HEURISTIC"
+  },
+  "F40EUR": {
+    "symbol": "F40EUR",
+    "strategy": "ai_strategy",
+    "win_rate": 30.0,
+    "avg_r": -0.25,
+    "trades": 10,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Operaciones con ganancia flotante (+0.8R) devueltas a Stop Loss sin Break-Even",
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Activar Break-Even temprano estricto a +0.9R para blindar ganancias iniciales.",
+      "Par con baja consistencia histórica (30.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 85.0,
+    "sample_wins": 3,
+    "sample_losses": 7,
+    "learned_at": "2026-09-15 17:32:53",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GEREUR": {
+    "symbol": "GEREUR",
+    "strategy": "ai_strategy",
+    "win_rate": 66.7,
+    "avg_r": 0.33,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Entradas en retroceso profundo que pierden la EMA 50"
+    ],
+    "risk_advice": "Bloquear nuevas entradas durante ventana de rollover y asegurar BE en +1.0R.",
+    "key_takeaways": [
+      "Rendimiento equilibrado (66.7% WR, +0.33R). Operar con confluencia base 3/4."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 1,
+    "learned_at": "2026-09-15 17:37:57",
+    "source": "QUANT_HEURISTIC"
+  },
+  "HSIHKD": {
+    "symbol": "HSIHKD",
+    "strategy": "ai_strategy",
+    "win_rate": 50.0,
+    "avg_r": 0.42,
+    "trades": 4,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Operaciones con ganancia flotante (+0.8R) devueltas a Stop Loss sin Break-Even",
+      "Entradas en retroceso profundo que pierden la EMA 50"
+    ],
+    "risk_advice": "Bloquear nuevas entradas durante ventana de rollover y asegurar BE en +1.0R.",
+    "key_takeaways": [
+      "Activar Break-Even temprano estricto a +0.9R para blindar ganancias iniciales.",
+      "Rendimiento equilibrado (50.0% WR, +0.42R). Operar con confluencia base 3/4."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 2,
+    "learned_at": "2026-09-15 17:43:00",
+    "source": "QUANT_HEURISTIC"
+  },
+  "JPXJPY": {
+    "symbol": "JPXJPY",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -0.45,
+    "trades": 4,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 4,
+    "learned_at": "2026-09-15 17:48:03",
+    "source": "QUANT_HEURISTIC"
+  },
+  "STXEUR": {
+    "symbol": "STXEUR",
+    "strategy": "ai_strategy",
+    "win_rate": 57.1,
+    "avg_r": 5.19,
+    "trades": 7,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Operaciones con ganancia flotante (+0.8R) devueltas a Stop Loss sin Break-Even",
+      "Entradas en retroceso profundo que pierden la EMA 50"
+    ],
+    "risk_advice": "Bloquear nuevas entradas durante ventana de rollover y asegurar BE en +1.0R.",
+    "key_takeaways": [
+      "Activar Break-Even temprano estricto a +0.9R para blindar ganancias iniciales.",
+      "Rendimiento equilibrado (57.1% WR, +5.19R). Operar con confluencia base 3/4."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 4,
+    "sample_losses": 3,
+    "learned_at": "2026-09-15 17:52:10",
+    "source": "QUANT_HEURISTIC"
+  },
+  "ETHUSD": {
+    "symbol": "ETHUSD",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 5.17,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +5.17R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 17:57:13",
+    "source": "QUANT_HEURISTIC"
+  },
+  "ALPHAB": {
+    "symbol": "ALPHAB",
+    "strategy": "ai_strategy",
+    "win_rate": 42.9,
+    "avg_r": 0.12,
+    "trades": 7,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (42.9% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 3,
+    "sample_losses": 4,
+    "learned_at": "2026-09-15 18:02:17",
+    "source": "QUANT_HEURISTIC"
+  },
+  "DISNEY": {
+    "symbol": "DISNEY",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:07:19",
+    "source": "QUANT_HEURISTIC"
+  },
+  "EA_R": {
+    "symbol": "EA_R",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": 0.0,
+    "trades": 0,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:12:22",
+    "source": "QUANT_HEURISTIC"
+  },
+  "GOLDMA": {
+    "symbol": "GOLDMA",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 16.09,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +16.09R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:17:25",
+    "source": "QUANT_HEURISTIC"
+  },
+  "MCDONA": {
+    "symbol": "MCDONA",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:22:27",
+    "source": "QUANT_HEURISTIC"
+  },
+  "PEPSI": {
+    "symbol": "PEPSI",
+    "strategy": "ai_strategy",
+    "win_rate": 66.7,
+    "avg_r": 2.37,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (66.7% WR, +2.37R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 1,
+    "learned_at": "2026-09-15 18:27:30",
+    "source": "QUANT_HEURISTIC"
+  },
+  "QUALCO": {
+    "symbol": "QUALCO",
+    "strategy": "ai_strategy",
+    "win_rate": 40.0,
+    "avg_r": 0.05,
+    "trades": 5,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (40.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 2,
+    "sample_losses": 3,
+    "learned_at": "2026-09-15 18:32:33",
+    "source": "QUANT_HEURISTIC"
+  },
+  "TESLA": {
+    "symbol": "TESLA",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.5,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.5R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:37:36",
+    "source": "QUANT_HEURISTIC"
+  },
+  "VISA": {
+    "symbol": "VISA",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:42:39",
+    "source": "QUANT_HEURISTIC"
+  },
+  "COMMER": {
+    "symbol": "COMMER",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 2,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 2,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:47:41",
+    "source": "QUANT_HEURISTIC"
+  },
+  "BNP": {
+    "symbol": "BNP",
+    "strategy": "ai_strategy",
+    "win_rate": 20.0,
+    "avg_r": -0.37,
+    "trades": 5,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "Operaciones con ganancia flotante (+0.8R) devueltas a Stop Loss sin Break-Even",
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Activar Break-Even temprano estricto a +0.9R para blindar ganancias iniciales.",
+      "Par con baja consistencia histórica (20.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 1,
+    "sample_losses": 4,
+    "learned_at": "2026-09-15 18:52:44",
+    "source": "QUANT_HEURISTIC"
+  },
+  "SANTAN": {
+    "symbol": "SANTAN",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 18:57:46",
+    "source": "QUANT_HEURISTIC"
+  },
+  "DEUTSC": {
+    "symbol": "DEUTSC",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +1.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 19:02:49",
+    "source": "QUANT_HEURISTIC"
+  },
+  "MARRIO": {
+    "symbol": "MARRIO",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -1.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 1,
+    "learned_at": "2026-09-15 19:07:52",
+    "source": "QUANT_HEURISTIC"
+  },
+  "WALMAR": {
+    "symbol": "WALMAR",
+    "strategy": "ai_strategy",
+    "win_rate": 100.0,
+    "avg_r": 2.0,
+    "trades": 1,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (100.0% WR, +2.0R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 1,
+    "sample_losses": 0,
+    "learned_at": "2026-09-15 19:12:55",
+    "source": "QUANT_HEURISTIC"
+  },
+  "AMERIC": {
+    "symbol": "AMERIC",
+    "strategy": "ai_strategy",
+    "win_rate": 0.0,
+    "avg_r": -0.79,
+    "trades": 3,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 23.0 en fases de consolidación lateral o baja volatilidad",
+      "RSI > 65 en sobrecompra al buscar compras o RSI < 35 en ventas"
+    ],
+    "risk_advice": "Exigir confluencia 4/4 con confirmación direccional estricta; Stop Loss protegido más allá del swing ATR.",
+    "key_takeaways": [
+      "Par con baja consistencia histórica (0.0% WR). Se exige máxima confluencia 4/4 estricta."
+    ],
+    "confidence_score": 55.0,
+    "sample_wins": 0,
+    "sample_losses": 3,
+    "learned_at": "2026-09-15 19:17:58",
+    "source": "QUANT_HEURISTIC"
+  },
+  "EXXONM": {
+    "symbol": "EXXONM",
+    "strategy": "ai_strategy",
+    "win_rate": 80.0,
+    "avg_r": 6.14,
+    "trades": 5,
+    "optimal_tf": "16388",
+    "avoid_patterns": [
+      "ADX < 20.0 en rango lateral sin tendencia definida",
+      "RSI > 65 en sobrecompra extrema al comprar"
+    ],
+    "risk_advice": "Mantener trailing stop dinámico por ATR tras superar +1.8R. Permitir reentradas protegidas al 78.6%.",
+    "key_takeaways": [
+      "Par de alta eficacia demostrada (80.0% WR, +6.14R). Confluencia 2/4 a 3/4 aprobada."
+    ],
+    "confidence_score": 70.0,
+    "sample_wins": 4,
+    "sample_losses": 1,
+    "learned_at": "2026-09-15 19:23:01",
+    "source": "QUANT_HEURISTIC"
   }
 }

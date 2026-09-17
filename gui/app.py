@@ -13,14 +13,12 @@ import threading
 from typing import Dict, List, Any
 import MetaTrader5 as mt5
 
-from gui.components import TopbarComponent, StatsBarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow
+from gui.components import TopbarComponent, StatsBarComponent, SymbolSelectorComponent, ConsoleTabviewComponent, ConfigWindow, DeepSearchWindow
 from core.bot_worker import SymbolWorker
 from core.config_manager import load_config, save_config
 from core.connector import initialize_mt5, shutdown_mt5, get_symbol_specs, check_user_credentials_exist
 from core.licensing import verify_license_token, get_hardware_id
 from core.stats_calculator import calculate_closed_trades_stats
-from core.backtester import run_daily_incremental_backtest
-from core.ai_backtest_learner import generate_backtest_learnings
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -60,8 +58,6 @@ class QuantBotApp(ctk.CTk):
 
         self.stop_events: Dict[str, threading.Event] = {}
         self.workers: Dict[str, SymbolWorker] = {}
-        self.last_daily_backtest_date: str = ""
-        self._is_daily_backtest_running: bool = False
 
         self._build_ui()
 
@@ -154,7 +150,9 @@ class QuantBotApp(ctk.CTk):
             self,
             selected_strategy=self.selected_strategy,
             on_strategy_changed_callback=self._handle_strategy_changed,
-            on_config_saved_callback=self._on_config_reloaded
+            on_config_saved_callback=self._on_config_reloaded,
+            on_test_ai_callback=self._handle_test_ai_terminal,
+            on_deep_search_callback=self._open_deep_search_window
         )
         self.topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 3))
 
@@ -182,8 +180,11 @@ class QuantBotApp(ctk.CTk):
             symbol_lots=self.config_data.get("symbol_lots", {}),
             symbol_risk_pcts=self.config_data.get("symbol_risk_pcts", {}),
             symbol_timeframes=self.config_data.get("symbol_timeframes", {}),
+            symbol_strategies=self.config_data.get("symbol_strategies", {}),
+            default_strategy=self.selected_strategy,
             on_toggle_callback=self._handle_symbol_toggle,
-            on_symbols_changed_callback=self._handle_symbols_list_changed
+            on_symbols_changed_callback=self._handle_symbols_list_changed,
+            on_deep_search_callback=self._open_deep_search_window
         )
         self.symbol_selector.pack(fill="x", pady=(0, 8))
 
@@ -213,6 +214,70 @@ class QuantBotApp(ctk.CTk):
         except Exception as e:
             print(f"[DEBUG STATS] Error actualizando barra de estadísticas: {e}")
 
+
+    def _open_deep_search_window(self) -> None:
+        """Abre la ventana modal de Deep Search y Ranking de Mejores Pares."""
+        DeepSearchWindow(
+            parent=self,
+            available_symbols=self.config_data.get("available_symbols", self.symbols),
+            current_symbols=self.symbols,
+            default_strategy=self.selected_strategy,
+            on_mount_symbols_callback=self._handle_mount_deep_search_symbols
+        )
+
+    def _handle_mount_deep_search_symbols(self, selected_items: List[Dict[str, Any]], replace_existing: bool = False) -> None:
+        """Monta los pares seleccionados desde la ventana de Deep Search en la vista del symbol_selector."""
+        if not selected_items:
+            return
+
+        if "symbol_timeframes" not in self.config_data:
+            self.config_data["symbol_timeframes"] = {}
+        if "symbol_strategies" not in self.config_data:
+            self.config_data["symbol_strategies"] = {}
+
+        if replace_existing:
+            # 1. Detener workers de los pares que estén corriendo actualmente
+            for s in list(self.workers.keys()):
+                if s in self.stop_events:
+                    self.stop_events[s].set()
+                self.workers.pop(s, None)
+                self.stop_events.pop(s, None)
+
+            # 2. Limpiar todos los símbolos de la tabla y estructuras asociadas
+            self.symbol_selector.clear_all_symbols()
+            self.symbols = []
+            self.config_data["active_symbols"] = []
+            self.config_data["symbol_lots"] = {}
+            self.config_data["symbol_risk_pcts"] = {}
+            self.config_data["symbol_timeframes"] = {}
+            self.config_data["symbol_strategies"] = {}
+
+        mounted_names = []
+        for item in selected_items:
+            sym = item.get("symbol", "")
+            tf = item.get("timeframe", "M15")
+            strat = item.get("strategy", self.selected_strategy)
+            if not sym:
+                continue
+
+            self.symbol_selector.ensure_symbol_present(
+                symbol=sym,
+                timeframe=tf,
+                strategy=strat,
+                notify=False
+            )
+            self.config_data["symbol_timeframes"][sym] = tf
+            self.config_data["symbol_strategies"][sym] = strat
+            mounted_names.append(f"{sym} ({strat.upper()}/{tf})")
+
+        # Notificar una única vez la lista completa actualizada
+        self.symbols = list(self.symbol_selector.symbols)
+        self.config_data["active_symbols"] = list(self.symbols)
+        self._handle_symbols_list_changed(self.symbols)
+
+        self.save_settings()
+        action_verb = "Reemplazados y montados" if replace_existing else "Montados"
+        self.console.log("General", f"🚀 {action_verb} {len(mounted_names)} pares desde Deep Search: {', '.join(mounted_names)}", "SUCCESS")
 
     def _handle_strategy_changed(self, new_strategy: str) -> None:
         """Maneja el cambio dinámico de estrategia desde el selector del Topbar."""
@@ -245,7 +310,7 @@ class QuantBotApp(ctk.CTk):
             # Obtener configuración propia de este par desde symbol_selector
             sym_config = self.symbol_selector.get_symbol_config(symbol)
             topbar_vals = self.topbar.get_topbar_values()
-            active_strat = topbar_vals.get("strategy", self.selected_strategy)
+            active_strat = sym_config.get("strategy") or topbar_vals.get("strategy", self.selected_strategy)
 
             # Guardar inmediatamente la configuración de este par en config.json
             if "symbol_lots" not in self.config_data:
@@ -254,37 +319,45 @@ class QuantBotApp(ctk.CTk):
                 self.config_data["symbol_risk_pcts"] = {}
             if "symbol_timeframes" not in self.config_data:
                 self.config_data["symbol_timeframes"] = {}
+            if "symbol_strategies" not in self.config_data:
+                self.config_data["symbol_strategies"] = {}
 
             self.config_data["symbol_lots"][symbol] = sym_config["lot"]
             self.config_data["symbol_risk_pcts"][symbol] = round(sym_config["risk_pct"] * 100.0, 2)
             self.config_data["symbol_timeframes"][symbol] = sym_config["timeframe_str"]
+            self.config_data["symbol_strategies"][symbol] = active_strat
             self.save_settings()
 
-            stop_evt = threading.Event()
-            self.stop_events[symbol] = stop_evt
-
-            worker = SymbolWorker(
-                symbol=symbol,
-                log_callback=self.on_worker_log,
-                stop_event=stop_evt,
-                timeframe=sym_config["timeframe_val"],
-                test_mode=topbar_vals.get("test_mode", False),
-                risk_pct=sym_config["risk_pct"],
-                lot=sym_config["lot"],
-                strategy_name=active_strat
-            )
-
-            self.workers[symbol] = worker
-            worker.start()
-
-            # 🟢 Mostrar pestaña en la consola de console_tabview solo cuando el par está encendido
+            # 🟢 Mostrar pestaña en la consola de console_tabview inmediatamente al encender
             self.console.add_symbol_tab(symbol, initial_status="WAITING")
             try:
                 self.console.set(symbol)
             except Exception:
                 pass
 
-            self.console.log(symbol, f"🚀 Monitoreo activado ({symbol} | Estrategia: {active_strat.upper()} | Lote: {sym_config['lot']} | Riesgo: {sym_config['risk_pct']*100:.1f}% | TF: {sym_config['timeframe_str']})", "INFO")
+            try:
+                stop_evt = threading.Event()
+                self.stop_events[symbol] = stop_evt
+
+                worker = SymbolWorker(
+                    symbol=symbol,
+                    log_callback=self.on_worker_log,
+                    stop_event=stop_evt,
+                    timeframe=sym_config["timeframe_val"],
+                    test_mode=topbar_vals.get("test_mode", False),
+                    risk_pct=sym_config["risk_pct"],
+                    lot=sym_config["lot"],
+                    strategy_name=active_strat
+                )
+
+                self.workers[symbol] = worker
+                worker.start()
+
+                self.console.log(symbol, f"🚀 Monitoreo activado ({symbol} | Estrategia: {active_strat.upper()} | Lote: {sym_config['lot']} | Riesgo: {sym_config['risk_pct']*100:.1f}% | TF: {sym_config['timeframe_str']})", "INFO")
+            except Exception as e:
+                self.console.log("General", f"❌ Error al iniciar worker para {symbol}: {e}", "ERROR")
+                self.console.log(symbol, f"❌ Error al iniciar worker: {e}", "ERROR")
+                self.console.set_symbol_status(symbol, "ERROR", f"[{symbol}] Error: {e}")
         else:
             if symbol in self.stop_events:
                 self.stop_events[symbol].set()
@@ -330,6 +403,40 @@ class QuantBotApp(ctk.CTk):
 
         self.console.log("General", "🔄 Configuración recargada exitosamente.", "INFO")
 
+    def _handle_test_ai_terminal(self) -> None:
+        """Dispara una petición de prueba genérica a la IA e imprime todo el payload y respuesta en la consola de terminal."""
+        def run_terminal_test():
+            self.console.log("General", "🧠 [TEST API IA] Iniciando prueba con payload genérico...", "INFO")
+            self.console.log("General", "👉 Revisa la consola de PowerShell/Terminal para ver el Payload JSON exacto y la respuesta cruda de la IA.", "INFO")
+            cfg = load_config()
+            api_key = str(cfg.get("ai_api_key", ""))
+            model_name = str(cfg.get("ai_model", "gemini-2.5-flash"))
+            base_url = str(cfg.get("ai_base_url", ""))
+
+            res = test_ai_payload_terminal(
+                api_key=api_key,
+                model_name=model_name,
+                base_url=base_url
+            )
+
+            if res.get("status") == "success":
+                action = res.get("response", {}).get("action", "N/A")
+                opinion = res.get("response", {}).get("opinion", "")
+                self.console.log(
+                    "General",
+                    f"✅ [TEST API IA EXITOSO] Decisión IA: {action} | Opinión: \"{opinion}\" | Latencia: {res.get('latency_ms', 0):.0f}ms",
+                    "SUCCESS"
+                )
+            else:
+                err_msg = res.get("error", "Error desconocido")
+                self.console.log(
+                    "General",
+                    f"❌ [TEST API IA FALLIDO] Código {res.get('http_code')}: {err_msg}",
+                    "ERROR"
+                )
+
+        threading.Thread(target=run_terminal_test, daemon=True).start()
+
     def _execute_test_order(self) -> None:
         """Ejecuta una orden de prueba rápida."""
         def run_test():
@@ -356,11 +463,15 @@ class QuantBotApp(ctk.CTk):
                 self.config_data["symbol_risk_pcts"] = {}
             if "symbol_timeframes" not in self.config_data:
                 self.config_data["symbol_timeframes"] = {}
+            if "symbol_strategies" not in self.config_data:
+                self.config_data["symbol_strategies"] = {}
 
             for s, cfg in all_configs.items():
                 self.config_data["symbol_lots"][s] = cfg["lot"]
                 self.config_data["symbol_risk_pcts"][s] = round(cfg["risk_pct"] * 100.0, 2)
                 self.config_data["symbol_timeframes"][s] = cfg["timeframe_str"]
+                if "strategy" in cfg:
+                    self.config_data["symbol_strategies"][s] = cfg["strategy"]
 
         if save_config(self.config_data):
             self.console.log("General", "✅ Configuración guardada en config.json.", "SUCCESS")
@@ -403,12 +514,17 @@ class QuantBotApp(ctk.CTk):
                         is_active = self.symbol_selector.is_symbol_active(sym)
                         if not is_active:
                             self.console.set_symbol_status(sym, "INACTIVE")
-                        elif sym in open_symbols:
-                            self.console.set_symbol_status(sym, "OPEN_ORDER", f"[{sym}] Operación abierta activa. Monitoreando SL/TP...")
                         else:
-                            # Si no hay orden abierta y el bot está activo, asegurar estado WAITING (🟢)
-                            if self.console.symbol_status.get(sym) == "OPEN_ORDER":
-                                self.console.set_symbol_status(sym, "WAITING", f"[{sym}] Operación cerrada. Analizando mercado en espera de confluencias")
+                            # Asegurar que cualquier par activo tenga su pestaña montada en console_tabview
+                            if sym not in self.console.console_boxes:
+                                self.console.add_symbol_tab(sym, initial_status="WAITING")
+
+                            if sym in open_symbols:
+                                self.console.set_symbol_status(sym, "OPEN_ORDER", f"[{sym}] Operación abierta activa. Monitoreando SL/TP...")
+                            else:
+                                # Si no hay orden abierta y el bot está activo, asegurar estado WAITING (🟢)
+                                if self.console.symbol_status.get(sym) == "OPEN_ORDER":
+                                    self.console.set_symbol_status(sym, "WAITING", f"[{sym}] Operación cerrada. Analizando mercado en espera de confluencias")
             else:
                 self.topbar.update_account_info(0.0, 0.0)
                 self.symbol_selector.set_account_balance(0.0)
@@ -416,94 +532,12 @@ class QuantBotApp(ctk.CTk):
             # 📊 Actualizar estadísticas en tiempo real
             self._refresh_stats()
 
-            # 🌙 Ejecutar Backtesting Incremental Diario y Auto-Aprendizaje IA tras las 17:00
-            self._check_and_run_daily_backtest()
-
         except Exception as e:
             print(f"[DEBUG ACCOUNT] Excepción en loop: {e}")
             traceback.print_exc()
 
         self.after(5000, self._update_account_loop)
 
-    def _check_and_run_daily_backtest(self) -> None:
-        """
-        Evalúa si la hora actual es posterior a las 17:00 (cierre diario de mercado Forex)
-        y ejecuta el backtesting incremental del día actual sin repetir el histórico completo.
-        """
-        from datetime import datetime
-        now = datetime.now()
-        today_str = now.strftime("%Y-%m-%d")
-
-        # Se activa si son las 17:05 o posterior y no se ha ejecutado hoy
-        if (now.hour > 17 or (now.hour == 17 and now.minute >= 5)) and self.last_daily_backtest_date != today_str:
-            if not self._is_daily_backtest_running:
-                self.last_daily_backtest_date = today_str
-                threading.Thread(target=self._run_daily_incremental_pipeline, daemon=True).start()
-
-    def _run_daily_incremental_pipeline(self) -> None:
-        """Ejecuta el backtesting incremental de las últimas 24h y actualiza la memoria IA."""
-        self._is_daily_backtest_running = True
-        try:
-            symbols_to_test = list(self.symbols) if self.symbols else []
-            if not symbols_to_test:
-                return
-
-            self.console.log(
-                "General",
-                f"🌙 [CIERRE DE MERCADO 17:00] Iniciando Backtesting Incremental Diario (últimas 24h) para {len(symbols_to_test)} pares...",
-                "INFO"
-            )
-
-            # Mapeo de timeframes por símbolo
-            tf_map: Dict[str, int] = {}
-            if hasattr(self, "symbol_selector"):
-                all_cfgs = self.symbol_selector.get_all_symbol_configs()
-                for s, cfg in all_cfgs.items():
-                    tf_map[s] = cfg.get("timeframe_val", mt5.TIMEFRAME_M15)
-
-            # 1. Ejecutar Backtesting Incremental y fusionar en backtest_results.json
-            active_strat = self.config_data.get("selected_strategy", self.selected_strategy or "forex")
-            updated_records = run_daily_incremental_backtest(
-                symbols=symbols_to_test,
-                strategy_name=active_strat,
-                timeframe_map=tf_map
-            )
-
-            self.console.log(
-                "General",
-                f"✅ [BACKTEST DIARIO COMPLETADO] {len(updated_records)} registros actualizados y consolidados en memoria.",
-                "SUCCESS"
-            )
-
-            # 2. Sintetizar aprendizaje con IA si hay API Key configurada
-            api_key = self.config_data.get("ai_api_key", "").strip()
-            if api_key:
-                self.console.log("General", "🧠 [SÍNTESIS IA] Actualizando reglas de aprendizaje y heurísticas con IA...", "INFO")
-                model_name = self.config_data.get("ai_model", "gemini-3.6-flash")
-                ok, data, msg = generate_backtest_learnings(
-                    api_key=api_key,
-                    model_name=model_name,
-                    strategy_name=active_strat
-                )
-                if ok:
-                    sym_count = len(data.get("symbols", {}))
-                    self.console.log(
-                        "General",
-                        f"✨ [APRENDIZAJE IA SINCRONIZADO] {sym_count} pares analizados. Heurísticas y reglas persistidas en ai_backtest_learnings.json.",
-                        "SUCCESS"
-                    )
-                else:
-                    self.console.log("General", f"⚠️ [SÍNTESIS IA]: {msg}", "WARNING")
-
-            # 3. Refrescar badges de Timeframe sugerido en la tabla de símbolos
-            if hasattr(self, "symbol_selector"):
-                self.after(0, self.symbol_selector._refresh_all_suggested_timeframes)
-
-        except Exception as e:
-            self.console.log("General", f"❌ Error en pipeline incremental diario: {e}", "ERROR")
-            traceback.print_exc()
-        finally:
-            self._is_daily_backtest_running = False
 
     def on_worker_log(self, symbol: str, message: str, level: str = "INFO") -> None:
         """Callback que reciben los workers para enviar logs a la consola de la UI."""

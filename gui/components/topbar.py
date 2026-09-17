@@ -11,6 +11,8 @@ class TopbarComponent(ctk.CTkFrame):
         selected_strategy: str = "forex",
         on_strategy_changed_callback: Optional[Callable[[str], None]] = None,
         on_config_saved_callback: Optional[Callable[[], None]] = None,
+        on_test_ai_callback: Optional[Callable[[], None]] = None,
+        on_deep_search_callback: Optional[Callable[[], None]] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(master, height=60, fg_color="#1f1f1f", corner_radius=8, **kwargs)
@@ -18,6 +20,8 @@ class TopbarComponent(ctk.CTkFrame):
         self.selected_strategy = selected_strategy
         self.on_strategy_changed_callback = on_strategy_changed_callback
         self.on_config_saved_callback = on_config_saved_callback
+        self.on_test_ai_callback = on_test_ai_callback
+        self.on_deep_search_callback = on_deep_search_callback
 
         self._build_ui()
 
@@ -26,27 +30,39 @@ class TopbarComponent(ctk.CTkFrame):
         lbl_title = ctk.CTkLabel(
             self,
             text="🤖 Quant Trading Bot",
-            font=ctk.CTkFont(size=16, weight="bold")
+            font=ctk.CTkFont(size=15, weight="bold")
         )
-        lbl_title.pack(side="left", padx=15, pady=10)
+        lbl_title.pack(side="left", padx=(12, 8), pady=10)
 
         # Card Info Cuenta (Balance & Equidad)
         account_frame = ctk.CTkFrame(self, fg_color="#2b2b2b", corner_radius=6)
-        account_frame.pack(side="left", padx=15, pady=8)
+        account_frame.pack(side="left", padx=8, pady=8)
 
         self.lbl_balance = ctk.CTkLabel(
             account_frame,
             text="💰 Balance: $0.00",
-            font=ctk.CTkFont(size=13, weight="bold")
+            font=ctk.CTkFont(size=12, weight="bold")
         )
-        self.lbl_balance.pack(side="left", padx=(10, 15), pady=5)
+        self.lbl_balance.pack(side="left", padx=(8, 10), pady=5)
 
         self.lbl_equity = ctk.CTkLabel(
             account_frame,
             text="📊 Equidad: $0.00",
-            font=ctk.CTkFont(size=13)
+            font=ctk.CTkFont(size=12)
         )
-        self.lbl_equity.pack(side="left", padx=(0, 10), pady=5)
+        self.lbl_equity.pack(side="left", padx=(0, 8), pady=5)
+
+        # Botón Test API IA (Reemplazo del switch modo test)
+        self.btn_test_ai = ctk.CTkButton(
+            self,
+            text="🧠 Test API IA",
+            fg_color="#059669",
+            hover_color="#047857",
+            width=105,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._on_test_ai_click
+        )
+        self.btn_test_ai.pack(side="left", padx=8, pady=10)
 
         # Botón Configuración MT5 (A la derecha)
         self.btn_config = ctk.CTkButton(
@@ -54,23 +70,35 @@ class TopbarComponent(ctk.CTkFrame):
             text="🔌 CONEXIÓN MT5",
             fg_color="#1D4ED8",
             hover_color="#2563EB",
-            width=130,
-            font=ctk.CTkFont(size=12, weight="bold"),
+            width=115,
+            font=ctk.CTkFont(size=11, weight="bold"),
             command=self._open_config_modal
         )
-        self.btn_config.pack(side="right", padx=(5, 15), pady=10)
+        self.btn_config.pack(side="right", padx=(4, 12), pady=10)
+
+        # Botón Deep Search & Mejores Pares (Siempre visible con margen garantizado)
+        self.btn_deep_search = ctk.CTkButton(
+            self,
+            text="🔬 DEEP SEARCH",
+            fg_color="#0284C7",
+            hover_color="#0369A1",
+            width=115,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._open_deep_search
+        )
+        self.btn_deep_search.pack(side="right", padx=4, pady=10)
 
         # 🟢 Selector de Estrategia Dinámica (En reemplazo de Botón Orden Test)
         strategy_frame = ctk.CTkFrame(self, fg_color="#262626", corner_radius=6)
-        strategy_frame.pack(side="right", padx=(5, 10), pady=8)
+        strategy_frame.pack(side="right", padx=(4, 8), pady=8)
 
         lbl_strategy = ctk.CTkLabel(
             strategy_frame,
             text="🎯 Estrategia:",
-            font=ctk.CTkFont(size=12, weight="bold"),
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#F59E0B"
         )
-        lbl_strategy.pack(side="left", padx=(8, 4), pady=5)
+        lbl_strategy.pack(side="left", padx=(6, 3), pady=5)
 
         available_strategies: List[str] = get_available_strategies()
         if not available_strategies:
@@ -83,18 +111,26 @@ class TopbarComponent(ctk.CTkFrame):
             strategy_frame,
             values=available_strategies,
             command=self._on_strategy_selected,
-            width=110,
+            width=100,
             fg_color="#D97706",
             button_color="#B45309",
             button_hover_color="#92400E",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            dropdown_font=ctk.CTkFont(size=12)
+            font=ctk.CTkFont(size=11, weight="bold"),
+            dropdown_font=ctk.CTkFont(size=11)
         )
         self.opt_strategy.set(initial_val)
         self.opt_strategy.pack(side="left", padx=(0, 6), pady=5)
 
     def _open_config_modal(self) -> None:
         ConfigWindow(parent=self, on_save_callback=self._reload_config)
+
+    def _open_deep_search(self) -> None:
+        if self.on_deep_search_callback:
+            self.on_deep_search_callback()
+
+    def _on_test_ai_click(self) -> None:
+        if self.on_test_ai_callback:
+            self.on_test_ai_callback()
 
     def _reload_config(self) -> None:
         if self.on_config_saved_callback:

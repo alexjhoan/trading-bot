@@ -1,9 +1,27 @@
 import time
+import math
 import MetaTrader5 as mt5
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Tuple
 
 from core.ai_memory import AIMemoryManager
+
+
+def wilson_lower_bound(wins: int, n: int, confidence_z: float = 1.28) -> float:
+    """
+    Límite inferior del intervalo de Wilson para una tasa de acierto (wins/n), en porcentaje
+    (0-100). Penaliza muestras chicas: 1 ganada de 1 (100% crudo) da un límite inferior bajo,
+    mientras que 8 ganadas de 10 (80% crudo) da un límite inferior más alto y confiable.
+    confidence_z=1.28 ≈ 80% de confianza, razonable dado el tamaño típico de muestra de este bot.
+    """
+    if n <= 0:
+        return 0.0
+    p = wins / n
+    z = confidence_z
+    denom = 1 + (z ** 2) / n
+    center = p + (z ** 2) / (2 * n)
+    margin = z * ((p * (1 - p) + (z ** 2) / (4 * n)) / n) ** 0.5
+    return max(0.0, (center - margin) / denom) * 100.0
 
 
 def get_broker_server_time_and_offset() -> Tuple[datetime, float]:
@@ -32,6 +50,12 @@ def get_broker_server_time_and_offset() -> Tuple[datetime, float]:
         pass
 
     return datetime.now(), 0.0
+
+
+def get_broker_server_time() -> datetime:
+    """Retorna la hora del servidor del broker."""
+    b_time, _ = get_broker_server_time_and_offset()
+    return b_time
 
 
 def calculate_closed_trades_stats(period: str = "Día", time_mode: str = "Hora Broker") -> Dict[str, Any]:
