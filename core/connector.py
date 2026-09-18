@@ -1,7 +1,21 @@
 from typing import Optional, Dict, Any, List, Tuple
-import MetaTrader5 as mt5
+import os
+import time
+import subprocess
+from pathlib import Path
+
+try:
+    import MetaTrader5 as mt5
+    MT5_AVAILABLE = True
+except ImportError:
+    mt5 = None
+    MT5_AVAILABLE = False
+
 import pandas as pd
-import pandas_ta as ta
+try:
+    import pandas_ta as ta
+except ImportError:
+    ta = None
 from core.config_manager import load_config
 
 
@@ -65,7 +79,7 @@ def get_all_symbol_specs(symbols: List[str]) -> Dict[str, Dict[str, Any]]:
     return specs
 
 
-def get_symbol_atr_pips(symbol: str, timeframe: int = mt5.TIMEFRAME_M15, period: int = 14, bars: int = 100) -> float:
+def get_symbol_atr_pips(symbol: str, timeframe: int = 15, period: int = 14, bars: int = 100) -> float:
     """
     Calcula el ATR actual del símbolo (en Pips) usando velas recientes de MT5.
     Se usa como piso dinámico de SL mínimo recomendado según la volatilidad real del par.
@@ -99,30 +113,72 @@ def get_all_available_symbols() -> List[str]:
     Obtiene la lista de nombres de todos los símbolos disponibles en MT5.
     Si no está conectado o falla, retorna una lista vacía.
     """
+    if not MT5_AVAILABLE or mt5 is None:
+        return []
     symbols = mt5.symbols_get()
     if symbols is None:
         return []
     return [s.name for s in symbols]
 
-def initialize_mt5() -> bool:
-    """Inicializa la conexión con la terminal de MetaTrader 5 usando config.json."""
-    config: Dict[str, Any] = load_config()
-    path: str = str(config.get("path", "") or "")
-    login: int = int(config.get("login", 0) or 0)
-    password: str = str(config.get("password", "") or "")
-    server: str = str(config.get("server", "") or "")
-
-    init_kwargs: Dict[str, Any] = {}
-    if path:
-        init_kwargs["path"] = path
-
-    if not mt5.initialize(**init_kwargs):
-        print(f"❌ Error al inicializar MT5: {mt5.last_error()}")
+def initialize_mt5(
+    path: Optional[str] = None,
+    login: Optional[int] = None,
+    password: Optional[str] = None,
+    server: Optional[str] = None,
+    timeout: int = 60000
+) -> bool:
+    """Inicializa la conexión con la terminal de MetaTrader 5 y abre el ejecutable si está cerrado."""
+    if not MT5_AVAILABLE or mt5 is None:
+        print("⚠️ [MT5] Librería MetaTrader5 no disponible en este entorno.")
         return False
 
-    if login and password and server:
-        if not mt5.login(login=login, password=password, server=server):
-            print(f"❌ Error al autenticar en MT5: {mt5.last_error()}")
+    config: Dict[str, Any] = load_config()
+    target_path = str(path if path is not None else config.get("path", "") or "").strip().strip('"').strip("'")
+    target_login = int(login if login is not None else config.get("login", 0) or 0)
+    target_password = str(password if password is not None else config.get("password", "") or "").strip()
+    target_server = str(server if server is not None else config.get("server", "") or "").strip()
+
+    # Si estamos en Windows y la terminal no está en ejecución, intentar lanzarla primero
+    if target_path and os.name == "nt":
+        try:
+            p_obj = Path(target_path)
+            if p_obj.exists():
+                out = subprocess.check_output("tasklist", shell=True).decode("utf-8", errors="ignore").lower()
+                exe_name = p_obj.name.lower() or "terminal64.exe"
+                if exe_name not in out:
+                    print(f"🚀 [MT5] Lanzando terminal MT5 desde: {target_path}")
+                    subprocess.Popen([target_path], shell=False)
+                    time.sleep(3.0)
+        except Exception as e:
+            print(f"⚠️ [MT5] Advertencia al verificar/lanzar terminal: {e}")
+
+    init_kwargs: Dict[str, Any] = {"timeout": timeout}
+    if target_path:
+        init_kwargs["path"] = target_path
+
+    if target_login and target_password and target_server:
+        init_kwargs["login"] = target_login
+        init_kwargs["password"] = target_password
+        init_kwargs["server"] = target_server
+
+    try:
+        if not mt5.initialize(**init_kwargs):
+            err = mt5.last_error() if hasattr(mt5, "last_error") else "Desconocido"
+            print(f"❌ Error al inicializar MT5: {err}")
+            return False
+    except Exception as e:
+        print(f"❌ Excepción al inicializar MT5: {e}")
+        return False
+
+    # Si initialize no hizo login o se pasaron credenciales posteriores
+    if target_login and target_password and target_server:
+        try:
+            if not mt5.login(login=target_login, password=target_password, server=target_server):
+                err = mt5.last_error() if hasattr(mt5, "last_error") else "Credenciales incorrectas"
+                print(f"❌ Error al autenticar en MT5: {err}")
+                return False
+        except Exception as e:
+            print(f"❌ Excepción en mt5.login: {e}")
             return False
 
     print("✅ Conexión exitosa con MetaTrader 5.")

@@ -47,3 +47,4 @@ dist/
 config.json
 
 output
+node_modules

@@ -13,7 +13,7 @@ from core.market_context import calculate_psychological_levels, analyze_macro_mu
 from core.candlestick_patterns import format_candlestick_summary_for_ai, detect_candlestick_patterns
 
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 
 # Control global de Rate Limit / Cooldown para evitar tormentas de peticiones 429
 _GLOBAL_RATE_LIMIT_LOCK = threading.Lock()
@@ -420,13 +420,15 @@ def test_ai_connection(api_key: str, model_name: str = DEFAULT_GEMINI_MODEL, bas
     Registra toda la interacción en el log semanal/diario de depuración.
     Retorna (éxito, mensaje descriptivo).
     """
-    if not api_key or not api_key.strip():
-        return False, "❌ Debe ingresar una API Key válida."
-
-    clean_key = api_key.strip()
-    model = (model_name or DEFAULT_GEMINI_MODEL).strip()
     custom_url = (base_url or "").strip()
+    model = (model_name or DEFAULT_GEMINI_MODEL).strip()
     provider = _detect_provider(model, custom_url)
+    clean_key = (api_key or "").strip()
+
+    if not clean_key and provider != "Ollama / Localhost":
+        return False, "❌ Debe ingresar una API Key válida."
+    if not clean_key and provider == "Ollama / Localhost":
+        clean_key = "ollama"
 
     start_time = time.time()
     endpoint = ""

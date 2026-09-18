@@ -14,7 +14,7 @@ export interface BotStatus {
   isRunning: boolean;
   activePairs: string[];
   currentStrategy: string;
-  mode: 'LIVE' | 'DEMO' | 'BACKTEST';
+  mode: "LIVE" | "DEMO" | "BACKTEST";
   uptimeSeconds: number;
 }
 
@@ -55,6 +55,35 @@ export interface MRChangelogEntry {
 export interface SystemLog {
   id: string;
   timestamp: string;
-  level: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'AI';
+  level: "INFO" | "SUCCESS" | "WARNING" | "ERROR" | "AI";
   message: string;
+}
+
+export interface ConfigData {
+  login: number;
+  password?: string;
+  server: string;
+  path?: string;
+  symbol_suffix?: string;
+  magic_number: number;
+  max_slippage: number;
+  max_reentries: number;
+  selected_strategy: string;
+  ai_enabled: boolean;
+  ai_provider: string;
+  ai_api_key?: string;
+  ai_model: string;
+  ai_base_url?: string;
+  ai_thinking_enabled?: boolean;
+  ai_thinking_budget: number;
+  active_symbols?: string[];
+  license_key?: string;
+}
+
+export interface MT5StatusInfo {
+  connected: boolean;
+  terminal_running: boolean;
+  platform_supported: boolean;
+  message: string;
+  account?: AccountInfo;
 }
