@@ -17,7 +17,12 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Any, List, Optional, Callable
-import MetaTrader5 as mt5
+try:
+    import MetaTrader5 as mt5
+    MT5_AVAILABLE = True
+except ImportError:
+    mt5 = None
+    MT5_AVAILABLE = False
 import pandas as pd
 
 from core.strategies import create_strategy_instance
@@ -29,15 +34,21 @@ BACKTEST_RESULTS_DIR = Path(__file__).resolve().parent.parent / "backtests"
 LIVE_ROLLING_WINDOW = 300  # Misma ventana que bot_worker.py pide en vivo (rates_count=300)
 CACHE_MAX_AGE_HOURS = 24.0
 
-# Timeframes candidatos para sugerir cuál rinde mejor por símbolo (M1 excluido: demasiado
-# ruidoso y costoso de recorrer; D1 excluido: muy pocas señales en un historial manejable)
-CANDIDATE_TIMEFRAMES: List[int] = [
-    mt5.TIMEFRAME_M5, mt5.TIMEFRAME_M15, mt5.TIMEFRAME_M30, mt5.TIMEFRAME_H1, mt5.TIMEFRAME_H4
-]
+# Timeframes candidatos para sugerir cuál rinde mejor por símbolo
+# (M1=1, M5=5, M15=15, M30=30, H1=16385, H4=16388, D1=16408)
+TF_M1 = getattr(mt5, "TIMEFRAME_M1", 1) if mt5 else 1
+TF_M5 = getattr(mt5, "TIMEFRAME_M5", 5) if mt5 else 5
+TF_M15 = getattr(mt5, "TIMEFRAME_M15", 15) if mt5 else 15
+TF_M30 = getattr(mt5, "TIMEFRAME_M30", 30) if mt5 else 30
+TF_H1 = getattr(mt5, "TIMEFRAME_H1", 16385) if mt5 else 16385
+TF_H4 = getattr(mt5, "TIMEFRAME_H4", 16388) if mt5 else 16388
+TF_D1 = getattr(mt5, "TIMEFRAME_D1", 16408) if mt5 else 16408
+
+CANDIDATE_TIMEFRAMES: List[int] = [TF_M5, TF_M15, TF_M30, TF_H1, TF_H4]
 
 _TF_SECONDS: Dict[int, int] = {
-    mt5.TIMEFRAME_M1: 60, mt5.TIMEFRAME_M5: 300, mt5.TIMEFRAME_M15: 900,
-    mt5.TIMEFRAME_M30: 1800, mt5.TIMEFRAME_H1: 3600, mt5.TIMEFRAME_H4: 14400, mt5.TIMEFRAME_D1: 86400,
+    TF_M1: 60, TF_M5: 300, TF_M15: 900,
+    TF_M30: 1800, TF_H1: 3600, TF_H4: 14400, TF_D1: 86400,
 }
 
 

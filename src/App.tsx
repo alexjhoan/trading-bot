@@ -11,6 +11,7 @@ import {
   SystemLog,
   ConfigData,
   MT5StatusInfo,
+  SymbolMetadata,
 } from "./types";
 import { Terminal, Sparkles, AlertCircle } from "lucide-react";
 
@@ -21,6 +22,11 @@ export function App() {
   const [deepSearchResults, setDeepSearchResults] = useState<
     DeepSearchResultItem[]
   >([]);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [activeSymbols, setActiveSymbols] = useState<string[]>([]);
+  const [symbolsMetadata, setSymbolsMetadata] = useState<
+    Record<string, SymbolMetadata>
+  >({});
   const [changelogEntries, setChangelogEntries] = useState<MRChangelogEntry[]>(
     [],
   );
@@ -246,6 +252,24 @@ export function App() {
     } catch {
       // Fallback
     }
+
+    try {
+      const resSym = await fetch("/api/symbols");
+      if (resSym.ok) {
+        const symData = await resSym.json();
+        if (Array.isArray(symData.available_symbols)) {
+          setAvailableSymbols(symData.available_symbols);
+        }
+        if (Array.isArray(symData.active_symbols)) {
+          setActiveSymbols(symData.active_symbols);
+        }
+        if (symData.symbols_metadata) {
+          setSymbolsMetadata(symData.symbols_metadata);
+        }
+      }
+    } catch {
+      // Fallback
+    }
   };
 
   useEffect(() => {
@@ -394,6 +418,7 @@ export function App() {
         if (botStatus) {
           setBotStatus({ ...botStatus, activePairs: symbols });
         }
+        setActiveSymbols((prev) => Array.from(new Set([...prev, ...symbols])));
       }
     } catch (e: any) {
       addLog("ERROR", `Error al montar símbolos: ${e.message}`);
@@ -482,6 +507,9 @@ export function App() {
               onMountSymbols={handleMountSymbols}
               onOpenChangelog={handleOpenChangelog}
               isAiProcessing={isAiProcessing}
+              symbolsMetadata={symbolsMetadata}
+              availableSymbols={availableSymbols}
+              activeSymbols={activeSymbols}
             />
           </div>
         )}

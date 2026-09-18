@@ -19,17 +19,76 @@ export interface BotStatus {
 }
 
 export interface DeepSearchResultItem {
+  id?: string;
   symbol: string;
-  timeframe: string;
-  trades_count: number;
+  resolved_symbol?: string;
+  timeframe: string | number;
+  timeframe_str?: string;
+  trades_count?: number;
+  trades?: number;
+  wins?: number;
+  losses?: number;
   win_rate: number;
-  avg_r_multiple: number;
-  profit_factor: number;
-  expected_value: number;
-  max_drawdown_pct: number;
+  win_rate_confidence?: number;
+  avg_r_multiple?: number;
+  avg_r?: number;
+  profit_factor?: number;
+  expected_value?: number;
+  max_drawdown_pct?: number;
   score: number;
   strategy: string;
+  verdict?: string;
+  category?: string;
+  updated_at?: number;
   selected?: boolean;
+}
+
+export interface SymbolMetadata {
+  symbol: string;
+  category: string;
+  session: {
+    startTime: string;
+    endTime: string;
+    isActive: boolean;
+  };
+  suggested_timeframe: {
+    timeframe_str: string;
+    timeframe_val: number;
+    avg_r: number;
+    win_rate: number;
+    win_rate_confidence: number;
+    trades: number;
+    strategy: string;
+  } | null;
+  suggested_strategy: string;
+  lot: number;
+  risk_pct: number;
+  timeframe: string;
+  strategy: string;
+  isActive: boolean;
+}
+
+export interface StrategySummaryItem {
+  strategy: string;
+  symbols_count: number;
+  total_trades: number;
+  total_wins: number;
+  win_rate: number;
+  win_rate_confidence: number;
+  avg_r: number;
+}
+
+export interface BestPerSymbolItem {
+  symbol: string;
+  winning_strategy: string;
+  optimal_timeframe: string;
+  timeframe_val: number;
+  win_rate: number;
+  win_rate_confidence: number;
+  avg_r: number;
+  trades: number;
+  category: string;
+  tested_strategies_count: number;
 }
 
 export interface MRChangeItem {
